@@ -174,6 +174,8 @@ export function renderAnnotationLabels(
     const labelCfg = a.label;
     const wantsLabel = labelCfg != null || a.type === "text";
     if (!wantsLabel) continue;
+    // bandX regions carry no label — narrow it out of the label switch below.
+    if (a.type === "bandX") continue;
 
     // Compute anchor point (canvas-local CSS px)
     let anchorXCss: number | null = null;

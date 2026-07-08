@@ -113,6 +113,14 @@ async function main(): Promise<void> {
 
   const referenceY = Math.round((maxY * 0.35 + minY * 0.65) * 1000) / 1000;
 
+  // BandX span: a fixed-width window of x-indices, highlighting a "regime" of the series.
+  const bandFromIndex = Math.floor(data.length * 0.15);
+  const bandToIndex = Math.floor(data.length * 0.3);
+  const bandFromPoint = data[bandFromIndex]!;
+  const bandToPoint = data[bandToIndex]!;
+  const bandFromX = isTuplePoint(bandFromPoint) ? bandFromPoint[0] : bandFromPoint.x;
+  const bandToX = isTuplePoint(bandToPoint) ? bandToPoint[0] : bandToPoint.x;
+
   const options: ChartGPUOptions = {
     grid: { left: 70, right: 24, top: 24, bottom: 44 },
     xAxis: { type: 'time', name: 'Time (ms)' },
@@ -131,6 +139,25 @@ async function main(): Promise<void> {
       },
     ],
     annotations: [
+      // Filled vertical band (type: 'bandX') highlighting a regime. No label support on
+      // bandX itself — pair with a separate 'text' annotation for a caption (see below).
+      {
+        id: 'regime-band',
+        type: 'bandX',
+        from: bandFromX,
+        to: bandToX,
+        layer: 'belowSeries',
+        style: { color: '#ef4444', opacity: 0.12 },
+      },
+      {
+        id: 'regime-caption',
+        type: 'text',
+        layer: 'aboveSeries',
+        position: { space: 'data', x: bandFromX, y: 0.95 },
+        text: 'regime',
+        style: { color: '#ef4444', opacity: 0.9 },
+      },
+
       // Horizontal reference line (type: 'lineY') with dashed style + template label + decimals.
       {
         id: 'ref-y',

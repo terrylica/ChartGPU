@@ -612,6 +612,14 @@ export interface AnnotationText {
   readonly text: string;
 }
 
+export interface AnnotationBandX {
+  readonly type: "bandX";
+  /** Data-space x start of the filled vertical region. */
+  readonly from: number;
+  /** Data-space x end of the filled vertical region. */
+  readonly to: number;
+}
+
 export interface AnnotationConfigBase {
   /**
    * Optional stable identifier for updates/diffing in userland.
@@ -628,6 +636,7 @@ export type AnnotationConfig = (
   | AnnotationLineY
   | AnnotationPoint
   | AnnotationText
+  | AnnotationBandX
 ) &
   AnnotationConfigBase;
 

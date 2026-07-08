@@ -85,6 +85,12 @@ The demo includes example annotations demonstrating all features:
    - Position: data-space at minimum point
    - Tracks with pan/zoom
 
+6. **Regime Band** (red fill) + caption
+   - Type: `bandX`
+   - `from`/`to`: data-space x-range
+   - No label support on `bandX` — paired with a separate `text` annotation for the "regime" caption
+   - Layer: below series
+
 ## Usage
 
 ### Programmatic API

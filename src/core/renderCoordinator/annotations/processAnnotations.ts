@@ -322,9 +322,30 @@ export function processAnnotations(
         // Text annotations are handled via DOM overlays (labels), not GPU
         break;
       }
+      case "bandX": {
+        // Filled full-height vertical region between two x-domain values, drawn
+        // by reusing the vertical reference-line quad: center it and set its
+        // width to the pixel span. Meant for `belowSeries` regime highlights.
+        const x0 = clipXToCanvasCssPx(xScale.scale(a.from), canvasCssWidth);
+        const x1 = clipXToCanvasCssPx(xScale.scale(a.to), canvasCssWidth);
+        if (!Number.isFinite(x0) || !Number.isFinite(x1)) break;
+        const width = Math.abs(x1 - x0);
+        if (!(width > 0)) break;
+        targetLines.push({
+          axis: "vertical",
+          positionCssPx: (x0 + x1) / 2,
+          lineWidth: width,
+          lineDash: undefined,
+          rgba,
+        });
+        break;
+      }
       default:
         assertUnreachable(a);
     }
+
+    // bandX carries no label and isn't part of the label switch below.
+    if (a.type === "bandX") continue;
 
     // Process annotation label (DOM overlay)
     const labelCfg = a.label;
