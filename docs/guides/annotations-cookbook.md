@@ -29,6 +29,12 @@ const authoring = createAnnotationAuthoring(container, chart);
 { type: 'point', x: maxX, y: maxY, layer: 'aboveSeries', marker: { symbol: 'circle', size: 10, style: { color: '#22c55e' } }, label: { template: 'Peak: {y}', decimals: 2 } }
 ```
 
+### Highlighted region (outage window, regime)
+```ts
+{ type: 'bandX', from: outageStart, to: outageEnd, layer: 'belowSeries', style: { color: '#ef4444', opacity: 0.15 } }
+```
+`from`/`to` order doesn't matter. No `label` support — pair with a `text` annotation for a caption.
+
 ### Plot-space HUD (watermark, status)
 ```ts
 { type: 'text', position: { space: 'plot', x: 0.95, y: 0.05 }, text: 'LIVE', layer: 'aboveSeries', style: { color: '#22c55e' } }

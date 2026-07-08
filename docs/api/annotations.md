@@ -24,7 +24,7 @@ Annotations are visual overlays that can be:
 - **Exported and imported** as JSON for persistence
 
 **Key capabilities:**
-- Vertical lines (lineX), horizontal lines (lineY), text notes, point markers
+- Vertical lines (lineX), horizontal lines (lineY), text notes, point markers, filled vertical bands (bandX)
 - Two coordinate systems: data-space (tracks with zoom/pan) and plot-space (pinned HUD-style)
 - Drag-to-reposition with type-specific constraints
 - Right-click context menu for creation, editing, and deletion
@@ -112,6 +112,38 @@ type AnnotationPosition =
 
 **Drag behavior:** Free 2D movement preserving original coordinate space
 
+### BandX (Filled Vertical Region)
+
+A filled, full-height vertical band spanning a data-space x-range. Useful for highlighting a regime, outage window, or any span along the x-axis.
+
+```typescript
+interface AnnotationBandX {
+  readonly type: 'bandX';
+  readonly from: number;           // Data-space x start
+  readonly to: number;             // Data-space x end
+}
+```
+
+```typescript
+{
+  type: 'bandX',
+  from: outageStart,
+  to: outageEnd,
+  layer: 'belowSeries',
+  style: { color: '#ef4444', opacity: 0.15 },
+}
+```
+
+**Use cases:** Outage windows, market regimes, weekends/holidays, highlighted ranges
+
+**Notes:**
+- `from`/`to` order doesn't matter; the band is drawn between whichever is smaller/larger.
+- Use `layer: 'belowSeries'` so the band sits behind the data.
+- `style.color`/`style.opacity` control the fill; `lineWidth`/`lineDash` are ignored (the band is a solid fill, not a stroked line).
+- `label` is not supported on `bandX` — pair it with a separate `text` annotation if you need a caption.
+
+**Drag behavior:** Not draggable via interactive authoring (declarative-only for now)
+
 ## Configuration
 
 All annotations share a common base configuration:
@@ -124,8 +156,9 @@ interface AnnotationConfigBase {
   readonly label?: AnnotationLabel;
 }
 
-type AnnotationConfig = (AnnotationLineX | AnnotationLineY | AnnotationPoint | AnnotationText) &
-  AnnotationConfigBase;
+type AnnotationConfig = (
+  AnnotationLineX | AnnotationLineY | AnnotationPoint | AnnotationText | AnnotationBandX
+) & AnnotationConfigBase;
 ```
 
 ### Style Configuration
@@ -711,7 +744,7 @@ canvas.addEventListener('contextmenu', (e) => {
 
 If you need a custom, non-standard visual element “inside the chart”, ChartGPU offers a few practical paths depending on how deep you need to go:
 
-- **Use built-in annotations (recommended)**: `lineX`, `lineY`, `point`, and `text` cover most “mark it / label it / highlight it” use cases and integrate with zoom/pan automatically (data-space) or stay pinned (plot-space). See [`ChartGPUOptions.annotations`](./options.md#annotations) and the examples above.
+- **Use built-in annotations (recommended)**: `lineX`, `lineY`, `point`, `text`, and `bandX` cover most “mark it / label it / highlight it” use cases and integrate with zoom/pan automatically (data-space) or stay pinned (plot-space). See [`ChartGPUOptions.annotations`](./options.md#annotations) and the examples above.
 - **Model it as data**: if your custom element can be represented as points/lines/bars, encode it as a normal series (often a `scatter` series for custom glyphs + labels via annotations).
 - **Overlay your own layer**: add an absolutely-positioned DOM/canvas/WebGPU overlay on top of the chart’s canvas. This gives you full rendering freedom without modifying ChartGPU, but you’ll need to handle coordinate transforms, DPR, and clipping to the plot area (use `options.grid` and listen to `'zoomRangeChange'` to re-render).
 - **Fork for true WebGPU injection**: ChartGPU does **not** currently expose a public “custom render pass” plugin hook into its internal WebGPU render pass. If you need arbitrary shaders/draw calls in the same pipeline, fork ChartGPU and add a renderer under `src/renderers/`, wiring it into `src/core/createRenderCoordinator.ts`. Start with [`docs/api/INTERNALS.md`](./INTERNALS.md#render-coordinator-internal) and the [renderer map](./INTERNALS.md#renderer-map-internal).

@@ -380,7 +380,8 @@ const sanitizeAnnotations = (
       type !== "lineX" &&
       type !== "lineY" &&
       type !== "point" &&
-      type !== "text"
+      type !== "text" &&
+      type !== "bandX"
     )
       continue;
 
@@ -469,6 +470,22 @@ const sanitizeAnnotations = (
             return Object.keys(next).length > 0 ? next : undefined;
           })()
         : undefined;
+
+    if (type === "bandX") {
+      const from = sanitizeFiniteNumber(record.from);
+      const to = sanitizeFiniteNumber(record.to);
+      if (from == null || to == null) continue;
+      const base: AnnotationConfig = {
+        type: "bandX",
+        from,
+        to,
+        ...(id ? { id } : {}),
+        ...(layer ? { layer } : {}),
+        ...(style ? { style } : {}),
+      };
+      out.push(base);
+      continue;
+    }
 
     if (type === "lineX") {
       const x = sanitizeFiniteNumber(record.x);
