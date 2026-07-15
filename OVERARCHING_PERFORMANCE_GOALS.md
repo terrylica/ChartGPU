@@ -346,21 +346,23 @@ const json = await page.evaluate(() => window.__CHARTGPU_BASELINE_JSON__);
 
 | Field | Detail |
 |-------|--------|
-| **Status** | `open` |
+| **Status** | `done` |
 | **Where** | `renderOverlays.ts`, grid/axis |
 | **Fix** | Memo signatures; optional `GPURenderBundle` |
 | **Verify** | static/hover CPU |
 | **Harness** | static, hover |
+| **Landed** | `OverlayPrepareMemo` in `overlayPrepareMemo.ts`; `prepareOverlays` skips grid/axis `prepare()` when grid area, counts, colors, scale affine (`scale(0/1)`), axis config, and tick count match. Crosshair/highlight still re-prepare every frame. Full `GPURenderBundle` encode deferred (memo alone removes prepare/upload churn). |
 
 #### P1-7 · Redundant multi-stage CPU sampling
 
 | Field | Detail |
 |-------|--------|
-| **Status** | `open` |
+| **Status** | `done` |
 | **Where** | OptionResolver + baseline + zoom |
 | **Fix** | Dirty flags; skip baseline when raw unchanged |
 | **Verify** | theme-only setOption unit; zoom CPU |
 | **Harness** | zoom |
+| **Landed** | `samplingDirty.ts` predicates + presentation patch on coordinator `setOptions`; `resolveOptions`/`resolveOptionsForChart` optional `previousResolved` reuses sampled `data` + `rawBounds` when raw ref + sampling config match. Zoom/data changes still recompute. |
 
 #### P1-8 · Non-monotonic hit-test O(n)
 
@@ -402,14 +404,14 @@ const json = await page.evaluate(() => window.__CHARTGPU_BASELINE_JSON__);
 | P2-2 | No `compilationHints` | open | shader create | Entry-point hints | Startup |
 | P2-3 | Per-renderer layouts hurt cache | open | `rendererUtils` | Shared layouts | Multi-chart |
 | P2-4 | Append growth full CPU re-upload | open | `createDataStore` | `COPY_SRC` + GPU copy | Stream growth |
-| P2-5 | Line bounds O(n) every prepare | open | `createLineRenderer` | Cached `rawBounds` | large `none` series |
+| P2-5 | Line bounds O(n) every prepare | **done** | `createLineRenderer` | Affine `scale(0/1)` — no O(n) scan | large `none` series |
 | P2-6 | Density bins cleared via writeBuffer | open | scatter density | GPU clear | density example |
 | P2-7 | Clear before full-screen blit | open | overlay pass | Profile loadOp | GPU bandwidth |
 | P2-8 | Resize thrash MSAA textures | open | textureManager | Hysteresis / pad | resize stress |
 | P2-9 | No GPU timestamp queries | open | ChartGPU, GPUContext | Feature + timestamps | metrics API |
 | P2-10 | Default device limits only | open | GPUContext | Optional large limits | huge series |
 | P2-11 | Docs / AGENTS / dist vs src drift | open | docs, dist | Align or re-land | review |
-| P2-12 | `filterGaps` alloc every frame | open | renderSeries | Cache until dirty | connectNulls |
+| P2-12 | `filterGaps` alloc every frame | **done** | renderSeries | Cache by data ref + pointCount; clear on append/anim | connectNulls |
 
 ---
 
@@ -452,7 +454,7 @@ const json = await page.evaluate(() => window.__CHARTGPU_BASELINE_JSON__);
 | **2** | P0-5, P0-4 | **Done** (P0-4 partial) — shared nearest match + 30 Hz tooltip throttle |
 | **3** | P1-1, P1-2 | **Done** — line bind-group cache + setSeries ref skip |
 | **4** | P0-2, P0-3 | **Done** — GPU decimation + stream LTTB fast path |
-| **5** | P1-6, P1-7, P2-5, P2-12 | Encode / sampling churn |
+| **5** | P1-6, P1-7, P2-5, P2-12 | **Done** — overlay memo, sampling dirty flags, line affine bounds, filterGaps cache |
 | **6** | P1-3, P1-4, P1-9, P1-10 | Series structural |
 | **7** | P1-5, P2-7 | Pass / MSAA budget (profile first) |
 | **8** | P2-1, P2-2, P2-9 | Startup + observability |
@@ -471,7 +473,7 @@ const json = await page.evaluate(() => window.__CHARTGPU_BASELINE_JSON__);
 ## 9. Definition of done (program)
 
 - [x] All **P0** → `done` or `deferred` with written reason *(P0-4 partial: tooltip throttle landed; overlay-only path deferred)*  
-- [ ] All **P1** → `done` or `deferred` with harness plan *(P1-1, P1-2 done; rest open)*  
+- [ ] All **P1** → `done` or `deferred` with harness plan *(P1-1, P1-2, P1-6, P1-7 done; rest open)*  
 - [ ] All **P2/P3** triaged  
 - [ ] **P2-11** closed (docs/`AGENTS.md`/`dist` match `src/`)  
 - [ ] Fresh full-suite JSON compared to final baseline  
@@ -538,12 +540,14 @@ After coding:
 | P1-3 | P1 | Area full rebuild/upload | open |
 | P1-4 | P1 | Line+areaStyle dual path | open |
 | P1-5 | P1 | 3 passes + dual 4× MSAA | open |
-| P1-6 | P1 | No bundles / overlay memo | open |
-| P1-7 | P1 | Redundant multi-stage sampling | open |
+| P1-6 | P1 | No bundles / overlay memo | done |
+| P1-7 | P1 | Redundant multi-stage sampling | done |
 | P1-8 | P1 | Non-monotonic hit-test O(n) | open |
 | P1-9 | P1 | Dup annotation prepare | open |
 | P1-10 | P1 | Clip-space instance re-upload | open |
-| P2-1…P2-12 | P2 | Startup, copy, density, resize, timestamps, docs… | open |
+| P2-5 | P2 | Line bounds O(n) every prepare | done |
+| P2-12 | P2 | filterGaps alloc every frame | done |
+| P2-1…P2-4, P2-6…P2-11 | P2 | Startup, copy, density, resize, timestamps, docs… | open |
 | P3-1…P3-8 | P3 | Mapping, allocs, STORAGE flags, DOM on hover… | open |
 
 ---

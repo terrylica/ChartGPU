@@ -61,6 +61,79 @@ var<workgroup> sharedSumX  : array<f32, 64>;
 var<workgroup> sharedSumY  : array<f32, 64>;
 var<workgroup> sharedCount : array<u32, 64>;
 
+// floor(a * b / denom) for u32 without intermediate overflow.
+//
+// Direct `(span * bucketId) / interior` wraps at 2^32 when the product exceeds
+// ~4.29e9. With default samplingThreshold=5000 (interior=4998) that first
+// hits around visible span ≈ 859k points — the ultimate-benchmark "cut":
+// early buckets stay correct (dense band on the left) while later buckets
+// map to the wrong raw indices (thin wrong stroke on the right).
+//
+// Identity: floor(a*b/d) = floor(a/d)*b + floor((a%d)*b/d).
+// Call sites pass b ≤ denom (bucketId ≤ interior), so floor(a/d)*b ≤ a.
+fn umul64(a : u32, b : u32) -> vec2<u32> {
+  // Returns (hi, lo) of the full 64-bit product a*b.
+  let aLo = a & 0xFFFFu;
+  let aHi = a >> 16u;
+  let bLo = b & 0xFFFFu;
+  let bHi = b >> 16u;
+  let p0 = aLo * bLo;
+  let p1 = aLo * bHi;
+  let p2 = aHi * bLo;
+  let p3 = aHi * bHi;
+  let mid = (p0 >> 16u) + (p1 & 0xFFFFu) + (p2 & 0xFFFFu);
+  let lo = (p0 & 0xFFFFu) | ((mid & 0xFFFFu) << 16u);
+  let hi = p3 + (p1 >> 16u) + (p2 >> 16u) + (mid >> 16u);
+  return vec2<u32>(hi, lo);
+}
+
+// floor((hi<<32 | lo) / d) as u32. Requires the true quotient to fit in 32 bits.
+// Uses 32-step restoring division with remainder always < d (so rem*2 fits
+// whenever d ≤ 2^31 — true for all ChartGPU bucket counts).
+fn udiv64by32(hi : u32, lo : u32, d : u32) -> u32 {
+  if (d == 0u) {
+    return 0u;
+  }
+  var rem = hi % d;
+  var quot : u32 = 0u;
+  for (var i = 0u; i < 32u; i = i + 1u) {
+    let bit = 31u - i;
+    let loBit = (lo >> bit) & 1u;
+    // rem < d ⇒ rem*2 + loBit < 2*d ≤ 2^32 when d ≤ 2^31.
+    let candidate = rem * 2u + loBit;
+    quot = quot << 1u;
+    if (candidate >= d) {
+      rem = candidate - d;
+      quot = quot | 1u;
+    } else {
+      rem = candidate;
+    }
+  }
+  return quot;
+}
+
+fn mulDivU32(a : u32, b : u32, denom : u32) -> u32 {
+  if (denom == 0u || a == 0u || b == 0u) {
+    return 0u;
+  }
+  // Fast path: a*b fits in u32.
+  if (a <= 0xFFFFFFFFu / b) {
+    return (a * b) / denom;
+  }
+  let q = a / denom;
+  let r = a % denom;
+  let main = q * b;
+  if (r == 0u) {
+    return main;
+  }
+  // Remainder term: floor(r*b/denom). Prefer direct mul when it fits.
+  if (r <= 0xFFFFFFFFu / b) {
+    return main + (r * b) / denom;
+  }
+  let prod = umul64(r, b);
+  return main + udiv64by32(prod.x, prod.y, denom);
+}
+
 // Interior-bucket raw-index range, exclusive upper bound. Guarantees a
 // non-empty range so reductions always have at least one candidate.
 fn interiorBucketRange(bucketId : u32) -> vec2<u32> {
@@ -73,8 +146,9 @@ fn interiorBucketRange(bucketId : u32) -> vec2<u32> {
   if (buckets >= 3u && visEnd >= visStart + 2u) {
     let span     = visEnd - visStart - 2u;
     let interior = buckets - 2u;
-    let lo       = visStart + 1u + (span * bucketId) / interior;
-    let hi       = visStart + 1u + (span * (bucketId + 1u)) / interior;
+    // Overflow-safe: see mulDivU32 (span*bucket u32 wrap).
+    let lo       = visStart + 1u + mulDivU32(span, bucketId, interior);
+    let hi       = visStart + 1u + mulDivU32(span, bucketId + 1u, interior);
 
     let maxIdx = visEnd - 1u;
     var loClamped = lo;

@@ -295,7 +295,7 @@ Status legend: `open` | `in_progress` | `done` | `wontfix` | `deferred`
 #### P1-6 · No render bundles / overlay prepare memo
 | | |
 |--|--|
-| **Status** | open |
+| **Status** | done |
 | **Where** | `renderOverlays.ts`, grid/axis |
 | **Fix** | Memo signatures; optional `GPURenderBundle` |
 | **Verify** | hover/static CPU encode path |
@@ -304,7 +304,7 @@ Status legend: `open` | `in_progress` | `done` | `wontfix` | `deferred`
 #### P1-7 · Redundant multi-stage CPU sampling
 | | |
 |--|--|
-| **Status** | open |
+| **Status** | done |
 | **Where** | OptionResolver + baseline + zoom recompute |
 | **Fix** | Dirty flags; skip baseline when raw unchanged |
 | **Verify** | setOption theme-only unit test; zoom CPU |
@@ -347,14 +347,14 @@ Status legend: `open` | `in_progress` | `done` | `wontfix` | `deferred`
 | P2-2 | No `compilationHints` | open | shader create | Hints for vs/fs entry points | Startup |
 | P2-3 | Per-renderer layouts hurt pipeline cache | open | `rendererUtils` | Shared layouts at device scope | Multi-chart dashboard |
 | P2-4 | Append growth: full CPU re-upload | open | `createDataStore` | `COPY_SRC` + GPU copy prefix | Stream growth spikes |
-| P2-5 | Line bounds O(n) every prepare | open | `createLineRenderer` | Pass cached `rawBounds` | `sampling:none` large n |
+| P2-5 | Line bounds O(n) every prepare | done | `createLineRenderer` | Affine scale(0/1) | `sampling:none` large n |
 | P2-6 | Density bins cleared via large `writeBuffer` | open | scatter density | GPU clear/compute zero | density example |
 | P2-7 | Clear before full-screen blit | open | overlay pass | Profile loadOp | GPU bandwidth |
 | P2-8 | Resize thrash MSAA textures | open | textureManager, ChartGPU | Hysteresis / pad | resize stress |
 | P2-9 | No GPU timestamp queries | open | ChartGPU, GPUContext | Feature + pass timestamps | metrics API |
 | P2-10 | Default `requestDevice` limits only | open | GPUContext | Optional large-data limits | huge series fail path |
 | P2-11 | Docs / AGENTS / dist vs `src/` drift | open | docs, dist | Align or re-land | grepai / docs review |
-| P2-12 | `filterGaps` alloc every frame | open | renderSeries | Cache until data changes | connectNulls series |
+| P2-12 | `filterGaps` alloc every frame | done | renderSeries | Cache until data changes | connectNulls series |
 
 ---
 
@@ -399,7 +399,7 @@ Preserve while fixing findings:
 | **2** | P0-5, P0-4 | Hover CPU; clear harness signal on `hover-1m-lttb` |
 | **3** | P1-1, P1-2 | Cheap static-frame wins |
 | **4** | P0-2, P0-3 | Large-data + streaming product path |
-| **5** | P1-6, P1-7, P2-5, P2-12 | Encode/sampling churn |
+| **5** | P1-6, P1-7, P2-5, P2-12 | **Done** — overlay memo, sampling dirty, line affine, filterGaps cache |
 | **6** | P1-3, P1-4, P1-9, P1-10 | Series-path structural |
 | **7** | P1-5, P2-7 | Pass/MSAA budget (profile first) |
 | **8** | P2-1, P2-2, P2-9 | Startup + observability |

@@ -63,6 +63,14 @@ export interface DecimationComputePrepareParams {
    * the same spirit as the CPU `samplingThreshold` logic.
    */
   readonly targetBuckets: number;
+  /**
+   * Monotonic or content-derived version of the packed raw payload (WG-P0-2).
+   * DataStore's FNV-1a `hash32` is the usual source. Same buffer identity +
+   * same point count + rewritten floats must change this so compute re-runs.
+   * Omit (or keep stable) when content is known unchanged so pure pan/window
+   * skips still work via the other signature fields.
+   */
+  readonly contentVersion?: number;
 }
 
 export interface DecimationCompute {
@@ -260,6 +268,8 @@ export function createDecimationCompute(
   let lastVisibleStart = -1;
   let lastVisibleEnd = -1;
   let lastTargetBuckets = -1;
+  /** `undefined` means "not yet prepared with a version" (first frame always dirties via other fields). */
+  let lastContentVersion: number | undefined = undefined;
   let lastOutputPointCount = 0;
 
   const ensureBuffers = (capacityPoints: number): void => {
@@ -335,6 +345,7 @@ export function createDecimationCompute(
       visibleStart,
       visibleEnd,
       targetBuckets,
+      contentVersion,
     } = params;
 
     const rawCount = Math.max(0, rawPointCount | 0);
@@ -342,18 +353,23 @@ export function createDecimationCompute(
     const ve = Math.min(rawCount, Math.max(vs, visibleEnd | 0));
     // `targetBuckets` must leave room for both anchors, so require at least 2.
     const buckets = Math.max(2, targetBuckets | 0);
+    // Treat omitted contentVersion as "unknown / force dirty once" only when it
+    // transitions; stable undefined keeps skip behavior for tests that omit it.
+    const version = contentVersion;
 
     ensureBuffers(buckets);
     ensureBindGroup(rawBuffer);
 
     // Detect signature changes to decide whether to re-dispatch the compute.
+    // contentVersion covers same-buffer same-N payload rewrites (WG-P0-2).
     if (
       lastAlgorithm !== algorithm ||
       lastRawBuffer !== rawBuffer ||
       lastRawPointCount !== rawCount ||
       lastVisibleStart !== vs ||
       lastVisibleEnd !== ve ||
-      lastTargetBuckets !== buckets
+      lastTargetBuckets !== buckets ||
+      lastContentVersion !== version
     ) {
       dirty = true;
       lastAlgorithm = algorithm;
@@ -362,6 +378,7 @@ export function createDecimationCompute(
       lastVisibleStart = vs;
       lastVisibleEnd = ve;
       lastTargetBuckets = buckets;
+      lastContentVersion = version;
     }
 
     // Pack uniforms. Layout must match the `DecimationUniforms` struct in WGSL.

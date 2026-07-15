@@ -36,7 +36,11 @@ import { clampInt } from "../utils/canvasUtils";
 import { clamp01 } from "../animation/animationHelpers";
 import { findVisibleRangeIndicesByX } from "../data/computeVisibleSlice";
 import { resolvePieRadiiCss } from "../utils/timeAxisUtils";
-import { getPointCount, getX, filterGaps } from "../../../data/cartesianData";
+import { getPointCount, getX } from "../../../data/cartesianData";
+import {
+  type FilterGapsCache,
+  getFilteredGapsCached,
+} from "./filterGapsCache";
 
 export interface SeriesRenderers {
   readonly lineRenderers: ReadonlyArray<LineRenderer>;
@@ -91,6 +95,12 @@ export interface SeriesPrepareContext {
    * under a stable array reference.
    */
   lastSetSeriesCache: LastSetSeriesCache;
+  /**
+   * Persistent cache of filterGaps results for connectNulls series (P2-12).
+   * Caller owns the Map and must clear it with lastSetSeriesCache when data mutates
+   * under a stable reference.
+   */
+  filterGapsCache: FilterGapsCache;
 }
 
 export interface SeriesRenderContext {
@@ -164,6 +174,7 @@ export function prepareSeries(
     withAlpha,
     maxRadiusCss,
     lastSetSeriesCache,
+    filterGapsCache,
   } = context;
 
   // Helper: get the y-scale for a series by its yAxis binding
@@ -208,10 +219,10 @@ export function prepareSeries(
       case "area": {
         const baseline = s.baseline ?? defaultBaseline;
         // When connectNulls is true, strip null/NaN gap entries so the area draws through gaps.
-        // Uses filterGaps which handles all CartesianSeriesData formats (Array, XYArraysData,
-        // InterleavedXYData), not just Array — important because recomputeRuntimeBaseSeries
-        // may convert the data to MutableXYColumns (XYArraysData-like) with NaN gap markers.
-        const areaData = s.connectNulls ? filterGaps(s.data) : s.data;
+        // Cached by data ref identity (P2-12) so static frames do not re-allocate.
+        const areaData = s.connectNulls
+          ? getFilteredGapsCached(filterGapsCache, i, s.data)
+          : s.data;
         renderers.areaRenderers[i].prepare(
           s,
           areaData,
@@ -285,6 +296,9 @@ export function prepareSeries(
               visibleStart: visible.start,
               visibleEnd: visible.end,
               targetBuckets,
+              // DataStore hash changes when floats rewrite into the same buffer
+              // at the same N (animation / equal-length replace) — WG-P0-2.
+              contentVersion: dataStore.getSeriesContentHash(i),
             });
             const decimatedBuffer =
               renderers.decimationComputes[i].getOutputBuffer();
@@ -294,8 +308,9 @@ export function prepareSeries(
               decimatedBuffer,
               xScale,
               getYScale(s),
-              // Decimation shader emits clean (x, y) without xOffset subtraction.
-              0,
+              // Decimation preserves DataStore packing (x - xOffset). Fold the
+              // same origin back into the line clip affine as the non-decimated path.
+              xOffset,
               gridArea.devicePixelRatio,
               gridArea.canvasWidth,
               gridArea.canvasHeight,
@@ -322,10 +337,10 @@ export function prepareSeries(
           return 0;
         })();
         // When connectNulls is true, strip null/NaN gap entries so the line draws through gaps.
-        // Uses filterGaps which handles all CartesianSeriesData formats (Array, XYArraysData,
-        // InterleavedXYData), not just Array — important because recomputeRuntimeBaseSeries
-        // may convert the data to MutableXYColumns (XYArraysData-like) with NaN gap markers.
-        const uploadData = s.connectNulls ? filterGaps(s.data) : s.data;
+        // Cached by data ref identity (P2-12) so static frames do not re-allocate.
+        const uploadData = s.connectNulls
+          ? getFilteredGapsCached(filterGapsCache, i, s.data)
+          : s.data;
         if (!appendedGpuThisFrame.has(i)) {
           setSeriesIfChanged(i, uploadData, { xOffset });
         }

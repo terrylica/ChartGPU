@@ -37,6 +37,18 @@ import type { CartesianSeriesData } from "../config/types";
 import { renderAxisLabels, renderYAxisLabels } from "./renderCoordinator/render/renderAxisLabels";
 import { renderAnnotationLabels } from "./renderCoordinator/render/renderAnnotationLabels";
 import { prepareOverlays } from "./renderCoordinator/render/renderOverlays";
+import {
+  createOverlayPrepareMemo,
+  clearOverlayPrepareMemo,
+} from "./renderCoordinator/render/overlayPrepareMemo";
+import {
+  createFilterGapsCache,
+} from "./renderCoordinator/render/filterGapsCache";
+import {
+  didSeriesDataLikelyChange,
+  shouldRecomputeBaselineSampling,
+  patchSeriesPresentationKeepingSampledData,
+} from "./renderCoordinator/data/samplingDirty";
 import { processAnnotations } from "./renderCoordinator/annotations/processAnnotations";
 import {
   prepareSeries,
@@ -1723,6 +1735,13 @@ export function createRenderCoordinator(
   // Must be cleared while update-animation interpolates (mutates values under a stable ref).
   const lastSetSeriesCache: LastSetSeriesCache = new Map();
 
+  // P2-12: reuse filterGaps output while series data ref is stable (connectNulls).
+  // Cleared with lastSetSeriesCache when data mutates under a stable ref.
+  const filterGapsCache = createFilterGapsCache();
+
+  // P1-6: skip grid/axis prepare when layout, counts, colors, and scale affines are unchanged.
+  const overlayPrepareMemo = createOverlayPrepareMemo();
+
   // Tooltip is a DOM overlay element; enable by default unless explicitly disabled.
   let tooltip: Tooltip | null =
     overlayContainer && currentOptions.tooltip?.show !== false
@@ -1795,30 +1814,33 @@ export function createRenderCoordinator(
     sampleCount: MAIN_SCENE_MSAA_SAMPLE_COUNT,
     pipelineCache,
   });
-  // Axis and crosshair renderers draw into the top overlay pass (swapchain, single-sample) ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â keep sampleCount: 1.
+  // Axes / crosshair / highlight draw into the annotation overlay MSAA pass
+  // (WG-P1-5 Phase 4b): sampleCount must match ANNOTATION_OVERLAY_MSAA_SAMPLE_COUNT.
   const xAxisRenderer = createAxisRenderer(device, {
     targetFormat,
+    sampleCount: ANNOTATION_OVERLAY_MSAA_SAMPLE_COUNT,
     pipelineCache,
   });
   const yAxisRenderers = new Map<string, ReturnType<typeof createAxisRenderer>>();
   const crosshairRenderer = createCrosshairRenderer(device, {
     targetFormat,
+    sampleCount: ANNOTATION_OVERLAY_MSAA_SAMPLE_COUNT,
     pipelineCache,
   });
   crosshairRenderer.setVisible(false);
-  // Highlight renders into the top overlay pass (swapchain, single-sample) ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â keep sampleCount: 1.
   const highlightRenderer = createHighlightRenderer(device, {
     targetFormat,
+    sampleCount: ANNOTATION_OVERLAY_MSAA_SAMPLE_COUNT,
     pipelineCache,
   });
   highlightRenderer.setVisible(false);
 
-  // MSAA for the *annotation overlay* (above-series) pass to reduce shimmer during zoom.
-  // NOTE: In WebGPU, pipeline sampleCount must match the render pass attachment sampleCount.
-  // The main scene renders into a 4x MSAA texture (resolved to a single-sample target), then:
-  // - MSAA overlay pass: blit resolved main scene into an MSAA target + draw above-series annotations, resolve to swapchain
-  // - Top overlay pass: draw crosshair/axes/highlight (single-sample) on top of the resolved swapchain
-  // Below-series reference lines and annotation markers draw into the main MSAA pass.
+  // Frame graph (WG-P1-5):
+  // 1. Main 4× MSAA → resolve (grid, series, below-series annotations)
+  // 2. Overlay 4× MSAA → resolve to swapchain (blit + above-series annotations +
+  //    axes/crosshair/highlight). No third single-sample top overlay pass.
+  // Below/above annotation pipelines share sampleCount 4 (WG-P2-1): one renderer
+  // each; prepared once; drawn into main (below) or overlay (above) as needed.
   const referenceLineRenderer = createReferenceLineRenderer(device, {
     targetFormat,
     sampleCount: MAIN_SCENE_MSAA_SAMPLE_COUNT,
@@ -1829,16 +1851,9 @@ export function createRenderCoordinator(
     sampleCount: MAIN_SCENE_MSAA_SAMPLE_COUNT,
     pipelineCache,
   });
-  const referenceLineRendererMsaa = createReferenceLineRenderer(device, {
-    targetFormat,
-    sampleCount: ANNOTATION_OVERLAY_MSAA_SAMPLE_COUNT,
-    pipelineCache,
-  });
-  const annotationMarkerRendererMsaa = createAnnotationMarkerRenderer(device, {
-    targetFormat,
-    sampleCount: ANNOTATION_OVERLAY_MSAA_SAMPLE_COUNT,
-    pipelineCache,
-  });
+  // Alias MSAA slots to the same instances (both passes use sampleCount 4).
+  const referenceLineRendererMsaa = referenceLineRenderer;
+  const annotationMarkerRendererMsaa = annotationMarkerRenderer;
 
   const textureManager = createTextureManager({
     device,
@@ -2078,8 +2093,12 @@ export function createRenderCoordinator(
         }
       }
 
-      // Invalidate cache for this series since data has changed
+      // Invalidate cache for this series since data has changed.
+      // MutableXYColumns grow under a stable ref — clear setSeries + filterGaps
+      // caches so prepare does not reuse pre-append results (P1-2 / P2-12).
       lastSampledData[seriesIndex] = null;
+      lastSetSeriesCache.delete(seriesIndex);
+      filterGapsCache.delete(seriesIndex);
     }
 
     pendingAppendByIndex.clear();
@@ -2686,6 +2705,7 @@ export function createRenderCoordinator(
     // Runtime data references are about to be regenerated; invalidate the per-frame
     // setSeries cache so the next render uploads the fresh references (P1-2).
     lastSetSeriesCache.clear();
+    filterGapsCache.clear();
 
     for (let i = 0; i < count; i++) {
       const s = currentOptions.series[i]!;
@@ -3063,40 +3083,6 @@ export function createRenderCoordinator(
     b: { readonly min: number; readonly max: number },
   ): boolean => a.min === b.min && a.max === b.max;
 
-  const didSeriesDataLikelyChange = (
-    prev: ResolvedChartGPUOptions["series"],
-    next: ResolvedChartGPUOptions["series"],
-  ): boolean => {
-    if (prev.length !== next.length) return true;
-    for (let i = 0; i < prev.length; i++) {
-      const a = prev[i]!;
-      const b = next[i]!;
-      if (a.type !== b.type) return true;
-
-      // Prefer cheap reference checks (good enough for eligibility gating).
-      if (a.type === "pie") {
-        const aPie = a as ResolvedPieSeriesConfig;
-        const bPie = b as ResolvedPieSeriesConfig;
-        if (aPie.data !== bPie.data) return true;
-        if (aPie.data.length !== bPie.data.length) return true;
-      } else {
-        const aAny = a as unknown as {
-          readonly rawData?: ReadonlyArray<DataPoint>;
-          readonly data: ReadonlyArray<DataPoint>;
-        };
-        const bAny = b as unknown as {
-          readonly rawData?: ReadonlyArray<DataPoint>;
-          readonly data: ReadonlyArray<DataPoint>;
-        };
-        const aRaw = (aAny.rawData ?? aAny.data) as ReadonlyArray<DataPoint>;
-        const bRaw = (bAny.rawData ?? bAny.data) as ReadonlyArray<DataPoint>;
-        if (aRaw !== bRaw) return true;
-        if (aRaw.length !== bRaw.length) return true;
-      }
-    }
-    return false;
-  };
-
   const setOptions: RenderCoordinator["setOptions"] = (resolvedOptions) => {
     assertNotDisposed();
 
@@ -3144,15 +3130,22 @@ export function createRenderCoordinator(
 
     // Cancel any prior update transition AFTER capturing the rebased "from" snapshot.
     cancelUpdateTransition();
+    const prevSeries = currentOptions.series;
     const likelyDataChanged = didSeriesDataLikelyChange(
-      currentOptions.series,
+      prevSeries,
+      resolvedOptions.series,
+    );
+    // P1-7: full baseline + zoom re-sample only when raw data or sampling config changes.
+    // Theme/legend/color presentation updates reuse already-sampled series data.
+    const needsBaselineResample = shouldRecomputeBaselineSampling(
+      prevSeries,
       resolvedOptions.series,
     );
 
     currentOptions = resolvedOptions;
 
     if (likelyDataChanged) {
-      // Series data or structure changed ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â full reset of runtime data state.
+      // Series data or structure changed — full reset of runtime data state.
       runtimeBaseSeries = resolvedOptions.series;
       renderSeries = resolvedOptions.series;
       gpuSeriesKindByIndex = new Array(resolvedOptions.series.length).fill(
@@ -3168,9 +3161,38 @@ export function createRenderCoordinator(
     // Always refresh: annotations, themes, tooltip config, etc. may have changed.
     cachedVisibleYBoundsByAxis.clear();
     legend?.update(resolvedOptions.series, resolvedOptions.theme);
-    recomputeRuntimeBaseSeries();
-    updateZoom();
-    recomputeRenderSeries();
+    if (needsBaselineResample) {
+      // Sampling path may flip (e.g. line areaStyle on/off → GPU vs CPU). Retag
+      // buffer kinds so append fast-path and prepareSeries do not keep a stale kind.
+      if (!likelyDataChanged) {
+        gpuSeriesKindByIndex = new Array(resolvedOptions.series.length).fill(
+          "unknown",
+        );
+        lastSetSeriesCache.clear();
+        filterGapsCache.clear();
+        lastSampledData = new Array(resolvedOptions.series.length).fill(null);
+      }
+      recomputeRuntimeBaseSeries();
+      updateZoom();
+      recomputeRenderSeries();
+    } else {
+      // Presentation-only: patch series metadata (colors, names, styles) onto the
+      // already-sampled baseline and render series without re-running LTTB.
+      runtimeBaseSeries = patchSeriesPresentationKeepingSampledData(
+        resolvedOptions.series,
+        runtimeBaseSeries,
+      );
+      renderSeries = patchSeriesPresentationKeepingSampledData(
+        runtimeBaseSeries,
+        renderSeries,
+      );
+      updateZoom();
+      // Rebuild after the unconditional clear above. Without this, default
+      // autoBounds: "visible" falls back to global Y until the next zoom
+      // resample — and toYBaseDomains can disagree with fromSnapshot,
+      // spuriously starting a domain-change animation on theme-only updates.
+      recomputeCachedVisibleYBoundsIfNeeded();
+    }
 
     // Tooltip enablement may change at runtime.
     if (overlayContainer) {
@@ -3203,6 +3225,7 @@ export function createRenderCoordinator(
       for (let i = nextCount; i < lastSeriesCount; i++) {
         dataStore.removeSeries(i);
         lastSetSeriesCache.delete(i);
+        filterGapsCache.delete(i);
       }
     }
     lastSeriesCount = nextCount;
@@ -3642,8 +3665,10 @@ export function createRenderCoordinator(
     // The interpolation cache reuses the same array reference across frames (mutating
     // values in-place). setSeriesIfChanged short-circuits on reference identity, so clear
     // the cache every animation frame so GPU uploads are not silently skipped (P1-2).
+    // Same for filterGaps (P2-12): in-place mutation under a stable ref must re-filter.
     if (updateTransition && updateP < 1) {
       lastSetSeriesCache.clear();
+      filterGapsCache.clear();
     }
 
     // Keep `interactionX` in sync with real pointer movement (domain units).
@@ -3736,6 +3761,7 @@ export function createRenderCoordinator(
         seriesForRender,
         withAlpha,
         nearestMatch: sharedNearestMatch,
+        overlayPrepareMemo,
       },
     );
 
@@ -4124,6 +4150,7 @@ export function createRenderCoordinator(
       withAlpha,
       maxRadiusCss,
       lastSetSeriesCache,
+      filterGapsCache,
     });
 
     const { visibleBarSeriesConfigs } = seriesPreparation;
@@ -4147,19 +4174,13 @@ export function createRenderCoordinator(
       gridArea,
     );
 
-    // Prepare annotation GPU overlays (reference lines + point markers).
+    // Prepare annotation GPU overlays once (WG-P2-1: single sampleCount-4 instance
+    // used for both main below-series and overlay above-series draws).
     // Note: these renderers expect CANVAS-LOCAL CSS pixel coordinates; the coordinator owns
-    // data-space ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¾ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ canvas-space conversion and plot scissor state.
+    // data-space → canvas-space conversion and plot scissor state.
     if (hasCartesianSeries) {
       referenceLineRenderer.prepare(gridArea, combinedReferenceLines);
-      referenceLineRendererMsaa.prepare(gridArea, combinedReferenceLines);
       annotationMarkerRenderer.prepare({
-        canvasWidth: gridArea.canvasWidth,
-        canvasHeight: gridArea.canvasHeight,
-        devicePixelRatio: gridArea.devicePixelRatio,
-        instances: combinedMarkers,
-      });
-      annotationMarkerRendererMsaa.prepare({
         canvasWidth: gridArea.canvasWidth,
         canvasHeight: gridArea.canvasHeight,
         devicePixelRatio: gridArea.devicePixelRatio,
@@ -4168,14 +4189,7 @@ export function createRenderCoordinator(
     } else {
       // Ensure prior frame instances don't persist visually if series mode changes.
       referenceLineRenderer.prepare(gridArea, []);
-      referenceLineRendererMsaa.prepare(gridArea, []);
       annotationMarkerRenderer.prepare({
-        canvasWidth: gridArea.canvasWidth,
-        canvasHeight: gridArea.canvasHeight,
-        devicePixelRatio: gridArea.devicePixelRatio,
-        instances: [],
-      });
-      annotationMarkerRendererMsaa.prepare({
         canvasWidth: gridArea.canvasWidth,
         canvasHeight: gridArea.canvasHeight,
         devicePixelRatio: gridArea.devicePixelRatio,
@@ -4290,30 +4304,18 @@ export function createRenderCoordinator(
       },
     );
 
-    overlayPass.end();
-
-    // Top overlays (single-sample): axes, highlights, crosshair.
-    const topOverlayPass = encoder.beginRenderPass({
-      label: "renderCoordinator/topOverlayPass",
-      colorAttachments: [
-        {
-          view: swapchainView,
-          loadOp: "load",
-          storeOp: "store",
-        },
-      ],
-    });
-
-    highlightRenderer.render(topOverlayPass);
+    // Axes / highlight / crosshair in the same 4× overlay pass (WG-P1-5).
+    // Drawn after above-series annotations so UI stays on top within the pass.
+    highlightRenderer.render(overlayPass);
     if (hasCartesianSeries) {
-      xAxisRenderer.render(topOverlayPass);
+      xAxisRenderer.render(overlayPass);
       for (const r of yAxisRenderers.values()) {
-        r.render(topOverlayPass);
+        r.render(overlayPass);
       }
     }
-    crosshairRenderer.render(topOverlayPass);
+    crosshairRenderer.render(overlayPass);
 
-    topOverlayPass.end();
+    overlayPass.end();
     device.queue.submit([encoder.finish()]);
 
     hasRenderedOnce = true;
@@ -4402,6 +4404,8 @@ export function createRenderCoordinator(
 
     pendingAppendByIndex.clear();
     lastSetSeriesCache.clear();
+    filterGapsCache.clear();
+    clearOverlayPrepareMemo(overlayPrepareMemo);
 
     insideZoom?.dispose();
     insideZoom = null;
@@ -4421,10 +4425,9 @@ export function createRenderCoordinator(
     xAxisRenderer.dispose();
     for (const r of yAxisRenderers.values()) r.dispose();
 yAxisRenderers.clear();
+    // Single instances (Msaa aliases point at the same objects — dispose once).
     referenceLineRenderer.dispose();
     annotationMarkerRenderer.dispose();
-    referenceLineRendererMsaa.dispose();
-    annotationMarkerRendererMsaa.dispose();
 
     textureManager.dispose();
 

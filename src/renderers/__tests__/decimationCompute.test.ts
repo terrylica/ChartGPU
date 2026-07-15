@@ -315,6 +315,7 @@ describe("createDecimationCompute", () => {
         visibleStart: 0,
         visibleEnd: 100_000,
         targetBuckets: 512,
+        contentVersion: 1,
       };
       d.prepare(params);
 
@@ -333,6 +334,59 @@ describe("createDecimationCompute", () => {
       const enc3 = createMockEncoder();
       d.encodeCompute(enc3 as unknown as GPUCommandEncoder);
       expect(enc3.__passes).toHaveLength(1);
+    });
+
+    it("WG-P0-2: same buffer + same N + changed contentVersion re-dispatches compute", () => {
+      const d = createDecimationCompute(device);
+      const rawBuffer = createMockBuffer({ size: 800000 });
+
+      const base = {
+        algorithm: "lttb" as const,
+        rawBuffer,
+        rawPointCount: 100_000,
+        visibleStart: 0,
+        visibleEnd: 100_000,
+        targetBuckets: 512,
+      };
+
+      d.prepare({ ...base, contentVersion: 0x1111 });
+      const enc1 = createMockEncoder();
+      d.encodeCompute(enc1 as unknown as GPUCommandEncoder);
+      expect(enc1.__passes).toHaveLength(1);
+
+      // Same buffer identity, same point count, same window — only payload version changes
+      // (models DataStore.setSeries rewriting floats into the same GPUBuffer).
+      d.prepare({ ...base, contentVersion: 0x2222 });
+      const enc2 = createMockEncoder();
+      d.encodeCompute(enc2 as unknown as GPUCommandEncoder);
+      expect(enc2.__passes).toHaveLength(1);
+
+      // Identical contentVersion again must skip (pure pan / unchanged frame).
+      d.prepare({ ...base, contentVersion: 0x2222 });
+      const enc3 = createMockEncoder();
+      d.encodeCompute(enc3 as unknown as GPUCommandEncoder);
+      expect(enc3.__passes).toHaveLength(0);
+    });
+
+    it("WG-P0-2: unchanged contentVersion with unchanged window still skips", () => {
+      const d = createDecimationCompute(device);
+      const rawBuffer = createMockBuffer({ size: 800000 });
+      const params = {
+        algorithm: "min" as const,
+        rawBuffer,
+        rawPointCount: 50_000,
+        visibleStart: 0,
+        visibleEnd: 50_000,
+        targetBuckets: 256,
+        contentVersion: 42,
+      };
+      d.prepare(params);
+      d.encodeCompute(createMockEncoder() as unknown as GPUCommandEncoder);
+
+      d.prepare(params);
+      const enc = createMockEncoder();
+      d.encodeCompute(enc as unknown as GPUCommandEncoder);
+      expect(enc.__passes).toHaveLength(0);
     });
 
     it("is a no-op before any prepare() is called", () => {
