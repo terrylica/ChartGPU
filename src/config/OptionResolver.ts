@@ -889,7 +889,12 @@ export type ResolveOptionsReuse = Readonly<{
 /**
  * True when the previous resolved series can supply `data` + `rawBounds` without re-sampling.
  * Requires stable raw data reference, identical sampling-related config, and a matching
- * content hash (so in-place value mutation under the same ref still re-samples).
+ * content hash.
+ *
+ * **In-place mutation contract:** Mutating point values under a stable data array / columns
+ * object reference (without replacing the array) is not detected by resolve. Callers must
+ * pass a new data reference (or use `appendData` / other explicit paths) to force a re-hash
+ * and re-sample. This matches high-performance chart APIs and axes-only update patterns.
  */
 export function canReuseResolvedSeriesSample(
   prev: ResolvedSeriesConfig | undefined,
@@ -924,6 +929,43 @@ export function canReuseResolvedSeriesSample(
     return false;
   }
   return true;
+}
+
+type WithResolvedDataIdentity = {
+  readonly rawData?: unknown;
+  readonly data?: unknown;
+  readonly contentHash?: number;
+};
+
+/**
+ * Content hash for a series resolve, O(1) when raw data identity is stable.
+ *
+ * When `previousResolved` has the same raw data reference (`prev.rawData ?? prev.data`)
+ * and a stored `contentHash`, reuse that hash without scanning points. Full
+ * `hashCartesianSeriesData` / `hashOHLCSeriesData` runs only when:
+ * - data reference changes,
+ * - series type changes (different hash function / layout),
+ * - or previous hash is missing.
+ *
+ * **In-place mutation:** Values mutated under a stable array ref are not detected until
+ * a new data reference is provided.
+ */
+export function resolveSeriesContentHash(
+  prev: ResolvedSeriesConfig | undefined,
+  nextType: SeriesType,
+  rawData: unknown,
+  hashData: () => number,
+): number {
+  if (prev && prev.type === nextType && prev.type !== "pie") {
+    const prevAny = prev as WithResolvedDataIdentity;
+    if (
+      (prevAny.rawData ?? prevAny.data) === rawData &&
+      typeof prevAny.contentHash === "number"
+    ) {
+      return prevAny.contentHash;
+    }
+  }
+  return hashData();
 }
 
 export function resolveOptions(
@@ -1157,7 +1199,12 @@ export function resolveOptions(
         };
 
         const connectNulls = s.connectNulls ?? false;
-        const contentHash = hashCartesianSeriesData(s.data);
+        const contentHash = resolveSeriesContentHash(
+          prevResolved,
+          "area",
+          s.data,
+          () => hashCartesianSeriesData(s.data),
+        );
         const reuseSample = canReuseResolvedSeriesSample(
           prevResolved,
           "area",
@@ -1212,7 +1259,12 @@ export function resolveOptions(
         // Avoid leaking the unresolved (user) areaStyle shape via object spread.
         const { areaStyle: _userAreaStyle, ...rest } = s;
         const connectNulls = s.connectNulls ?? false;
-        const contentHash = hashCartesianSeriesData(s.data);
+        const contentHash = resolveSeriesContentHash(
+          prevResolved,
+          "line",
+          s.data,
+          () => hashCartesianSeriesData(s.data),
+        );
         const reuseSample = canReuseResolvedSeriesSample(
           prevResolved,
           "line",
@@ -1265,7 +1317,12 @@ export function resolveOptions(
         };
       }
       case "bar": {
-        const contentHash = hashCartesianSeriesData(s.data);
+        const contentHash = resolveSeriesContentHash(
+          prevResolved,
+          "bar",
+          s.data,
+          () => hashCartesianSeriesData(s.data),
+        );
         const reuseSample = canReuseResolvedSeriesSample(
           prevResolved,
           "bar",
@@ -1300,7 +1357,12 @@ export function resolveOptions(
         };
       }
       case "scatter": {
-        const contentHash = hashCartesianSeriesData(s.data);
+        const contentHash = resolveSeriesContentHash(
+          prevResolved,
+          "scatter",
+          s.data,
+          () => hashCartesianSeriesData(s.data),
+        );
         const reuseSample = canReuseResolvedSeriesSample(
           prevResolved,
           "scatter",
@@ -1418,7 +1480,12 @@ export function resolveOptions(
               : candlestickDefaults.itemStyle.borderWidth,
         };
 
-        const contentHash = hashOHLCSeriesData(s.data);
+        const contentHash = resolveSeriesContentHash(
+          prevResolved,
+          "candlestick",
+          s.data,
+          () => hashOHLCSeriesData(s.data),
+        );
         const reuseCandle = canReuseResolvedSeriesSample(
           prevResolved,
           "candlestick",

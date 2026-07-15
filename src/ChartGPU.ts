@@ -933,6 +933,8 @@ export async function createChartGPU(
   //   or a mutable OHLCDataPoint[] for candlestick series. This supports efficient streaming appends
   //   without per-point object allocations.
   // - `runtimeRawBoundsByIndex[i]` is incrementally updated to keep scale/bounds derivation cheap.
+  // - `runtimeHitTestSourceByIndex[i]` tracks the raw data reference used to build the store so
+  //   axes-only / presentation-only setOption can skip O(n) column copies.
   let runtimeRawDataByIndex: Array<MutableXYColumns | OHLCDataPoint[]> =
     new Array(resolvedOptions.series.length)
       .fill(null)
@@ -940,25 +942,33 @@ export async function createChartGPU(
   let runtimeRawBoundsByIndex: Array<Bounds | null> = new Array(
     resolvedOptions.series.length,
   ).fill(null);
+  let runtimeHitTestSourceByIndex: Array<unknown | null> = new Array(
+    resolvedOptions.series.length,
+  ).fill(null);
   let runtimeHitTestSeriesCache: ResolvedChartGPUOptions["series"] | null =
     null;
   let runtimeHitTestSeriesVersion = 0;
 
   const initRuntimeHitTestStoreFromResolvedOptions = (): void => {
-    runtimeRawDataByIndex = new Array(resolvedOptions.series.length)
-      .fill(null)
-      .map(() => ({ x: [], y: [] }));
-    runtimeRawBoundsByIndex = new Array(resolvedOptions.series.length).fill(
-      null,
-    );
-    runtimeHitTestSeriesCache = null;
-    runtimeHitTestSeriesVersion++;
+    const nextCount = resolvedOptions.series.length;
+    const prevData = runtimeRawDataByIndex;
+    const prevBounds = runtimeRawBoundsByIndex;
+    const prevSource = runtimeHitTestSourceByIndex;
+    const prevCount = prevData.length;
 
-    for (let i = 0; i < resolvedOptions.series.length; i++) {
+    const nextData: Array<MutableXYColumns | OHLCDataPoint[]> = new Array(
+      nextCount,
+    );
+    const nextBounds: Array<Bounds | null> = new Array(nextCount);
+    const nextSource: Array<unknown | null> = new Array(nextCount);
+
+    for (let i = 0; i < nextCount; i++) {
       const s = resolvedOptions.series[i]!;
       if (s.type === "pie") {
         // Pie series don't use the runtime store (non-cartesian)
-        runtimeRawDataByIndex[i] = { x: [], y: [] };
+        nextData[i] = { x: [], y: [] };
+        nextBounds[i] = null;
+        nextSource[i] = null;
         continue;
       }
 
@@ -966,18 +976,62 @@ export async function createChartGPU(
         const raw = ((
           s as unknown as { rawData?: ReadonlyArray<OHLCDataPoint> }
         ).rawData ?? s.data) as ReadonlyArray<OHLCDataPoint>;
-        runtimeRawDataByIndex[i] = raw.length === 0 ? [] : raw.slice();
-        runtimeRawBoundsByIndex[i] =
+        const rawBounds =
           (s as unknown as { rawBounds?: Bounds | null }).rawBounds ?? null;
+        // Reuse owned slice when the source OHLC array identity is unchanged.
+        if (
+          i < prevCount &&
+          prevSource[i] === raw &&
+          prevData[i] != null &&
+          Array.isArray(prevData[i])
+        ) {
+          nextData[i] = prevData[i]!;
+          // Prefer runtime bounds (may include appendData extensions) over resolver
+          // bounds of the original seed array.
+          nextBounds[i] = prevBounds[i] ?? rawBounds ?? null;
+          nextSource[i] = raw;
+        } else {
+          nextData[i] = raw.length === 0 ? [] : raw.slice();
+          nextBounds[i] = rawBounds;
+          nextSource[i] = raw;
+        }
+        continue;
+      }
+
+      const raw = ((s as unknown as { rawData?: CartesianSeriesData })
+        .rawData ?? s.data) as CartesianSeriesData;
+      const rawBounds =
+        (s as unknown as { rawBounds?: Bounds | null }).rawBounds ?? null;
+      // Axes-only / presentation-only setOption keeps the same raw data ref —
+      // reuse the existing mutable columns and bounds (O(1)).
+      if (
+        i < prevCount &&
+        prevSource[i] === raw &&
+        prevData[i] != null &&
+        !Array.isArray(prevData[i])
+      ) {
+        nextData[i] = prevData[i]!;
+        // Prefer runtime bounds (may include appendData extensions) over resolver
+        // bounds of the original seed array.
+        nextBounds[i] = prevBounds[i] ?? rawBounds ?? null;
+        nextSource[i] = raw;
       } else {
-        const raw = ((s as unknown as { rawData?: CartesianSeriesData })
-          .rawData ?? s.data) as CartesianSeriesData;
-        runtimeRawDataByIndex[i] = cartesianDataToMutableColumns(raw);
-        runtimeRawBoundsByIndex[i] =
-          (s as unknown as { rawBounds?: Bounds | null }).rawBounds ??
+        nextData[i] = cartesianDataToMutableColumns(raw);
+        nextBounds[i] =
+          rawBounds ??
           (computeRawBoundsFromCartesianData(raw) as Bounds | null);
+        nextSource[i] = raw;
       }
     }
+
+    runtimeRawDataByIndex = nextData;
+    runtimeRawBoundsByIndex = nextBounds;
+    runtimeHitTestSourceByIndex = nextSource;
+
+    // Always rebuild the series view wrapper so presentation fields (colors, etc.)
+    // refresh; column copies above are already O(1) when data identity is stable.
+    runtimeHitTestSeriesCache = null;
+    runtimeHitTestSeriesVersion++;
   };
 
   const getRuntimeHitTestSeries = (): ResolvedChartGPUOptions["series"] => {

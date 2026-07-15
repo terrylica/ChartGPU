@@ -16,6 +16,7 @@ import {
   type ResolvedSeriesConfig,
 } from "../../../../config/OptionResolver";
 import * as sampleSeriesModule from "../../../../data/sampleSeries";
+import * as seriesContentHashModule from "../../../../data/seriesContentHash";
 import { hashCartesianSeriesData } from "../../../../data/seriesContentHash";
 import type { DataPoint } from "../../../../config/types";
 
@@ -63,7 +64,9 @@ describe("samplingDirty predicates (P1-7)", () => {
     expect(didSeriesDataLikelyChange(a, b)).toBe(true);
   });
 
-  it("didSeriesDataLikelyChange is true when contentHash differs under same ref", () => {
+  it("didSeriesDataLikelyChange is true when caller supplies differing contentHash under same ref", () => {
+    // Public setOption identity-reuses contentHash for a stable data ref, so this
+    // path only applies when hashes are supplied manually (tests / custom resolve).
     const data: DataPoint[] = [
       [0, 1],
       [1, 2],
@@ -71,12 +74,28 @@ describe("samplingDirty predicates (P1-7)", () => {
     ];
     const before = hashCartesianSeriesData(data);
     const a = [lineSeries(data, { contentHash: before })];
-    // In-place mutation
     (data[1] as [number, number])[1] = 99;
     const after = hashCartesianSeriesData(data);
     expect(after).not.toBe(before);
     const b = [lineSeries(data, { contentHash: after })];
     expect(didSeriesDataLikelyChange(a, b)).toBe(true);
+  });
+
+  it("compose resolve→didSeriesDataLikelyChange is false after in-place mutation under stable ref", () => {
+    const data: DataPoint[] = [
+      [0, 1],
+      [1, 2],
+      [2, 3],
+    ];
+    const first = resolveOptions({
+      series: [{ type: "line", data, sampling: "none" }],
+    });
+    (data[1] as [number, number])[1] = 99;
+    const second = resolveOptions(
+      { series: [{ type: "line", data, sampling: "none" }] },
+      { previousResolved: first },
+    );
+    expect(didSeriesDataLikelyChange(first.series, second.series)).toBe(false);
   });
 
   it("didSamplingConfigChange detects sampling threshold change", () => {
@@ -228,16 +247,20 @@ describe("OptionResolver sample reuse (P1-7)", () => {
     spy.mockRestore();
   });
 
-  it("re-samples when values mutate in place under the same array ref", () => {
+  it("does not re-hash or re-sample when values mutate in place under a stable ref", () => {
+    // Contract: in-place mutation under a stable data reference is not detected
+    // until a new data reference (or appendData) is provided. Axes-only / high-FPS
+    // setOption paths depend on this O(1) identity reuse.
     const data: DataPoint[] = Array.from({ length: 200 }, (_, i) => [i, i]);
     const first = resolveOptions({
       series: [{ type: "line", data, sampling: "lttb", samplingThreshold: 20 }],
     });
     const firstSampled = first.series[0]!.data;
-    // Mutate under stable ref (historical setOption contract).
+    const firstHash = (first.series[0] as { contentHash?: number }).contentHash;
     (data[50] as [number, number])[1] = 99999;
 
-    const spy = vi.spyOn(sampleSeriesModule, "sampleSeriesDataPoints");
+    const hashSpy = vi.spyOn(seriesContentHashModule, "hashCartesianSeriesData");
+    const sampleSpy = vi.spyOn(sampleSeriesModule, "sampleSeriesDataPoints");
     const second = resolveOptions(
       {
         series: [
@@ -246,9 +269,180 @@ describe("OptionResolver sample reuse (P1-7)", () => {
       },
       { previousResolved: first },
     );
-    expect(spy).toHaveBeenCalled();
+    expect(hashSpy).not.toHaveBeenCalled();
+    expect(sampleSpy).not.toHaveBeenCalled();
+    expect(second.series[0]!.data).toBe(firstSampled);
+    expect((second.series[0] as { contentHash?: number }).contentHash).toBe(
+      firstHash,
+    );
+    hashSpy.mockRestore();
+    sampleSpy.mockRestore();
+  });
+
+  it("re-hashes and re-samples when a new data reference is provided after mutation", () => {
+    const data: DataPoint[] = Array.from({ length: 200 }, (_, i) => [i, i]);
+    const first = resolveOptions({
+      series: [{ type: "line", data, sampling: "lttb", samplingThreshold: 20 }],
+    });
+    const firstSampled = first.series[0]!.data;
+    const firstBounds = (first.series[0] as { rawBounds?: unknown }).rawBounds;
+    // Replace the array (new identity) so resolve must re-hash / re-sample.
+    const nextData: DataPoint[] = data.map((p, i) =>
+      i === 50 ? [50, 99999] : ([p[0], p[1]] as DataPoint),
+    );
+
+    const hashSpy = vi.spyOn(seriesContentHashModule, "hashCartesianSeriesData");
+    const sampleSpy = vi.spyOn(sampleSeriesModule, "sampleSeriesDataPoints");
+    const second = resolveOptions(
+      {
+        series: [
+          {
+            type: "line",
+            data: nextData,
+            sampling: "lttb",
+            samplingThreshold: 20,
+          },
+        ],
+      },
+      { previousResolved: first },
+    );
+    expect(hashSpy).toHaveBeenCalled();
+    expect(sampleSpy).toHaveBeenCalled();
     expect(second.series[0]!.data).not.toBe(firstSampled);
-    spy.mockRestore();
+    // rawBounds must recompute (new object; y max reflects mutated value).
+    const secondBounds = (second.series[0] as {
+      rawBounds?: { yMin: number; yMax: number };
+    }).rawBounds;
+    expect(secondBounds).not.toBe(firstBounds);
+    expect(secondBounds?.yMax).toBeGreaterThanOrEqual(99999);
+    hashSpy.mockRestore();
+    sampleSpy.mockRestore();
+  });
+
+  it("reuses contentHash without full scan on axes-only resolve (same data ref)", () => {
+    const data: DataPoint[] = Array.from({ length: 5000 }, (_, i) => [
+      i,
+      Math.sin(i * 0.01),
+    ]);
+    const first = resolveOptions({
+      series: [
+        {
+          type: "line",
+          data,
+          sampling: "none",
+          areaStyle: { opacity: 0.4 },
+        },
+      ],
+      yAxis: { min: 0, max: 1 },
+    });
+    const firstHash = (first.series[0] as { contentHash?: number }).contentHash;
+    const firstBounds = (first.series[0] as { rawBounds?: unknown }).rawBounds;
+
+    const hashSpy = vi.spyOn(seriesContentHashModule, "hashCartesianSeriesData");
+    const second = resolveOptions(
+      {
+        series: [
+          {
+            type: "line",
+            data,
+            sampling: "none",
+            areaStyle: { opacity: 0.4 },
+            color: "#0af",
+          },
+        ],
+        yAxis: { min: -1, max: 2 },
+      },
+      { previousResolved: first },
+    );
+    expect(hashSpy).not.toHaveBeenCalled();
+    expect((second.series[0] as { contentHash?: number }).contentHash).toBe(
+      firstHash,
+    );
+    expect((second.series[0] as { rawBounds?: unknown }).rawBounds).toBe(
+      firstBounds,
+    );
+    hashSpy.mockRestore();
+  });
+
+  it("reuses contentHash for bar series on stable data ref", () => {
+    const data: DataPoint[] = Array.from({ length: 1000 }, (_, i) => [i, i % 7]);
+    const first = resolveOptions({
+      series: [{ type: "bar", data, sampling: "none" }],
+    });
+    const hashSpy = vi.spyOn(seriesContentHashModule, "hashCartesianSeriesData");
+    const second = resolveOptions(
+      {
+        series: [{ type: "bar", data, sampling: "none", color: "#f00" }],
+        yAxis: { min: 0, max: 10 },
+      },
+      { previousResolved: first },
+    );
+    expect(hashSpy).not.toHaveBeenCalled();
+    expect((second.series[0] as { contentHash?: number }).contentHash).toBe(
+      (first.series[0] as { contentHash?: number }).contentHash,
+    );
+    hashSpy.mockRestore();
+  });
+
+  it("reuses contentHash but re-samples when samplingThreshold changes", () => {
+    // Sampling change forces re-sample; content hash is content/identity-only.
+    const data: DataPoint[] = Array.from({ length: 200 }, (_, i) => [i, i]);
+    const first = resolveOptions({
+      series: [{ type: "line", data, sampling: "lttb", samplingThreshold: 20 }],
+    });
+    const hashSpy = vi.spyOn(seriesContentHashModule, "hashCartesianSeriesData");
+    const sampleSpy = vi.spyOn(sampleSeriesModule, "sampleSeriesDataPoints");
+    const second = resolveOptions(
+      {
+        series: [
+          { type: "line", data, sampling: "lttb", samplingThreshold: 50 },
+        ],
+      },
+      { previousResolved: first },
+    );
+    // Data ref stable → contentHash reuse (no full scan).
+    expect(hashSpy).not.toHaveBeenCalled();
+    // Sampling config changed → must re-sample.
+    expect(sampleSpy).toHaveBeenCalled();
+    expect((second.series[0] as { samplingThreshold?: number }).samplingThreshold).toBe(
+      50,
+    );
+    hashSpy.mockRestore();
+    sampleSpy.mockRestore();
+  });
+
+  it("line areaStyle on/off under lttb marks sampling dirty (hash may reuse)", () => {
+    const data: DataPoint[] = Array.from({ length: 200 }, (_, i) => [i, i]);
+    const without = resolveOptions({
+      series: [
+        { type: "line", data, sampling: "lttb", samplingThreshold: 20 },
+      ],
+    });
+    const withFill = resolveOptions(
+      {
+        series: [
+          {
+            type: "line",
+            data,
+            sampling: "lttb",
+            samplingThreshold: 20,
+            areaStyle: { opacity: 0.3, color: "#0af" },
+          },
+        ],
+      },
+      { previousResolved: without },
+    );
+    // Data identity stable: contentHash reused.
+    expect(
+      (withFill.series[0] as { contentHash?: number }).contentHash,
+    ).toBe((without.series[0] as { contentHash?: number }).contentHash);
+    // Eligibility-sensitive: sampling dirty flags treat areaStyle presence as config change.
+    expect(
+      didSamplingConfigChange(without.series, withFill.series),
+    ).toBe(true);
+    expect(
+      shouldRecomputeBaselineSampling(without.series, withFill.series),
+    ).toBe(true);
   });
 
   it("canReuseResolvedSeriesSample gates correctly", () => {

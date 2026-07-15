@@ -1,10 +1,15 @@
 /**
  * Content fingerprint for series raw data (P1-7 correctness).
  *
- * Reference identity alone cannot detect in-place mutation under a stable array
- * or column object. A full O(n) hash on `setOption` / resolve is cheaper than
- * re-running LTTB when content is unchanged, and catches value mutations when
- * the reference is reused.
+ * Used when the raw data **reference** changes (or no prior hash is available).
+ * `OptionResolver.resolveSeriesContentHash` reuses a previous `contentHash` in
+ * O(1) when the data reference is unchanged — full scans are not performed on
+ * every axes-only / presentation-only `setOption`.
+ *
+ * **In-place mutation contract:** Mutating values under a stable array or
+ * columns object without replacing the reference may not be detected until a
+ * new data reference (or `appendData` / other explicit path) is provided.
+ * Prefer a new array ref when content changes under the high-performance path.
  *
  * @module seriesContentHash
  */

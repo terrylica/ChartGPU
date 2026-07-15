@@ -1,7 +1,12 @@
-import { describe, it, expect } from "vitest";
-import { resolveOptions } from "../OptionResolver";
-import type { DataPoint } from "../types";
+import { describe, it, expect, vi } from "vitest";
+import {
+  resolveOptions,
+  resolveSeriesContentHash,
+  type ResolvedSeriesConfig,
+} from "../OptionResolver";
+import type { DataPoint, OHLCDataPoint } from "../types";
 import { getPointCount } from "../../data/cartesianData";
+import * as seriesContentHashModule from "../../data/seriesContentHash";
 
 describe("OptionResolver - connectNulls", () => {
   it("defaults connectNulls to false for line series", () => {
@@ -166,5 +171,91 @@ describe("OptionResolver - sampling bypass with gaps", () => {
     if (series.type === "area") {
       expect(getPointCount(series.data)).toBeLessThanOrEqual(5000);
     }
+  });
+});
+
+describe("resolveSeriesContentHash", () => {
+  it("reuses previous hash when type and raw data identity match", () => {
+    const data: DataPoint[] = [
+      [0, 1],
+      [1, 2],
+    ];
+    const prev = {
+      type: "line",
+      rawData: data,
+      data,
+      contentHash: 0xabc,
+    } as unknown as ResolvedSeriesConfig;
+    let hashCalls = 0;
+    const hash = resolveSeriesContentHash(prev, "line", data, () => {
+      hashCalls++;
+      return 0xdead;
+    });
+    expect(hash).toBe(0xabc);
+    expect(hashCalls).toBe(0);
+  });
+
+  it("recomputes when data reference changes", () => {
+    const prevData: DataPoint[] = [[0, 1]];
+    const nextData: DataPoint[] = [[0, 2]];
+    const prev = {
+      type: "bar",
+      rawData: prevData,
+      data: prevData,
+      contentHash: 1,
+    } as unknown as ResolvedSeriesConfig;
+    const hash = resolveSeriesContentHash(prev, "bar", nextData, () => 42);
+    expect(hash).toBe(42);
+  });
+
+  it("recomputes when series type changes", () => {
+    const data: DataPoint[] = [[0, 1]];
+    const prev = {
+      type: "line",
+      rawData: data,
+      data,
+      contentHash: 7,
+    } as unknown as ResolvedSeriesConfig;
+    const hash = resolveSeriesContentHash(prev, "bar", data, () => 99);
+    expect(hash).toBe(99);
+  });
+
+  it("recomputes when previous contentHash is missing", () => {
+    const data: DataPoint[] = [[0, 1]];
+    const prev = {
+      type: "scatter",
+      rawData: data,
+      data,
+    } as unknown as ResolvedSeriesConfig;
+    const hash = resolveSeriesContentHash(prev, "scatter", data, () => 11);
+    expect(hash).toBe(11);
+  });
+});
+
+describe("OptionResolver candlestick contentHash reuse", () => {
+  it("reuses OHLC contentHash without full scan on stable data ref", () => {
+    const data: OHLCDataPoint[] = [
+      [0, 1, 2, 0.5, 2.5],
+      [1, 2, 1.5, 1, 2.2],
+    ];
+    // Suppress one-time candlestick warning.
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const first = resolveOptions({
+      series: [{ type: "candlestick", data, sampling: "none" }],
+    });
+    const hashSpy = vi.spyOn(seriesContentHashModule, "hashOHLCSeriesData");
+    const second = resolveOptions(
+      {
+        series: [{ type: "candlestick", data, sampling: "none", color: "#f00" }],
+        yAxis: { min: 0, max: 10 },
+      },
+      { previousResolved: first },
+    );
+    expect(hashSpy).not.toHaveBeenCalled();
+    expect((second.series[0] as { contentHash?: number }).contentHash).toBe(
+      (first.series[0] as { contentHash?: number }).contentHash,
+    );
+    hashSpy.mockRestore();
+    warnSpy.mockRestore();
   });
 });

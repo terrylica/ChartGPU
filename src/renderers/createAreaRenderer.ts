@@ -24,6 +24,14 @@ export interface AreaRenderer {
     yScale: LinearScale,
     baseline?: number,
   ): void;
+  /**
+   * Drop cached domain-space geometry so the next `prepare` re-packs vertices.
+   *
+   * Required when values mutate under a stable data array reference (update-transition
+   * interpolation reuses one array and mutates in place — same rule as
+   * `lastSetSeriesCache.clear()` in the coordinator).
+   */
+  invalidateGeometry(): void;
   render(passEncoder: GPURenderPassEncoder): void;
   dispose(): void;
 }
@@ -227,6 +235,15 @@ export function createAreaRenderer(
 
   let vertexBuffer: GPUBuffer | null = null;
   let vertexCount = 0;
+  // Vertices are stored in data-domain space; scales/colors go through uniforms.
+  // Reuse packed geometry when the data reference is unchanged (axes-only setOption).
+  let boundDataRef: CartesianSeriesData | null = null;
+  let cachedBounds: {
+    readonly xMin: number;
+    readonly xMax: number;
+    readonly yMin: number;
+    readonly yMax: number;
+  } | null = null;
 
   const assertNotDisposed = (): void => {
     if (disposed) throw new Error("AreaRenderer is disposed.");
@@ -271,38 +288,49 @@ export function createAreaRenderer(
   ) => {
     assertNotDisposed();
 
-    const vertices = createAreaVertices(data);
-    const requiredSize = vertices.byteLength;
-    const bufferSize = Math.max(4, requiredSize);
+    // Geometry rebuild only when data identity changes. In-place mutation under a
+    // stable ref is not detected here (same contract as OptionResolver contentHash).
+    if (boundDataRef !== data) {
+      const vertices = createAreaVertices(data);
+      const requiredSize = vertices.byteLength;
+      const bufferSize = Math.max(4, requiredSize);
 
-    if (!vertexBuffer || vertexBuffer.size < bufferSize) {
-      if (vertexBuffer) {
-        try {
-          vertexBuffer.destroy();
-        } catch {
-          // best-effort
+      if (!vertexBuffer || vertexBuffer.size < bufferSize) {
+        if (vertexBuffer) {
+          try {
+            vertexBuffer.destroy();
+          } catch {
+            // best-effort
+          }
         }
+        vertexBuffer = device.createBuffer({
+          label: "areaRenderer/vertexBuffer",
+          size: bufferSize,
+          usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+        });
       }
-      vertexBuffer = device.createBuffer({
-        label: "areaRenderer/vertexBuffer",
-        size: bufferSize,
-        usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
-      });
+
+      if (vertices.byteLength > 0) {
+        device.queue.writeBuffer(
+          vertexBuffer,
+          0,
+          vertices.buffer,
+          0,
+          vertices.byteLength,
+        );
+      }
+      vertexCount = vertices.length / 2;
+      boundDataRef = data;
+
+      // Prefer resolver-provided rawBounds (O(1)); fall back to a one-time scan.
+      const fromSeries = (
+        seriesConfig as { readonly rawBounds?: typeof cachedBounds }
+      ).rawBounds;
+      cachedBounds =
+        fromSeries ?? computeRawBoundsFromCartesianData(data) ?? null;
     }
 
-    if (vertices.byteLength > 0) {
-      device.queue.writeBuffer(
-        vertexBuffer,
-        0,
-        vertices.buffer,
-        0,
-        vertices.byteLength,
-      );
-    }
-    vertexCount = vertices.length / 2;
-
-    const bounds = computeRawBoundsFromCartesianData(data);
-    const { xMin, xMax, yMin, yMax } = bounds ?? {
+    const { xMin, xMax, yMin, yMax } = cachedBounds ?? {
       xMin: 0,
       xMax: 1,
       yMin: 0,
@@ -329,6 +357,12 @@ export function createAreaRenderer(
     writeUniformBuffer(device, fsUniformBuffer, fsUniformScratchF32);
   };
 
+  const invalidateGeometry: AreaRenderer["invalidateGeometry"] = () => {
+    // Keep GPU buffers; only clear identity so prepare re-uploads packed verts.
+    boundDataRef = null;
+    cachedBounds = null;
+  };
+
   const render: AreaRenderer["render"] = (passEncoder) => {
     assertNotDisposed();
     if (!vertexBuffer || vertexCount < 4) return;
@@ -342,6 +376,8 @@ export function createAreaRenderer(
   const dispose: AreaRenderer["dispose"] = () => {
     if (disposed) return;
     disposed = true;
+    boundDataRef = null;
+    cachedBounds = null;
 
     if (vertexBuffer) {
       try {
@@ -365,5 +401,5 @@ export function createAreaRenderer(
     }
   };
 
-  return { prepare, render, dispose };
+  return { prepare, invalidateGeometry, render, dispose };
 }

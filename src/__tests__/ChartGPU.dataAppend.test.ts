@@ -1173,3 +1173,102 @@ describe("ChartGPU - dataAppend event", () => {
     });
   });
 });
+
+describe("ChartGPU - hit-test store identity reuse (axes-only setOption)", () => {
+  let mockContainer: HTMLElement;
+  let warnSpy: ReturnType<typeof vi.spyOn> | null = null;
+
+  beforeEach(() => {
+    mockContainer = createMockContainer();
+    setupMockNavigatorGPU();
+    warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => {
+      setTimeout(() => cb(performance.now()), 0);
+      return 1;
+    });
+    vi.stubGlobal("cancelAnimationFrame", vi.fn());
+    vi.stubGlobal("devicePixelRatio", 2);
+  });
+
+  afterEach(() => {
+    warnSpy?.mockRestore();
+    vi.unstubAllGlobals();
+  });
+
+  const makePointer = (clientX: number, clientY: number): PointerEvent =>
+    ({
+      clientX,
+      clientY,
+    }) as PointerEvent;
+
+  it("preserves append-extended domain so hit-test can match appended points after axes-only setOption", async () => {
+    // Seed spans x=0..1; append extends to x=100. Axes-only setOption must keep
+    // runtime bounds that include the append (not resolver bounds of the seed).
+    const data: Array<[number, number]> = [
+      [0, 0],
+      [1, 1],
+    ];
+    const chart = await ChartGPU.create(mockContainer, {
+      animation: false,
+      tooltip: { show: false },
+      grid: { left: 0, right: 0, top: 0, bottom: 0 },
+      series: [{ type: "line", data, sampling: "none" }],
+    });
+
+    chart.appendData(0, [[100, 50]]);
+
+    // Axes-only: same data ref, only y-axis presentation range changes.
+    chart.setOption({
+      animation: false,
+      tooltip: { show: false },
+      grid: { left: 0, right: 0, top: 0, bottom: 0 },
+      yAxis: { min: -10, max: 60 },
+      series: [{ type: "line", data, sampling: "none" }],
+    });
+
+    // With grid filling the container (800×600):
+    // - x domain includes append → x=100 maps near right edge (clientX≈800)
+    // - y domain is explicit [-10, 60]; y=50 → gridY ≈ (1 - (50-(-10))/70) * 600 ≈ 86
+    // If bounds were clobbered to seed-only (~0..1), clientX≈800 maps to ~x=1, no match at 100.
+    const hit = chart.hitTest(makePointer(799, 86));
+    expect(hit.isInGrid).toBe(true);
+    expect(hit.match).not.toBeNull();
+    expect(hit.match?.value[0]).toBeCloseTo(100, 0);
+
+    await chart.dispose();
+  });
+
+  it("rebuilds hit-test domain when a new data reference is provided", async () => {
+    const data1: Array<[number, number]> = [
+      [0, 0],
+      [1, 1],
+    ];
+    const data2: Array<[number, number]> = [
+      [0, 0],
+      [50, 25],
+    ];
+    const chart = await ChartGPU.create(mockContainer, {
+      animation: false,
+      tooltip: { show: false },
+      grid: { left: 0, right: 0, top: 0, bottom: 0 },
+      yAxis: { min: 0, max: 50 },
+      series: [{ type: "line", data: data1, sampling: "none" }],
+    });
+
+    chart.setOption({
+      animation: false,
+      tooltip: { show: false },
+      grid: { left: 0, right: 0, top: 0, bottom: 0 },
+      yAxis: { min: 0, max: 50 },
+      series: [{ type: "line", data: data2, sampling: "none" }],
+    });
+
+    // Domain ~0..50 on x (from data2 rawBounds); y=25 → gridY ≈ 300.
+    const hit = chart.hitTest(makePointer(799, 300));
+    expect(hit.isInGrid).toBe(true);
+    expect(hit.match).not.toBeNull();
+    expect(hit.match?.value[0]).toBeCloseTo(50, 0);
+
+    await chart.dispose();
+  });
+});

@@ -30,8 +30,12 @@ type WithContentHash = {
  * Cheap structural + content check: did series raw data change?
  *
  * Uses reference equality first. When the raw ref is stable, compares
- * `contentHash` (from OptionResolver) so in-place value mutations under the
- * same array/columns object still force baseline recompute.
+ * `contentHash` when both sides present and differ. Note: normal
+ * `resolveOptions` identity-reuses contentHash for a stable data reference, so
+ * in-place value mutations under the same array are **not** detected on the
+ * public setOption path (callers must pass a new data reference or use
+ * `appendData`). A differing contentHash under the same ref is only meaningful
+ * if a caller/test manually supplies hashes.
  */
 export function didSeriesDataLikelyChange(
   prev: ResolvedChartGPUOptions["series"],

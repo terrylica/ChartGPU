@@ -386,6 +386,9 @@ export function prepareSeries(
             samplingThreshold: s.samplingThreshold,
             connectNulls: s.connectNulls,
             yAxis: (s as any).yAxis ?? "y",
+            // Forward resolver bounds so AreaRenderer can skip O(n) bounds scan.
+            rawBounds: (s as { rawBounds?: ResolvedAreaSeriesConfig["rawBounds"] })
+              .rawBounds,
           };
 
           renderers.areaRenderers[i].prepare(
