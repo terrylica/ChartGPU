@@ -25,6 +25,22 @@ export interface DataStore {
    * Throws if the series has not been set yet.
    */
   getSeriesPointCount(index: number): number;
+  /**
+   * Returns the FNV-1a content hash of the packed Float32 payload for this series.
+   * Changes whenever `setSeries` / `appendSeries` rewrites floats (even into the
+   * same buffer at the same point count). Used by GPU decimation dirty-gating
+   * (WG-P0-2) so same-N content rewrites re-dispatch compute.
+   *
+   * Throws if the series has not been set yet.
+   */
+  getSeriesContentHash(index: number): number;
+  /**
+   * Capacity-sized CPU staging buffer retained for this series (WG-P1-9).
+   * Same object identity across `setSeries` calls that do not grow capacity.
+   *
+   * Throws if the series has not been set yet.
+   */
+  getSeriesStagingBuffer(index: number): Float32Array;
   dispose(): void;
 }
 
@@ -207,8 +223,13 @@ export function createDataStore(device: GPUDevice): DataStore {
       );
     }
 
-    // Create staging buffer matching the packed data for efficient append
-    const stagingBuffer = new Float32Array(capacityBytes / 4);
+    // Reuse existing staging when capacity fits (WG-P1-9). Only allocate when
+    // growing past the previous capacity-sized Float32Array.
+    const requiredStagingFloats = capacityBytes / 4;
+    let stagingBuffer = existing?.stagingBuffer;
+    if (!stagingBuffer || stagingBuffer.length < requiredStagingFloats) {
+      stagingBuffer = new Float32Array(requiredStagingFloats);
+    }
     stagingBuffer.set(packed);
 
     series.set(index, {
@@ -373,6 +394,14 @@ export function createDataStore(device: GPUDevice): DataStore {
     return getSeriesEntry(index).pointCount;
   };
 
+  const getSeriesContentHash = (index: number): number => {
+    return getSeriesEntry(index).hash32;
+  };
+
+  const getSeriesStagingBuffer = (index: number): Float32Array => {
+    return getSeriesEntry(index).stagingBuffer;
+  };
+
   const dispose = (): void => {
     if (disposed) return;
     disposed = true;
@@ -393,6 +422,8 @@ export function createDataStore(device: GPUDevice): DataStore {
     removeSeries,
     getSeriesBuffer,
     getSeriesPointCount,
+    getSeriesContentHash,
+    getSeriesStagingBuffer,
     dispose,
   };
 }

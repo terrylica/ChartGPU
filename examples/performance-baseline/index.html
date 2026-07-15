@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ChartGPU Performance Baseline</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0a0a0c;
+        --panel: #14141a;
+        --border: #2a2a36;
+        --text: #e8e8ef;
+        --muted: #9a9aab;
+        --accent: #4a9eff;
+        --good: #40d17c;
+        --warn: #f0b429;
+        --bad: #ff5c7a;
+        --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: var(--bg);
+        color: var(--text);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      }
+      .layout {
+        display: grid;
+        grid-template-columns: minmax(280px, 360px) 1fr;
+        min-height: 100vh;
+      }
+      @media (max-width: 900px) {
+        .layout {
+          grid-template-columns: 1fr;
+        }
+      }
+      .sidebar {
+        border-right: 1px solid var(--border);
+        background: var(--panel);
+        padding: 1.25rem;
+        overflow: auto;
+      }
+      h1 {
+        font-size: 1.15rem;
+        margin: 0 0 0.35rem;
+      }
+      .sub {
+        color: var(--muted);
+        font-size: 0.85rem;
+        line-height: 1.45;
+        margin-bottom: 1.25rem;
+      }
+      .row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        margin-bottom: 0.75rem;
+      }
+      button,
+      select {
+        background: #1c1c28;
+        color: var(--text);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 0.45rem 0.75rem;
+        font: inherit;
+        cursor: pointer;
+      }
+      button.primary {
+        background: #1a3a5c;
+        border-color: var(--accent);
+        color: #d7ebff;
+      }
+      button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      label {
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+        font-size: 0.8rem;
+        color: var(--muted);
+        flex: 1;
+        min-width: 120px;
+      }
+      input[type="number"] {
+        background: #101018;
+        color: var(--text);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 0.4rem 0.5rem;
+        font-family: var(--mono);
+      }
+      .status {
+        font-family: var(--mono);
+        font-size: 0.78rem;
+        white-space: pre-wrap;
+        background: #0d0d12;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 0.75rem;
+        min-height: 4rem;
+        margin-top: 0.75rem;
+      }
+      .status.error {
+        border-color: var(--bad);
+        color: #ffb3c0;
+      }
+      .main {
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+      }
+      #chart {
+        width: 1280px;
+        height: 720px;
+        max-width: 100%;
+        margin: 1rem auto;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: #000;
+        flex: 0 0 auto;
+      }
+      pre#report {
+        margin: 0 1rem 1rem;
+        padding: 1rem;
+        background: #0d0d12;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        font-family: var(--mono);
+        font-size: 0.72rem;
+        overflow: auto;
+        max-height: 40vh;
+        color: #c8d0e0;
+      }
+      .pill {
+        display: inline-block;
+        padding: 0.15rem 0.45rem;
+        border-radius: 999px;
+        background: #222230;
+        color: var(--muted);
+        font-size: 0.75rem;
+        margin-right: 0.35rem;
+      }
+      .pill.ok {
+        color: var(--good);
+      }
+      .pill.run {
+        color: var(--accent);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="layout">
+      <aside class="sidebar">
+        <h1>Performance Baseline</h1>
+        <p class="sub">
+          Fixed scenarios measuring FPS and CPU frame time for regression tracking.
+          Prefer production preview (<code>build:examples</code> +
+          <code>preview:examples</code>), not Vite dev.
+        </p>
+
+        <div class="row">
+          <label>
+            Scenario
+            <select id="scenario-select"></select>
+          </label>
+        </div>
+        <div class="row">
+          <label>
+            Warmup frames
+            <input id="warmup-input" type="number" min="0" step="1" value="90" />
+          </label>
+          <label>
+            Measure frames
+            <input id="measure-input" type="number" min="30" step="1" value="300" />
+          </label>
+        </div>
+        <div class="row">
+          <button id="run-one" class="primary">Run scenario</button>
+          <button id="run-all" class="primary">Run all</button>
+          <button id="download" disabled>Download JSON</button>
+          <button id="copy" disabled>Copy JSON</button>
+        </div>
+        <div>
+          <span class="pill" id="env-pill">env</span>
+          <span class="pill" id="state-pill">idle</span>
+        </div>
+        <div id="status" class="status">Ready.</div>
+      </aside>
+      <main class="main">
+        <div id="chart" aria-label="Benchmark chart"></div>
+        <pre id="report">// Report JSON appears here after a run</pre>
+      </main>
+    </div>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

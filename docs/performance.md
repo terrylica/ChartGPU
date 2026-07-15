@@ -50,6 +50,23 @@ Zoom triggers resampling on visible range only. Target scales with zoom level (c
 - Buffer growth: geometric (power-of-two). No shrinking until disposal.
 - Time axis: ChartGPU rebases epoch-ms internally for Float32 precision.
 
+## Performance baseline (regression tracking)
+
+**Location:** [`examples/performance-baseline/`](../examples/performance-baseline/)
+
+Fixed scenarios (static redraw, hover, zoom/pan, stream append) that emit JSON with FPS and CPU frame-time percentiles. Use this before/after performance work.
+
+```bash
+bun run benchmark:baseline:preview
+# open http://localhost:4173/ChartGPU/examples/performance-baseline/?scenario=all&autorun=1&download=1
+# save JSON → benchmarks/baselines/main.json
+bun run benchmark:baseline:compare -- benchmarks/baselines/main.json ./candidate.json
+```
+
+Details: [`benchmarks/baseline/README.md`](../benchmarks/baseline/README.md), [`benchmarks/baselines/README.md`](../benchmarks/baselines/README.md).
+
+**Important:** Measure against the **production** examples build (`preview:examples`), not the Vite dev server.
+
 ## Benchmark (1M points)
 
 **Location:** [`examples/million-points/`](../examples/million-points/)

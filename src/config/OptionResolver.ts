@@ -25,6 +25,7 @@ import type {
   ScatterSeriesConfig,
   ScatterSymbol,
   SeriesSampling,
+  SeriesType,
 } from "./types";
 import {
   candlestickDefaults,
@@ -43,6 +44,10 @@ import {
   computeRawBoundsFromCartesianData,
   hasNullGaps,
 } from "../data/cartesianData";
+import {
+  hashCartesianSeriesData,
+  hashOHLCSeriesData,
+} from "../data/seriesContentHash";
 import { parseCssColorToRgba01 } from "../utils/colors";
 
 export type ResolvedGridConfig = Readonly<Required<GridConfig>>;
@@ -873,9 +878,59 @@ const warnCandlestickNotImplemented = (): void => {
   }
 };
 
+/**
+ * Optional reuse of a prior resolve result (P1-7).
+ * When raw data refs + sampling config match, skip O(n) bounds scan and sampleSeriesDataPoints.
+ */
+export type ResolveOptionsReuse = Readonly<{
+  readonly previousResolved?: ResolvedChartGPUOptions | null;
+}>;
+
+/**
+ * True when the previous resolved series can supply `data` + `rawBounds` without re-sampling.
+ * Requires stable raw data reference, identical sampling-related config, and a matching
+ * content hash (so in-place value mutation under the same ref still re-samples).
+ */
+export function canReuseResolvedSeriesSample(
+  prev: ResolvedSeriesConfig | undefined,
+  nextType: SeriesType,
+  rawData: unknown,
+  sampling: SeriesSampling | undefined,
+  samplingThreshold: number | undefined,
+  connectNulls: boolean | undefined,
+  contentHash: number,
+): boolean {
+  if (!prev || prev.type !== nextType || prev.type === "pie") return false;
+  const prevAny = prev as {
+    readonly rawData?: unknown;
+    readonly data?: unknown;
+    readonly sampling?: SeriesSampling;
+    readonly samplingThreshold?: number;
+    readonly connectNulls?: boolean;
+    readonly contentHash?: number;
+    readonly areaStyle?: unknown;
+  };
+  if ((prevAny.rawData ?? prevAny.data) !== rawData) return false;
+  if (prevAny.sampling !== sampling) return false;
+  if (prevAny.samplingThreshold !== samplingThreshold) return false;
+  if ((prevAny.connectNulls ?? false) !== (connectNulls ?? false)) {
+    return false;
+  }
+  // contentHash is required for reuse — missing hash means we cannot prove stability.
+  if (
+    typeof prevAny.contentHash !== "number" ||
+    prevAny.contentHash !== contentHash
+  ) {
+    return false;
+  }
+  return true;
+}
+
 export function resolveOptions(
   userOptions: ChartGPUOptions = {},
+  reuse?: ResolveOptionsReuse,
 ): ResolvedChartGPUOptions {
+  const previousSeries = reuse?.previousResolved?.series;
   const baseTheme = resolveTheme(userOptions.theme);
 
   // runtime safety for JS callers
@@ -1074,6 +1129,7 @@ export function resolveOptions(
     const explicitColor = normalizeOptionalColor(s.color);
     const inheritedColor = theme.colorPalette[i % theme.colorPalette.length];
     const color = explicitColor ?? inheritedColor;
+    const prevResolved = previousSeries?.[i];
 
     // Ensure visible defaults to true (converts undefined to true, preserves explicit false)
     const visible = s.visible !== false;
@@ -1100,12 +1156,32 @@ export function resolveOptions(
           color: effectiveColor,
         };
 
+        const connectNulls = s.connectNulls ?? false;
+        const contentHash = hashCartesianSeriesData(s.data);
+        const reuseSample = canReuseResolvedSeriesSample(
+          prevResolved,
+          "area",
+          s.data,
+          sampling,
+          samplingThreshold,
+          connectNulls,
+          contentHash,
+        );
+        const prevArea = reuseSample
+          ? (prevResolved as ResolvedAreaSeriesConfig & {
+              contentHash?: number;
+            })
+          : null;
         const rawBounds =
-          computeRawBoundsFromCartesianData(s.data) ?? undefined;
+          prevArea?.rawBounds ??
+          computeRawBoundsFromCartesianData(s.data) ??
+          undefined;
         // Bypass sampling when data contains null gap markers to preserve gap structure
-        const sampledAreaData = hasNullGaps(s.data)
-          ? s.data
-          : sampleSeriesDataPoints(s.data, sampling, samplingThreshold);
+        const sampledAreaData = prevArea
+          ? prevArea.data
+          : hasNullGaps(s.data)
+            ? s.data
+            : sampleSeriesDataPoints(s.data, sampling, samplingThreshold);
         return {
           ...s,
           visible,
@@ -1116,8 +1192,9 @@ export function resolveOptions(
           sampling,
           samplingThreshold,
           rawBounds,
-          connectNulls: s.connectNulls ?? false,
+          connectNulls,
           yAxis,
+          contentHash,
         };
       }
       case "line": {
@@ -1134,12 +1211,32 @@ export function resolveOptions(
 
         // Avoid leaking the unresolved (user) areaStyle shape via object spread.
         const { areaStyle: _userAreaStyle, ...rest } = s;
+        const connectNulls = s.connectNulls ?? false;
+        const contentHash = hashCartesianSeriesData(s.data);
+        const reuseSample = canReuseResolvedSeriesSample(
+          prevResolved,
+          "line",
+          s.data,
+          sampling,
+          samplingThreshold,
+          connectNulls,
+          contentHash,
+        );
+        const prevLine = reuseSample
+          ? (prevResolved as ResolvedLineSeriesConfig & {
+              contentHash?: number;
+            })
+          : null;
         const rawBounds =
-          computeRawBoundsFromCartesianData(s.data) ?? undefined;
+          prevLine?.rawBounds ??
+          computeRawBoundsFromCartesianData(s.data) ??
+          undefined;
         // Bypass sampling when data contains null gap markers to preserve gap structure
-        const sampledData = hasNullGaps(s.data)
-          ? s.data
-          : sampleSeriesDataPoints(s.data, sampling, samplingThreshold);
+        const sampledData = prevLine
+          ? prevLine.data
+          : hasNullGaps(s.data)
+            ? s.data
+            : sampleSeriesDataPoints(s.data, sampling, samplingThreshold);
 
         return {
           ...rest,
@@ -1162,28 +1259,66 @@ export function resolveOptions(
           sampling,
           samplingThreshold,
           rawBounds,
-          connectNulls: s.connectNulls ?? false,
+          connectNulls,
           yAxis,
+          contentHash,
         };
       }
       case "bar": {
+        const contentHash = hashCartesianSeriesData(s.data);
+        const reuseSample = canReuseResolvedSeriesSample(
+          prevResolved,
+          "bar",
+          s.data,
+          sampling,
+          samplingThreshold,
+          undefined,
+          contentHash,
+        );
+        const prevBar = reuseSample
+          ? (prevResolved as ResolvedBarSeriesConfig & {
+              contentHash?: number;
+            })
+          : null;
         const rawBounds =
-          computeRawBoundsFromCartesianData(s.data) ?? undefined;
+          prevBar?.rawBounds ??
+          computeRawBoundsFromCartesianData(s.data) ??
+          undefined;
         return {
           ...s,
           visible,
           rawData: s.data,
-          data: sampleSeriesDataPoints(s.data, sampling, samplingThreshold),
+          data: prevBar
+            ? prevBar.data
+            : sampleSeriesDataPoints(s.data, sampling, samplingThreshold),
           color,
           sampling,
           samplingThreshold,
           rawBounds,
           yAxis,
+          contentHash,
         };
       }
       case "scatter": {
+        const contentHash = hashCartesianSeriesData(s.data);
+        const reuseSample = canReuseResolvedSeriesSample(
+          prevResolved,
+          "scatter",
+          s.data,
+          sampling,
+          samplingThreshold,
+          undefined,
+          contentHash,
+        );
+        const prevScatter = reuseSample
+          ? (prevResolved as ResolvedScatterSeriesConfig & {
+              contentHash?: number;
+            })
+          : null;
         const rawBounds =
-          computeRawBoundsFromCartesianData(s.data) ?? undefined;
+          prevScatter?.rawBounds ??
+          computeRawBoundsFromCartesianData(s.data) ??
+          undefined;
         const mode =
           normalizeScatterMode(
             (s as unknown as { readonly mode?: unknown }).mode,
@@ -1206,7 +1341,9 @@ export function resolveOptions(
           ...s,
           visible,
           rawData: s.data,
-          data: sampleSeriesDataPoints(s.data, sampling, samplingThreshold),
+          data: prevScatter
+            ? prevScatter.data
+            : sampleSeriesDataPoints(s.data, sampling, samplingThreshold),
           color,
           mode,
           binSize,
@@ -1216,6 +1353,7 @@ export function resolveOptions(
           samplingThreshold,
           rawBounds,
           yAxis,
+          contentHash,
         };
       }
       case "pie": {
@@ -1280,11 +1418,28 @@ export function resolveOptions(
               : candlestickDefaults.itemStyle.borderWidth,
         };
 
-        const rawBounds = computeRawBoundsFromOHLC(s.data);
+        const contentHash = hashOHLCSeriesData(s.data);
+        const reuseCandle = canReuseResolvedSeriesSample(
+          prevResolved,
+          "candlestick",
+          s.data,
+          resolvedSampling,
+          resolvedSamplingThreshold,
+          undefined,
+          contentHash,
+        );
+        const prevCandle = reuseCandle
+          ? (prevResolved as ResolvedCandlestickSeriesConfig & {
+              contentHash?: number;
+            })
+          : null;
+        const rawBounds =
+          prevCandle?.rawBounds ?? computeRawBoundsFromOHLC(s.data);
 
-        const sampledData =
-          resolvedSampling === "ohlc" &&
-          s.data.length > resolvedSamplingThreshold
+        const sampledData = prevCandle
+          ? prevCandle.data
+          : resolvedSampling === "ohlc" &&
+              s.data.length > resolvedSamplingThreshold
             ? ohlcSample(s.data, resolvedSamplingThreshold)
             : s.data;
 
@@ -1303,6 +1458,7 @@ export function resolveOptions(
           samplingThreshold: resolvedSamplingThreshold,
           rawBounds,
           yAxis,
+          contentHash,
         };
       }
       default: {
@@ -1364,9 +1520,10 @@ const hasSliderDataZoom = (options: ChartGPUOptions): boolean =>
  */
 export function resolveOptionsForChart(
   userOptions: ChartGPUOptions = {},
+  reuse?: ResolveOptionsReuse,
 ): ResolvedChartGPUOptions {
   const base: ResolvedChartGPUOptions = {
-    ...resolveOptions(userOptions),
+    ...resolveOptions(userOptions, reuse),
     tooltip: userOptions.tooltip,
   };
   if (!hasSliderDataZoom(userOptions)) return base;

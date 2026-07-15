@@ -2052,7 +2052,10 @@ export async function createChartGPU(
     setOption(nextOptions) {
       if (disposed) return;
       currentOptions = nextOptions;
-      resolvedOptions = resolveOptionsForChart(nextOptions);
+      // P1-7: pass previous resolve so unchanged series skip re-sample / bounds scan.
+      resolvedOptions = resolveOptionsForChart(nextOptions, {
+        previousResolved: resolvedOptions,
+      });
       coordinator?.setOptions(resolvedOptions);
       initRuntimeHitTestStoreFromResolvedOptions();
       cachedGlobalBounds = computeGlobalBounds(

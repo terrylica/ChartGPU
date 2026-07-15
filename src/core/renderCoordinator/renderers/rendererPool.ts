@@ -15,6 +15,7 @@ import { createScatterDensityRenderer } from "../../../renderers/createScatterDe
 import { createPieRenderer } from "../../../renderers/createPieRenderer";
 import { createCandlestickRenderer } from "../../../renderers/createCandlestickRenderer";
 import { createBarRenderer } from "../../../renderers/createBarRenderer";
+import { createDecimationCompute } from "../../../renderers/createDecimationCompute";
 import type { PipelineCache } from "../../PipelineCache";
 
 /**
@@ -48,6 +49,13 @@ export interface RendererPoolState {
   readonly pieRenderers: ReadonlyArray<ReturnType<typeof createPieRenderer>>;
   readonly candlestickRenderers: ReadonlyArray<
     ReturnType<typeof createCandlestickRenderer>
+  >;
+  /**
+   * Per-line-series GPU decimation compute instances. Sized 1:1 with
+   * `lineRenderers`. Ineligible series simply never call `.prepare()`.
+   */
+  readonly decimationComputes: ReadonlyArray<
+    ReturnType<typeof createDecimationCompute>
   >;
   readonly barRenderer: ReturnType<typeof createBarRenderer>;
 }
@@ -105,6 +113,13 @@ export interface RendererPool {
   ensureCandlestickRendererCount(count: number): void;
 
   /**
+   * Ensures decimation compute count matches the given count. Kept in lock-step
+   * with `ensureLineRendererCount` so `decimationComputes[i]` pairs with
+   * `lineRenderers[i]`.
+   */
+  ensureDecimationComputeCount(count: number): void;
+
+  /**
    * Gets current renderer pool state for rendering.
    * Returns readonly arrays to prevent external mutation.
    *
@@ -148,6 +163,9 @@ export function createRendererPool(config: RendererPoolConfig): RendererPool {
   const pieRenderers: Array<ReturnType<typeof createPieRenderer>> = [];
   const candlestickRenderers: Array<
     ReturnType<typeof createCandlestickRenderer>
+  > = [];
+  const decimationComputes: Array<
+    ReturnType<typeof createDecimationCompute>
   > = [];
 
   // Bar renderer is a singleton (one instance handles all bar series)
@@ -279,6 +297,22 @@ export function createRendererPool(config: RendererPoolConfig): RendererPool {
     }
   }
 
+  /**
+   * Ensures decimation compute count matches the given count.
+   * Every line series gets a paired slot so decimationComputes[i] ↔ lineRenderers[i].
+   */
+  function ensureDecimationComputeCount(count: number): void {
+    while (decimationComputes.length > count) {
+      const r = decimationComputes.pop();
+      r?.dispose();
+    }
+    while (decimationComputes.length < count) {
+      decimationComputes.push(
+        createDecimationCompute(device, { pipelineCache }),
+      );
+    }
+  }
+
   // Cached state object to avoid per-frame allocations.
   // Since the arrays are mutated in-place (push/pop), the cached object's
   // readonly references remain valid — we only need one allocation.
@@ -299,6 +333,7 @@ export function createRendererPool(config: RendererPoolConfig): RendererPool {
         scatterDensityRenderers,
         pieRenderers,
         candlestickRenderers,
+        decimationComputes,
         barRenderer,
       };
     }
@@ -346,6 +381,12 @@ export function createRendererPool(config: RendererPoolConfig): RendererPool {
     }
     candlestickRenderers.length = 0;
 
+    // Dispose decimation compute instances
+    for (let i = 0; i < decimationComputes.length; i++) {
+      decimationComputes[i].dispose();
+    }
+    decimationComputes.length = 0;
+
     // Dispose bar renderer (singleton)
     barRenderer.dispose();
   }
@@ -357,6 +398,7 @@ export function createRendererPool(config: RendererPoolConfig): RendererPool {
     ensureScatterDensityRendererCount,
     ensurePieRendererCount,
     ensureCandlestickRendererCount,
+    ensureDecimationComputeCount,
     getState,
     dispose,
   };

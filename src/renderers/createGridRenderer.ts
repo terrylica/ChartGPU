@@ -86,6 +86,9 @@ const DEFAULT_GRID_RGBA: readonly [number, number, number, number] = [
   1, 1, 1, 0.15,
 ];
 
+/** Initial capacity for per-batch color slots. Grows geometrically on demand. */
+const INITIAL_BATCH_SLOTS = 4;
+
 const createIdentityMat4Buffer = (): ArrayBuffer => {
   // Column-major identity mat4x4
   const buffer = new ArrayBuffer(16 * 4);
@@ -193,6 +196,10 @@ export function createGridRenderer(
     : 1;
   const pipelineCache = options?.pipelineCache;
 
+  // Dynamic-offset alignment for uniform buffers. Spec default is 256; some
+  // devices advertise smaller values, which packs slots tighter.
+  const dynamicOffsetAlignment = device.limits.minUniformBufferOffsetAlignment;
+
   const bindGroupLayout = device.createBindGroupLayout({
     entries: [
       {
@@ -201,9 +208,13 @@ export function createGridRenderer(
         buffer: { type: "uniform" },
       },
       {
+        // Per-batch color via dynamic offset so multi-batch grids (e.g. distinct
+        // H/V colors) each see their own FS uniform slot. Writing into a single
+        // uniform between draws is not sequenced with those draws, so all
+        // batches would otherwise render with the last color.
         binding: 1,
         visibility: GPUShaderStage.FRAGMENT,
-        buffer: { type: "uniform" },
+        buffer: { type: "uniform", hasDynamicOffset: true },
       },
     ],
   });
@@ -211,15 +222,30 @@ export function createGridRenderer(
   const vsUniformBuffer = createUniformBuffer(device, 64, {
     label: "gridRenderer/vsUniforms",
   });
-  const fsUniformBuffer = createUniformBuffer(device, 16, {
+
+  // Single FS uniform buffer with slots for multiple batches. Grows geometrically.
+  let fsUniformSlotCount = INITIAL_BATCH_SLOTS;
+  let fsUniformBuffer: GPUBuffer = device.createBuffer({
     label: "gridRenderer/fsUniforms",
+    size: fsUniformSlotCount * dynamicOffsetAlignment,
+    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
   });
 
-  const bindGroup = device.createBindGroup({
+  // Bind group holds references to the uniform buffers. Rebuilt when the FS
+  // uniform buffer is reallocated (on batch-slot growth).
+  let bindGroup = device.createBindGroup({
     layout: bindGroupLayout,
     entries: [
       { binding: 0, resource: { buffer: vsUniformBuffer } },
-      { binding: 1, resource: { buffer: fsUniformBuffer } },
+      {
+        binding: 1,
+        resource: {
+          buffer: fsUniformBuffer,
+          offset: 0,
+          // Only cover one slot — dynamic offsets index into the full buffer.
+          size: 16,
+        },
+      },
     ],
   });
 
@@ -264,16 +290,72 @@ export function createGridRenderer(
     pipelineCache,
   );
 
-  let vertexBuffer: GPUBuffer | null = null;
-  let combinedVertices: Float32Array | null = null;
-  let batches: Array<{
+  interface Batch {
     readonly vertexOffsetBytes: number;
     readonly vertexCount: number;
-    readonly rgba: readonly [number, number, number, number];
-  }> = [];
+    readonly fsDynamicOffset: number;
+  }
+
+  let vertexBuffer: GPUBuffer | null = null;
+  let combinedVertices: Float32Array | null = null;
+  let batches: Batch[] = [];
+
+  // Scratch for color uploads (avoids per-batch ArrayBuffer alloc).
+  const colorScratch = new Float32Array(4);
 
   const assertNotDisposed = (): void => {
     if (disposed) throw new Error("GridRenderer is disposed.");
+  };
+
+  const ensureFsUniformCapacity = (requiredSlots: number): void => {
+    if (requiredSlots <= fsUniformSlotCount) return;
+
+    // Geometric growth to amortize reallocation cost.
+    let nextCount = fsUniformSlotCount;
+    while (nextCount < requiredSlots) nextCount *= 2;
+
+    try {
+      fsUniformBuffer.destroy();
+    } catch {
+      // best-effort
+    }
+
+    fsUniformSlotCount = nextCount;
+    fsUniformBuffer = device.createBuffer({
+      label: "gridRenderer/fsUniforms",
+      size: fsUniformSlotCount * dynamicOffsetAlignment,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+
+    bindGroup = device.createBindGroup({
+      layout: bindGroupLayout,
+      entries: [
+        { binding: 0, resource: { buffer: vsUniformBuffer } },
+        {
+          binding: 1,
+          resource: { buffer: fsUniformBuffer, offset: 0, size: 16 },
+        },
+      ],
+    });
+  };
+
+  const writeBatchColor = (
+    slotIndex: number,
+    rgba: readonly [number, number, number, number],
+  ): void => {
+    const offset = slotIndex * dynamicOffsetAlignment;
+    colorScratch[0] = rgba[0];
+    colorScratch[1] = rgba[1];
+    colorScratch[2] = rgba[2];
+    colorScratch[3] = rgba[3];
+    // queue.writeBuffer requires 4-byte-aligned size; 16-byte color satisfies that.
+    device.queue.writeBuffer(
+      fsUniformBuffer,
+      offset,
+      colorScratch.buffer,
+      0,
+      colorScratch.byteLength,
+    );
   };
 
   const prepare: GridRenderer["prepare"] = (gridArea, lineCountOrOptions) => {
@@ -286,18 +368,18 @@ export function createGridRenderer(
         "color" in lineCountOrOptions ||
         "append" in lineCountOrOptions);
 
-    const options: GridPrepareOptions | undefined = isOptionsObject
+    const optionsArg: GridPrepareOptions | undefined = isOptionsObject
       ? (lineCountOrOptions as GridPrepareOptions)
       : undefined;
 
     const lineCount: GridLineCount | undefined = isOptionsObject
-      ? options?.lineCount
+      ? optionsArg?.lineCount
       : (lineCountOrOptions as GridLineCount | undefined);
 
     const horizontal = lineCount?.horizontal ?? DEFAULT_HORIZONTAL_LINES;
     const vertical = lineCount?.vertical ?? DEFAULT_VERTICAL_LINES;
-    const colorString = options?.color ?? DEFAULT_GRID_COLOR;
-    const append = options?.append === true;
+    const colorString = optionsArg?.color ?? DEFAULT_GRID_COLOR;
+    const append = optionsArg?.append === true;
 
     // Validate inputs
     if (horizontal < 0 || vertical < 0) {
@@ -340,6 +422,12 @@ export function createGridRenderer(
     // Parse color for this batch (fallbacks to internal default)
     const rgba = parseCssColorToRgba01(colorString) ?? DEFAULT_GRID_RGBA;
 
+    const nextBatchIndex =
+      append && combinedVertices && batches.length > 0 ? batches.length : 0;
+
+    ensureFsUniformCapacity(nextBatchIndex + 1);
+    writeBatchColor(nextBatchIndex, rgba);
+
     // Append or replace prepared geometry
     let vertexOffsetBytes = 0;
     if (
@@ -356,12 +444,20 @@ export function createGridRenderer(
       combined.set(vertices, combinedVertices.length);
       combinedVertices = combined;
       batches = batches.concat([
-        { vertexOffsetBytes, vertexCount: newBatchVertexCount, rgba },
+        {
+          vertexOffsetBytes,
+          vertexCount: newBatchVertexCount,
+          fsDynamicOffset: nextBatchIndex * dynamicOffsetAlignment,
+        },
       ]);
     } else {
       combinedVertices = vertices;
       batches = [
-        { vertexOffsetBytes: 0, vertexCount: newBatchVertexCount, rgba },
+        {
+          vertexOffsetBytes: 0,
+          vertexCount: newBatchVertexCount,
+          fsDynamicOffset: 0,
+        },
       ];
     }
 
@@ -395,10 +491,8 @@ export function createGridRenderer(
       combinedVertices.byteLength,
     );
 
-    // Write uniforms
     // VS uniform: identity transform (vertices already in clip space)
-    const transformBuffer = createIdentityMat4Buffer();
-    writeUniformBuffer(device, vsUniformBuffer, transformBuffer);
+    writeUniformBuffer(device, vsUniformBuffer, createIdentityMat4Buffer());
   };
 
   const render: GridRenderer["render"] = (passEncoder) => {
@@ -406,19 +500,11 @@ export function createGridRenderer(
     if (batches.length === 0 || !vertexBuffer) return;
 
     passEncoder.setPipeline(pipeline);
-    passEncoder.setBindGroup(0, bindGroup);
 
     for (const batch of batches) {
-      // FS uniform: per-batch color
-      const colorBuffer = new ArrayBuffer(4 * 4);
-      new Float32Array(colorBuffer).set([
-        batch.rgba[0],
-        batch.rgba[1],
-        batch.rgba[2],
-        batch.rgba[3],
-      ]);
-      writeUniformBuffer(device, fsUniformBuffer, colorBuffer);
-
+      // No queue.writeBuffer here — colors were written in prepare() into
+      // distinct dynamic-offset slots so each draw sees its own color.
+      passEncoder.setBindGroup(0, bindGroup, [batch.fsDynamicOffset]);
       passEncoder.setVertexBuffer(0, vertexBuffer, batch.vertexOffsetBytes);
       passEncoder.draw(batch.vertexCount);
     }
