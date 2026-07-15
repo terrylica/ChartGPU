@@ -1,8 +1,11 @@
 # ChartGPU Performance Goals
 
+> **Overarching source of truth:** [`OVERARCHING_PERFORMANCE_GOALS.md`](../OVERARCHING_PERFORMANCE_GOALS.md)  
+> Prefer that file for status updates, phase tracking, and agent checklists. This page is a shorter twin.
+
 **Branch:** `performance-audit`  
 **Sources:** [`audit.md`](../audit.md), [`benchmarks/baselines/main.json`](../benchmarks/baselines/main.json), [`examples/performance-baseline/`](../examples/performance-baseline/)  
-**Purpose:** Single goal document for humans and agents — every audit finding, acceptance criteria, fix order, and **autonomous** baseline verification.
+**Purpose:** Goal summary for humans and agents — findings, acceptance criteria, fix order, and **autonomous** baseline verification.
 
 ---
 
