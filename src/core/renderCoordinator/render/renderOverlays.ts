@@ -20,7 +20,10 @@ import type {
   HighlightPoint,
 } from "../../../renderers/createHighlightRenderer";
 import type { GridArea } from "../../../renderers/createGridRenderer";
-import { findNearestPoint } from "../../../interaction/findNearestPoint";
+import {
+  findNearestPoint,
+  type NearestPointMatch,
+} from "../../../interaction/findNearestPoint";
 import { getPointXY } from "../utils/dataPointUtils";
 import { computePlotScissorDevicePx } from "../utils/axisUtils";
 
@@ -35,6 +38,12 @@ export interface OverlayRenderers {
   crosshairRenderer: CrosshairRenderer;
   highlightRenderer: HighlightRenderer;
 }
+
+/**
+ * Shared nearest-point hit result for tooltip + highlight (P0-5).
+ * Computed once per hover frame in the coordinator and reused by both consumers.
+ */
+export type SharedNearestMatch = NearestPointMatch | null;
 
 export interface OverlayPrepareContext {
   currentOptions: ResolvedChartGPUOptions;
@@ -58,6 +67,13 @@ export interface OverlayPrepareContext {
   } | null;
   seriesForRender: ReadonlyArray<any>;
   withAlpha: (color: string, alpha: number) => string;
+  /**
+   * Optional precomputed nearest-point match for the current pointer.
+   * When provided (including explicit `null`), highlight skips its own
+   * `findNearestPoint` call and uses this result. When omitted, falls back
+   * to an independent hit-test for backward compatibility.
+   */
+  nearestMatch?: SharedNearestMatch | undefined;
 }
 
 export interface OverlayRenderContext {
@@ -183,21 +199,25 @@ export function prepareOverlays(
     renderers.crosshairRenderer.setVisible(false);
   }
 
-  // Highlight preparation (on hover, find nearest point)
+  // Highlight preparation (on hover, find nearest point).
+  // Prefer a shared match from the coordinator (P0-5) so tooltip + highlight
+  // do not each run findNearestPoint on the same frame.
   if (
     effectivePointer.source === "mouse" &&
     effectivePointer.hasPointer &&
     effectivePointer.isInGrid
   ) {
     if (interactionScales) {
-      // findNearestPoint handles visibility filtering internally
-      const match = findNearestPoint(
-        seriesForRender,
-        effectivePointer.gridX,
-        effectivePointer.gridY,
-        interactionScales.xScale,
-        interactionScales.yScales.values().next().value!,
-      );
+      const match =
+        context.nearestMatch !== undefined
+          ? context.nearestMatch
+          : findNearestPoint(
+              seriesForRender,
+              effectivePointer.gridX,
+              effectivePointer.gridY,
+              interactionScales.xScale,
+              interactionScales.yScales.values().next().value!,
+            );
 
       if (match) {
         const { x, y } = getPointXY(match.point);

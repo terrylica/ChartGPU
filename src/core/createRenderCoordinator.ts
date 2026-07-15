@@ -19,6 +19,7 @@ import {
 } from "./GPUContext";
 import { createDataStore } from "../data/createDataStore";
 import { sampleSeriesDataPoints } from "../data/sampleSeries";
+import { isGpuDecimationEligible } from "../data/gpuDecimationEligibility";
 import { ohlcSample } from "../data/ohlcSample";
 import {
   sliceVisibleRangeByX,
@@ -40,8 +41,10 @@ import { processAnnotations } from "./renderCoordinator/annotations/processAnnot
 import {
   prepareSeries,
   encodeScatterDensityCompute,
+  encodeDecimationCompute,
   renderSeries as renderSeriesPass,
   renderAboveSeriesAnnotations,
+  type LastSetSeriesCache,
 } from "./renderCoordinator/render/renderSeries";
 import { createAxisRenderer } from "../renderers/createAxisRenderer";
 import { createGridRenderer } from "../renderers/createGridRenderer";
@@ -1708,11 +1711,17 @@ export function createRenderCoordinator(
 
   // Tracks what the DataStore currently represents for each series index.
   // Used to decide whether `appendSeries(...)` is a correct fast-path.
-  type GpuSeriesKind = "unknown" | "fullRawLine" | "other";
+  // - fullRawLine: sampling=none, full-span zoom, raw buffer
+  // - gpuDecimationRaw: GPU decimation active; buffer holds full raw for compute
+  type GpuSeriesKind = "unknown" | "fullRawLine" | "gpuDecimationRaw" | "other";
   let gpuSeriesKindByIndex: GpuSeriesKind[] = new Array(
     currentOptions.series.length,
   ).fill("unknown");
   const appendedGpuThisFrame = new Set<number>();
+
+  // P1-2: skip DataStore.setSeries pack+hash when the same data ref + xOffset is re-uploaded.
+  // Must be cleared while update-animation interpolates (mutates values under a stable ref).
+  const lastSetSeriesCache: LastSetSeriesCache = new Map();
 
   // Tooltip is a DOM overlay element; enable by default unless explicitly disabled.
   let tooltip: Tooltip | null =
@@ -1724,6 +1733,30 @@ export function createRenderCoordinator(
   let lastTooltipContent: string | null = null;
   let lastTooltipX: number | null = null;
   let lastTooltipY: number | null = null;
+
+  // Throttle tooltip hit-testing to ~30 Hz (P0-4). Crosshair/highlight still track the
+  // pointer every frame; only the expensive tooltip scan + DOM path is rate-limited.
+  // A follow-up render is scheduled so the tooltip catches up after the window elapses.
+  const TOOLTIP_HIT_TEST_THROTTLE_MS = 33;
+  let lastTooltipHitTestMs = -Infinity;
+  let pendingTooltipFollowupTimerId: ReturnType<typeof setTimeout> | null =
+    null;
+
+  const cancelPendingTooltipFollowup = (): void => {
+    if (pendingTooltipFollowupTimerId !== null) {
+      clearTimeout(pendingTooltipFollowupTimerId);
+      pendingTooltipFollowupTimerId = null;
+    }
+  };
+
+  const schedulePendingTooltipFollowup = (delayMs: number): void => {
+    if (pendingTooltipFollowupTimerId !== null) return;
+    const wait = Math.max(0, delayMs);
+    pendingTooltipFollowupTimerId = setTimeout(() => {
+      pendingTooltipFollowupTimerId = null;
+      requestRender();
+    }, wait);
+  };
 
   // Helper functions for tooltip/legend management
   const showTooltipInternal = (
@@ -1966,13 +1999,27 @@ export function createRenderCoordinator(
             s.rawBounds ?? computeRawBoundsFromCartesianData(seed);
         }
 
-        // Optional fast-path: if the GPU buffer currently represents the full, unsampled line series,
-        // we can append just the new points to the existing GPU buffer (no full re-upload).
+        // Optional fast-path: append just the new points when the DataStore buffer
+        // holds full raw line data (sampling='none' full-span, or GPU decimation raw).
+        const kind = gpuSeriesKindByIndex[seriesIndex];
+        const isGpuDecimationActive = kind === "gpuDecimationRaw";
+        const isGpuDecimationEligibleNow =
+          s.type === "line" &&
+          isGpuDecimationEligible(
+            s,
+            (runtimeRawDataByIndex[seriesIndex] as CartesianSeriesData) ??
+              ((s.rawData ?? s.data) as CartesianSeriesData),
+          );
         const canUseFastPath =
           s.type === "line" &&
-          s.sampling === "none" &&
-          isFullSpanZoomBefore &&
-          gpuSeriesKindByIndex[seriesIndex] === "fullRawLine";
+          (kind === "fullRawLine" ||
+            isGpuDecimationActive ||
+            // First frames before prepare tags kind, but eligibility already known.
+            (kind === "unknown" && isGpuDecimationEligibleNow)) &&
+          // fullRawLine still requires full-span + sampling none; GPU path works at any zoom.
+          (isGpuDecimationActive ||
+            isGpuDecimationEligibleNow ||
+            (s.sampling === "none" && isFullSpanZoomBefore));
 
         // Process each batch of cartesian data
         for (const batch of batches) {
@@ -1990,13 +2037,14 @@ export function createRenderCoordinator(
           } else if (
             s.type === "line" &&
             s.sampling !== "none" &&
+            !isGpuDecimationEligibleNow &&
             !warnedSamplingDefeatsFastPath.has(seriesIndex)
           ) {
             // Warn users that sampling defeats the incremental append optimization
             warnedSamplingDefeatsFastPath.add(seriesIndex);
             console.warn(
               `[ChartGPU] appendData() on series ${seriesIndex} with sampling='${s.sampling}' causes full buffer re-upload every frame. ` +
-                `For optimal streaming performance, use sampling='none'. ` +
+                `For optimal streaming performance, use sampling='none' or rely on GPU decimation for auto/lttb/min/max. ` +
                 `See docs/internal/INCREMENTAL_APPEND_OPTIMIZATION.md for details.`,
             );
           }
@@ -2635,6 +2683,9 @@ export function createRenderCoordinator(
     runtimeRawDataByIndex = new Array(count).fill(null);
     runtimeRawBoundsByIndex = new Array(count).fill(null);
     pendingAppendByIndex.clear();
+    // Runtime data references are about to be regenerated; invalidate the per-frame
+    // setSeries cache so the next render uploads the fresh references (P1-2).
+    lastSetSeriesCache.clear();
 
     for (let i = 0; i < count; i++) {
       const s = currentOptions.series[i]!;
@@ -2694,11 +2745,15 @@ export function createRenderCoordinator(
         ] as MutableXYColumns | null as CartesianSeriesData) ??
         ((s.rawData ?? s.data) as CartesianSeriesData);
       const bounds = runtimeRawBoundsByIndex[i] ?? s.rawBounds ?? undefined;
-      const baselineSampled = sampleSeriesDataPoints(
-        rawCartesian,
-        s.sampling,
-        s.samplingThreshold,
-      );
+      // GPU decimation: keep raw on the series; prepareSeries uploads raw and
+      // runs compute. CPU path still samples for display.
+      const baselineSampled = isGpuDecimationEligible(s, rawCartesian)
+        ? rawCartesian
+        : sampleSeriesDataPoints(
+            rawCartesian,
+            s.sampling,
+            s.samplingThreshold,
+          );
       next[i] = {
         ...s,
         rawData: rawCartesian,
@@ -2930,6 +2985,17 @@ export function createRenderCoordinator(
         maxTarget,
       );
 
+      // GPU decimation: keep full raw (not a zoom-sliced sample). The compute
+      // shader scopes work via visibleStart/visibleEnd uniforms in prepareSeries.
+      if (isGpuDecimationEligible(s, bufferedRaw)) {
+        next[i] = {
+          ...s,
+          rawData: rawCartesian,
+          data: rawCartesian,
+        };
+        continue;
+      }
+
       const sampled = sampleSeriesDataPoints(bufferedRaw, sampling, target);
 
       // Store sampled data in cache with buffered range
@@ -2968,6 +3034,7 @@ export function createRenderCoordinator(
 
   rendererPool.ensureAreaRendererCount(currentOptions.series.length);
   rendererPool.ensureLineRendererCount(currentOptions.series.length);
+  rendererPool.ensureDecimationComputeCount(currentOptions.series.length);
   rendererPool.ensureScatterRendererCount(currentOptions.series.length);
   rendererPool.ensureScatterDensityRendererCount(currentOptions.series.length);
   rendererPool.ensurePieRendererCount(currentOptions.series.length);
@@ -3124,6 +3191,7 @@ export function createRenderCoordinator(
     const nextCount = resolvedOptions.series.length;
     rendererPool.ensureAreaRendererCount(nextCount);
     rendererPool.ensureLineRendererCount(nextCount);
+    rendererPool.ensureDecimationComputeCount(nextCount);
     rendererPool.ensureScatterRendererCount(nextCount);
     rendererPool.ensureScatterDensityRendererCount(nextCount);
     rendererPool.ensurePieRendererCount(nextCount);
@@ -3134,6 +3202,7 @@ export function createRenderCoordinator(
     if (nextCount < lastSeriesCount) {
       for (let i = nextCount; i < lastSeriesCount; i++) {
         dataStore.removeSeries(i);
+        lastSetSeriesCache.delete(i);
       }
     }
     lastSeriesCount = nextCount;
@@ -3570,6 +3639,13 @@ export function createRenderCoordinator(
           )
         : renderSeries;
 
+    // The interpolation cache reuses the same array reference across frames (mutating
+    // values in-place). setSeriesIfChanged short-circuits on reference identity, so clear
+    // the cache every animation frame so GPU uploads are not silently skipped (P1-2).
+    if (updateTransition && updateP < 1) {
+      lastSetSeriesCache.clear();
+    }
+
     // Keep `interactionX` in sync with real pointer movement (domain units).
     if (
       pointerState.source === "mouse" &&
@@ -3619,6 +3695,26 @@ export function createRenderCoordinator(
       }
     }
 
+    // P0-5: single findNearestPoint for highlight + item-mode tooltip.
+    // Computed once when the real pointer is over the plot; shared via prepareOverlays.
+    let sharedNearestMatch: ReturnType<typeof findNearestPoint> | undefined;
+    if (
+      effectivePointer.source === "mouse" &&
+      effectivePointer.hasPointer &&
+      effectivePointer.isInGrid &&
+      interactionScales
+    ) {
+      sharedNearestMatch = findNearestPoint(
+        seriesForRender,
+        effectivePointer.gridX,
+        effectivePointer.gridY,
+        interactionScales.xScale,
+        interactionScales.yScales.values().next().value!,
+      );
+    } else {
+      sharedNearestMatch = null;
+    }
+
     // Prepare overlay renderers (grid, axes, crosshair, highlight)
     prepareOverlays(
       {
@@ -3639,16 +3735,37 @@ export function createRenderCoordinator(
         interactionScales,
         seriesForRender,
         withAlpha,
+        nearestMatch: sharedNearestMatch,
       },
     );
 
     // Tooltip: on hover, find matches and render tooltip near cursor.
     // Note: Tooltips require HTMLCanvasElement (DOM-specific positioning).
-    if (
+    const tooltipPointerActive =
       effectivePointer.hasPointer &&
       effectivePointer.isInGrid &&
-      currentOptions.tooltip?.show !== false
-    ) {
+      currentOptions.tooltip?.show !== false;
+
+    // Throttle gate (P0-4): suppress hit-testing within TOOLTIP_HIT_TEST_THROTTLE_MS of
+    // the previous computation. When suppressed, leave the existing tooltip alone and
+    // schedule a follow-up render. Hides (pointer leaving the grid) are not throttled.
+    let tooltipHitTestAllowed = true;
+    if (tooltipPointerActive) {
+      const now = performance.now();
+      const elapsed = now - lastTooltipHitTestMs;
+      if (elapsed < TOOLTIP_HIT_TEST_THROTTLE_MS) {
+        tooltipHitTestAllowed = false;
+        schedulePendingTooltipFollowup(TOOLTIP_HIT_TEST_THROTTLE_MS - elapsed);
+      } else {
+        lastTooltipHitTestMs = now;
+        cancelPendingTooltipFollowup();
+      }
+    } else {
+      cancelPendingTooltipFollowup();
+    }
+
+    if (tooltipPointerActive) {
+     if (tooltipHitTestAllowed) {
       const canvas = gpuContext.canvas;
 
       if (interactionScales && canvas && isHTMLCanvasElement(canvas)) {
@@ -3936,13 +4053,8 @@ export function createRenderCoordinator(
               return;
             }
 
-            const match = findNearestPoint(
-              seriesForRender,
-              effectivePointer.gridX,
-              effectivePointer.gridY,
-              interactionScales.xScale,
-              interactionScales.yScales.values().next().value!,
-            );
+            // Reuse the shared nearest-point match from above (P0-5).
+            const match = sharedNearestMatch ?? null;
             if (!match) {
               hideTooltip();
             } else {
@@ -3973,6 +4085,8 @@ export function createRenderCoordinator(
       } else {
         hideTooltip();
       }
+     }
+     // else: throttled — leave existing tooltip; follow-up render is scheduled above.
     } else {
       hideTooltip();
     }
@@ -4009,6 +4123,7 @@ export function createRenderCoordinator(
       introProgress01,
       withAlpha,
       maxRadiusCss,
+      lastSetSeriesCache,
     });
 
     const { visibleBarSeriesConfigs } = seriesPreparation;
@@ -4083,8 +4198,9 @@ export function createRenderCoordinator(
       { r: 0, g: 0, b: 0, a: 1 },
     );
 
-    // Encode compute passes (scatter density) before the render pass.
+    // Encode compute passes (scatter density + line decimation) before the render pass.
     encodeScatterDensityCompute(poolState, seriesForRender, encoder);
+    encodeDecimationCompute(poolState, seriesForRender, encoder);
 
     const mainPass = encoder.beginRenderPass({
       label: "renderCoordinator/mainPass",
@@ -4281,9 +4397,11 @@ export function createRenderCoordinator(
 
     cancelScheduledFlush();
     cancelZoomResampleDebounce();
+    cancelPendingTooltipFollowup();
     zoomResampleDue = false;
 
     pendingAppendByIndex.clear();
+    lastSetSeriesCache.clear();
 
     insideZoom?.dispose();
     insideZoom = null;

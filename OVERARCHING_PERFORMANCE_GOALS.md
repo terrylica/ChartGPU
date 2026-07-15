@@ -54,21 +54,22 @@ Make ChartGPU **measurably faster and more correct** on large datasets, streamin
 |-------|--------|
 | Path | `benchmarks/baselines/main.json` |
 | Schema | `kind: "chartgpu-performance-baseline"`, `schemaVersion: 1` |
-| Generated | `2026-07-15T18:06:41.927Z` |
+| Generated | `2026-07-15T19:05:38.955Z` |
 | Adapter | `apple / metal-3 / 0x0000` |
 | Browser | Chrome 150 · macOS |
 | Canvas | **1280×720 CSS**, DPR **2** |
 | Warmup / measure | **90** / **300** frames |
+| Notes | Rebaselined after Phases 1–4 (grid uniforms, hover path, bind-group/setSeries skip, GPU decimation + stream LTTB fast path) |
 
 ### 3.2 Baseline numbers
 
 | Scenario | FPS p50 | FPS mean | CPU ms p50 | CPU ms p95 | Library FPS | Drops |
 |----------|---------|----------|------------|------------|-------------|-------|
-| `static-1m-lttb` | 120.48 | 120.26 | 0.70 | 1.30 | 120.09 | 0 |
-| `hover-1m-lttb` | 120.48 | 120.26 | 1.55 | 2.60 | 120.01 | 0 |
-| `zoom-pan-1m` | 120.48 | 120.16 | 0.90 | 1.60 | 120.00 | 0 |
-| `stream-append-lttb` | 120.48 | 120.10 | 1.70 | 2.10 | 119.98 | 0 |
-| `stream-append-none` | 120.48 | 120.52 | 1.00 | 1.60 | 119.88 | 0 |
+| `static-1m-lttb` | 120.48 | 120.30 | 0.90 | 1.90 | 120.00 | 0 |
+| `hover-1m-lttb` | 120.48 | 120.26 | 0.80 | 2.00 | 120.01 | 0 |
+| `zoom-pan-1m` | 120.48 | 120.20 | 0.80 | 1.90 | 119.98 | 0 |
+| `stream-append-lttb` | 120.48 | 120.21 | 0.60 | 1.10 | 120.00 | 0 |
+| `stream-append-none` | 120.48 | 120.24 | 0.70 | 1.60 | 119.95 | 0 |
 
 ### 3.3 Regression thresholds
 
@@ -229,56 +230,61 @@ const json = await page.evaluate(() => window.__CHARTGPU_BASELINE_JSON__);
 
 | Field | Detail |
 |-------|--------|
-| **Status** | `open` |
+| **Status** | `done` |
 | **Where** | `src/renderers/createGridRenderer.ts` |
 | **Problem** | Per-batch `queue.writeBuffer` into one FS uniform then `draw()`; draws may all see last color (correctness) + waste |
 | **Fix** | Dynamic uniform offsets (`minUniformBufferOffsetAlignment`, often 256) or vertex colors |
 | **Verify** | Distinct H/V grid colors; unit/visual; baseline optional |
 | **Harness** | weak |
+| **Landed** | FS binding `hasDynamicOffset: true`; colors written in `prepare()` into geometrically-grown slots; `render()` only sets bind group + draw |
 
 #### P0-2 · CPU LTTB only — GPU decimation missing from `src/`
 
 | Field | Detail |
 |-------|--------|
-| **Status** | `open` |
+| **Status** | `done` |
 | **Where** | `createRenderCoordinator.ts`, `sampleSeries.ts`; no `src/shaders/decimation.wgsl` |
 | **Problem** | Large series always CPU-sample; docs/dist may claim GPU path |
 | **Fix** | GPU decimation + single eligibility gate (baseline / zoom / prepare) |
 | **Verify** | `zoom-pan-1m`, `stream-append-lttb` CPU ↓; visual sampling parity |
 | **Harness** | zoom + stream LTTB |
+| **Landed** | `decimation.wgsl` + `createDecimationCompute` + `isGpuDecimationEligible` (lttb/min/max, no gaps, line without areaStyle). Gate used in baseline recompute, zoom recompute, and prepareSeries. Line+areaStyle stays on CPU until P1-3/P1-4. |
 
 #### P0-3 · Streaming + default sampling defeats incremental append
 
 | Field | Detail |
 |-------|--------|
-| **Status** | `open` |
+| **Status** | `done` |
 | **Where** | `canUseFastPath` requires `sampling === 'none'`; flush resamples full baseline |
 | **Problem** | Live LTTB streaming is O(n) CPU + full re-upload |
 | **Fix** | Raw append + GPU decimation, or windowed sampling; expand fast path |
 | **Verify** | `stream-append-lttb` CPU approaches `stream-append-none` |
 | **Harness** | stream LTTB vs none |
+| **Landed** | `gpuDecimationRaw` kind expands append fast path; stream LTTB CPU now matches stream-none (~0.6 ms p50) |
 
 #### P0-4 · Pointer move triggers full chart `render()` every time
 
 | Field | Detail |
 |-------|--------|
-| **Status** | `open` |
+| **Status** | `done` (partial — full overlay-only path deferred) |
 | **Where** | `onMouseMove` → `requestRender()` in coordinator |
 | **Problem** | Hover drives full prepare/encode/DOM |
 | **Fix** | Throttle; overlay-only path; skip series prepare when stable |
 | **Verify** | `hover-1m-lttb` CPU ↓ |
 | **Harness** | hover |
+| **Landed** | Tooltip hit-test throttled to ~30 Hz with scheduled follow-up render; crosshair still tracks every frame. Overlay-only GPU path remains open if further hover CPU is needed. |
 
 #### P0-5 · Duplicate `findNearestPoint` per hover frame
 
 | Field | Detail |
 |-------|--------|
-| **Status** | `open` |
+| **Status** | `done` |
 | **Where** | Tooltip path + `renderOverlays` highlight |
 | **Problem** | 2× hit-test per frame |
 | **Fix** | Share one match for tooltip + highlight |
 | **Verify** | `hover-1m-lttb` CPU; unit tests |
 | **Harness** | hover |
+| **Landed** | Coordinator computes `sharedNearestMatch` once per mouse-in-grid frame; passed to `prepareOverlays` and reused by item-mode tooltip |
 
 ---
 
@@ -288,21 +294,23 @@ const json = await page.evaluate(() => window.__CHARTGPU_BASELINE_JSON__);
 
 | Field | Detail |
 |-------|--------|
-| **Status** | `open` |
+| **Status** | `done` |
 | **Where** | `createLineRenderer.ts` |
 | **Fix** | Cache bind group by `dataBuffer` identity |
 | **Verify** | static + hover CPU |
 | **Harness** | static, hover |
+| **Landed** | `boundDataBuffer` identity check; rebuild only when DataStore reallocates |
 
 #### P1-2 · `DataStore.setSeries` packs/hashes before skip
 
 | Field | Detail |
 |-------|--------|
-| **Status** | `open` |
-| **Where** | `createDataStore.ts` |
+| **Status** | `done` |
+| **Where** | `createDataStore.ts` / `renderSeries.ts` |
 | **Fix** | Cheap dirty check before pack; reuse staging |
 | **Verify** | static CPU when data unchanged |
 | **Harness** | static |
+| **Landed** | `LastSetSeriesCache` in `prepareSeries` skips `setSeries` when data ref + xOffset unchanged; cleared during update-animation interpolation and runtime series re-init |
 
 #### P1-3 · Area full vertex rebuild + upload every prepare
 
@@ -440,10 +448,10 @@ const json = await page.evaluate(() => window.__CHARTGPU_BASELINE_JSON__);
 | Phase | Scope | Outcome |
 |-------|--------|---------|
 | **0** | Harness + `main.json` + this goal doc | **Done** — measurement & tracking |
-| **1** | P0-1 | Grid color correctness |
-| **2** | P0-5, P0-4 | Hover CPU / interaction path |
-| **3** | P1-1, P1-2 | Cheap static-frame wins |
-| **4** | P0-2, P0-3 | Large-data + streaming |
+| **1** | P0-1 | **Done** — grid dynamic-offset FS uniforms |
+| **2** | P0-5, P0-4 | **Done** (P0-4 partial) — shared nearest match + 30 Hz tooltip throttle |
+| **3** | P1-1, P1-2 | **Done** — line bind-group cache + setSeries ref skip |
+| **4** | P0-2, P0-3 | **Done** — GPU decimation + stream LTTB fast path |
 | **5** | P1-6, P1-7, P2-5, P2-12 | Encode / sampling churn |
 | **6** | P1-3, P1-4, P1-9, P1-10 | Series structural |
 | **7** | P1-5, P2-7 | Pass / MSAA budget (profile first) |
@@ -462,13 +470,19 @@ const json = await page.evaluate(() => window.__CHARTGPU_BASELINE_JSON__);
 
 ## 9. Definition of done (program)
 
-- [ ] All **P0** → `done` or `deferred` with written reason  
-- [ ] All **P1** → `done` or `deferred` with harness plan  
+- [x] All **P0** → `done` or `deferred` with written reason *(P0-4 partial: tooltip throttle landed; overlay-only path deferred)*  
+- [ ] All **P1** → `done` or `deferred` with harness plan *(P1-1, P1-2 done; rest open)*  
 - [ ] All **P2/P3** triaged  
 - [ ] **P2-11** closed (docs/`AGENTS.md`/`dist` match `src/`)  
 - [ ] Fresh full-suite JSON compared to final baseline  
 - [ ] Correctness checks pass (grid dual color, sampling, append)  
 - [ ] No unexplained CPU/FPS regressions on the reference machine  
+
+### Rebaseline note (Phases 1–4)
+
+`main.json` was replaced on 2026-07-15 with the browser suite at  
+`chartgpu-baseline-2026-07-15T19-05-38-959Z.json` (post GPU-decimation + hover work).  
+Prior pre-optimization reference: static 0.70 / hover 1.55 / zoom 0.90 / stream-lttb 1.70 / stream-none 1.00 CPU ms p50.
 
 ---
 
@@ -514,13 +528,13 @@ After coding:
 
 | ID | Sev | One-line | Status |
 |----|-----|----------|--------|
-| P0-1 | P0 | Grid FS uniforms in `render()` (correctness) | open |
-| P0-2 | P0 | GPU decimation missing; CPU LTTB only | open |
-| P0-3 | P0 | Stream + sampling defeats append fast path | open |
-| P0-4 | P0 | Mousemove → full render | open |
-| P0-5 | P0 | Double `findNearestPoint` | open |
-| P1-1 | P1 | Line bind group every prepare | open |
-| P1-2 | P1 | setSeries pack/hash before skip | open |
+| P0-1 | P0 | Grid FS uniforms in `render()` (correctness) | done |
+| P0-2 | P0 | GPU decimation missing; CPU LTTB only | done |
+| P0-3 | P0 | Stream + sampling defeats append fast path | done |
+| P0-4 | P0 | Mousemove → full render | done (partial) |
+| P0-5 | P0 | Double `findNearestPoint` | done |
+| P1-1 | P1 | Line bind group every prepare | done |
+| P1-2 | P1 | setSeries pack/hash before skip | done |
 | P1-3 | P1 | Area full rebuild/upload | open |
 | P1-4 | P1 | Line+areaStyle dual path | open |
 | P1-5 | P1 | 3 passes + dual 4× MSAA | open |

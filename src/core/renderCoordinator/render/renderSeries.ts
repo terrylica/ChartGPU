@@ -26,7 +26,12 @@ import type { PieRenderer } from "../../../renderers/createPieRenderer";
 import type { CandlestickRenderer } from "../../../renderers/createCandlestickRenderer";
 import type { ReferenceLineRenderer } from "../../../renderers/createReferenceLineRenderer";
 import type { AnnotationMarkerRenderer } from "../../../renderers/createAnnotationMarkerRenderer";
+import type { DecimationCompute } from "../../../renderers/createDecimationCompute";
 import type { DataStore } from "../../../data/createDataStore";
+import {
+  isGpuDecimationEligible,
+  mapSamplingToDecimationAlgorithm,
+} from "../../../data/gpuDecimationEligibility";
 import { clampInt } from "../utils/canvasUtils";
 import { clamp01 } from "../animation/animationHelpers";
 import { findVisibleRangeIndicesByX } from "../data/computeVisibleSlice";
@@ -41,6 +46,8 @@ export interface SeriesRenderers {
   readonly scatterDensityRenderers: ReadonlyArray<ScatterDensityRenderer>;
   readonly pieRenderers: ReadonlyArray<PieRenderer>;
   readonly candlestickRenderers: ReadonlyArray<CandlestickRenderer>;
+  /** 1:1 with lineRenderers; unused slots are no-ops until prepared. */
+  readonly decimationComputes: ReadonlyArray<DecimationCompute>;
 }
 
 export interface AnnotationRenderers {
@@ -50,6 +57,17 @@ export interface AnnotationRenderers {
   annotationMarkerRendererMsaa: AnnotationMarkerRenderer;
 }
 
+/**
+ * Per-series cache of the last `(data ref, xOffset)` passed to `dataStore.setSeries()`.
+ * When both match the previous frame, `setSeries` is skipped entirely — avoiding the
+ * O(n) pack + hash that would otherwise run before the content-hash early-return.
+ * (P1-2)
+ */
+export type LastSetSeriesCache = Map<
+  number,
+  Readonly<{ data: unknown; xOffset: number }>
+>;
+
 export interface SeriesPrepareContext {
   currentOptions: ResolvedChartGPUOptions;
   seriesForRender: ReadonlyArray<ResolvedSeriesConfig>;
@@ -58,13 +76,21 @@ export interface SeriesPrepareContext {
   gridArea: GridArea;
   dataStore: DataStore;
   appendedGpuThisFrame: Set<number>;
-  gpuSeriesKindByIndex: Array<"fullRawLine" | "other" | "unknown">;
+  gpuSeriesKindByIndex: Array<
+    "fullRawLine" | "gpuDecimationRaw" | "other" | "unknown"
+  >;
   zoomState: { getRange(): { start: number; end: number } | null } | null;
   visibleXDomain: { min: number; max: number };
   introPhase: "pending" | "running" | "done";
   introProgress01: number;
   withAlpha: (color: string, alpha: number) => string;
   maxRadiusCss: number;
+  /**
+   * Persistent cache of the last `setSeries()` data reference + xOffset per series index.
+   * Caller owns the Map and must clear it when update animations mutate data in-place
+   * under a stable array reference.
+   */
+  lastSetSeriesCache: LastSetSeriesCache;
 }
 
 export interface SeriesRenderContext {
@@ -137,12 +163,36 @@ export function prepareSeries(
     introProgress01,
     withAlpha,
     maxRadiusCss,
+    lastSetSeriesCache,
   } = context;
 
   // Helper: get the y-scale for a series by its yAxis binding
   const getYScale = (s: ResolvedSeriesConfig): LinearScale => {
     const axisId = (s as any).yAxis || "y";
     return yScales.get(axisId) ?? yScales.values().next().value!;
+  };
+
+  /**
+   * Calls `dataStore.setSeries` only when the `(data, xOffset)` pair changed from the
+   * previous frame (P1-2). Skips pack+hash when the same array reference is re-used
+   * (steady-state static / hover frames).
+   */
+  const setSeriesIfChanged = (
+    seriesIndex: number,
+    data: unknown,
+    options?: Readonly<{ xOffset?: number }>,
+  ): void => {
+    const xOffset = options?.xOffset ?? 0;
+    const cached = lastSetSeriesCache.get(seriesIndex);
+    if (cached && cached.data === data && cached.xOffset === xOffset) {
+      return;
+    }
+    dataStore.setSeries(
+      seriesIndex,
+      data as ReadonlyArray<DataPoint>,
+      options,
+    );
+    lastSetSeriesCache.set(seriesIndex, { data, xOffset });
   };
 
   const defaultBaseline =
@@ -172,7 +222,92 @@ export function prepareSeries(
         break;
       }
       case "line": {
-        // Always prepare the line stroke.
+        // GPU compute-shader decimation (P0-2 / Stretch S1) vs CPU path.
+        // Eligibility is a pure predicate; see `isGpuDecimationEligible`.
+        const rawDataForGpu = s.rawData;
+        const gpuEligible = isGpuDecimationEligible(s, rawDataForGpu);
+
+        if (gpuEligible) {
+          const xOffset = (() => {
+            if (currentOptions.xAxis.type !== "time") return 0;
+            const count = getPointCount(rawDataForGpu);
+            for (let k = 0; k < count; k++) {
+              const x = getX(rawDataForGpu, k);
+              if (Number.isFinite(x)) return x;
+            }
+            return 0;
+          })();
+
+          if (!appendedGpuThisFrame.has(i)) {
+            setSeriesIfChanged(i, rawDataForGpu, { xOffset });
+          }
+          const rawBuffer = dataStore.getSeriesBuffer(i);
+          const rawPointCount = dataStore.getSeriesPointCount(i);
+
+          const fallbackTarget = Math.max(
+            2,
+            Math.floor(Math.max(1, gridArea.canvasWidth) * 2),
+          );
+          const rawTarget = Number.isFinite(s.samplingThreshold)
+            ? Math.max(2, s.samplingThreshold | 0)
+            : fallbackTarget;
+          const targetBuckets = Math.min(
+            rawTarget,
+            Math.max(2, rawPointCount),
+          );
+
+          const visible = findVisibleRangeIndicesByX(
+            rawDataForGpu,
+            visibleXDomain.min,
+            visibleXDomain.max,
+          );
+
+          const algorithm = mapSamplingToDecimationAlgorithm(s.sampling);
+
+          if (rawPointCount <= targetBuckets || algorithm === null) {
+            renderers.lineRenderers[i].prepare(
+              s,
+              rawBuffer,
+              xScale,
+              getYScale(s),
+              xOffset,
+              gridArea.devicePixelRatio,
+              gridArea.canvasWidth,
+              gridArea.canvasHeight,
+              rawPointCount,
+            );
+            gpuSeriesKindByIndex[i] = "gpuDecimationRaw";
+          } else {
+            const outputPointCount = renderers.decimationComputes[i].prepare({
+              algorithm,
+              rawBuffer,
+              rawPointCount,
+              visibleStart: visible.start,
+              visibleEnd: visible.end,
+              targetBuckets,
+            });
+            const decimatedBuffer =
+              renderers.decimationComputes[i].getOutputBuffer();
+
+            renderers.lineRenderers[i].prepare(
+              s,
+              decimatedBuffer,
+              xScale,
+              getYScale(s),
+              // Decimation shader emits clean (x, y) without xOffset subtraction.
+              0,
+              gridArea.devicePixelRatio,
+              gridArea.canvasWidth,
+              gridArea.canvasHeight,
+              outputPointCount,
+            );
+            gpuSeriesKindByIndex[i] = "gpuDecimationRaw";
+          }
+
+          break;
+        }
+
+        // ─── CPU-sampled path (null-gap, 'none', 'average', areaStyle, etc.) ───
         // If we already appended into the DataStore this frame (fast-path), avoid a full re-upload.
         // For time axes (epoch-ms), subtract an x-origin before packing to Float32 to avoid precision loss
         // (Float32 ulp at ~1e12 is ~2e5), which can manifest as stroke shimmer during zoom.
@@ -192,9 +327,7 @@ export function prepareSeries(
         // may convert the data to MutableXYColumns (XYArraysData-like) with NaN gap markers.
         const uploadData = s.connectNulls ? filterGaps(s.data) : s.data;
         if (!appendedGpuThisFrame.has(i)) {
-          dataStore.setSeries(i, uploadData as ReadonlyArray<DataPoint>, {
-            xOffset,
-          });
+          setSeriesIfChanged(i, uploadData, { xOffset });
         }
         const buffer = dataStore.getSeriesBuffer(i);
         // Pass filtered data to the renderer so point count matches the GPU buffer.
@@ -267,9 +400,9 @@ export function prepareSeries(
             visibleXDomain.max,
           );
 
-          // Upload full raw data for compute. DataStore hashing makes this a cheap no-op when unchanged.
+          // Upload full raw data for compute. Skip pack+hash when data ref is unchanged (P1-2).
           if (!appendedGpuThisFrame.has(i)) {
-            dataStore.setSeries(i, rawData);
+            setSeriesIfChanged(i, rawData);
           }
           const buffer = dataStore.getSeriesBuffer(i);
           const pointCount = dataStore.getSeriesPointCount(i);
@@ -373,6 +506,25 @@ export function encodeScatterDensityCompute(
     const s = seriesForRender[i];
     if (s.visible !== false && s.type === "scatter" && s.mode === "density") {
       renderers.scatterDensityRenderers[i].encodeCompute(encoder);
+    }
+  }
+}
+
+/**
+ * Encodes GPU compute-shader decimation passes before rendering (P0-2).
+ *
+ * Safe to call unconditionally — each `decimationComputes[i]` is dirty-gated
+ * and no-ops when no eligible `prepare()` ran this frame.
+ */
+export function encodeDecimationCompute(
+  renderers: SeriesRenderers,
+  seriesForRender: ReadonlyArray<ResolvedSeriesConfig>,
+  encoder: GPUCommandEncoder,
+): void {
+  for (let i = 0; i < seriesForRender.length; i++) {
+    const s = seriesForRender[i];
+    if (s.visible !== false && s.type === "line") {
+      renderers.decimationComputes[i].encodeCompute(encoder);
     }
   }
 }

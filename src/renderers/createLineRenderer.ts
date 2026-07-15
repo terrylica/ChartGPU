@@ -7,13 +7,18 @@ import {
   createUniformBuffer,
   writeUniformBuffer,
 } from "./rendererUtils";
-import {
-  getPointCount,
-  computeRawBoundsFromCartesianData,
-} from "../data/cartesianData";
+import { getPointCount } from "../data/cartesianData";
 import type { PipelineCache } from "../core/PipelineCache";
 
 export interface LineRenderer {
+  /**
+   * Prepare uniforms + bind groups for the next frame's draw.
+   *
+   * @param pointCountOverride - Optional explicit point count. When supplied,
+   *   overrides the count derived from `seriesConfig.data`. Used by the GPU
+   *   compute-decimation path where the bound `dataBuffer` holds decimated
+   *   output whose length is not reflected in `seriesConfig.data`.
+   */
   prepare(
     seriesConfig: ResolvedLineSeriesConfig,
     dataBuffer: GPUBuffer,
@@ -23,6 +28,7 @@ export interface LineRenderer {
     devicePixelRatio?: number,
     canvasWidthDevicePx?: number,
     canvasHeightDevicePx?: number,
+    pointCountOverride?: number,
   ): void;
   render(passEncoder: GPURenderPassEncoder): void;
   dispose(): void;
@@ -155,8 +161,11 @@ export function createLineRenderer(
   const vsUniformScratchF32 = new Float32Array(vsUniformScratchBuffer);
   const fsUniformScratchF32 = new Float32Array(4);
 
-  // Bind group is recreated per-frame because the storage buffer (data buffer) changes per series.
+  // Bind group is cached by the current `dataBuffer` reference. A new bind group is created only
+  // when the buffer identity changes (e.g. DataStore reallocates on growth). `queue.writeBuffer`
+  // updates to the same buffer reuse the existing bind group — no per-frame createBindGroup churn.
   let currentBindGroup: GPUBindGroup | null = null;
+  let boundDataBuffer: GPUBuffer | null = null;
 
   const pipeline = createRenderPipeline(
     device,
@@ -207,20 +216,21 @@ export function createLineRenderer(
     devicePixelRatio = 1,
     canvasWidthDevicePx = 1,
     canvasHeightDevicePx = 1,
+    pointCountOverride,
   ) => {
     assertNotDisposed();
 
-    currentPointCount = getPointCount(seriesConfig.data);
+    currentPointCount =
+      typeof pointCountOverride === "number" &&
+      Number.isFinite(pointCountOverride) &&
+      pointCountOverride >= 0
+        ? Math.floor(pointCountOverride)
+        : getPointCount(seriesConfig.data);
 
-    const bounds = computeRawBoundsFromCartesianData(seriesConfig.data);
-    const { xMin, xMax, yMin, yMax } = bounds ?? {
-      xMin: 0,
-      xMax: 1,
-      yMin: 0,
-      yMax: 1,
-    };
-    const { a: ax, b: bx } = computeClipAffineFromScale(xScale, xMin, xMax);
-    const { a: ay, b: by } = computeClipAffineFromScale(yScale, yMin, yMax);
+    // Linear scales: sample affine at (0, 1) instead of O(n) bounds scan.
+    // Matches scatter / area / candlestick and is correct for any linear scale.
+    const { a: ax, b: bx } = computeClipAffineFromScale(xScale, 0, 1);
+    const { a: ay, b: by } = computeClipAffineFromScale(yScale, 0, 1);
 
     // When the vertex buffer packs x as (x - xOffset) (to preserve Float32 precision for large
     // domains like epoch-ms), fold the offset back into the affine's intercept in f64 on CPU:
@@ -261,15 +271,19 @@ export function createLineRenderer(
     fsUniformScratchF32[3] = clamp01(a * opacity);
     writeUniformBuffer(device, fsUniformBuffer, fsUniformScratchF32);
 
-    // Recreate bind group with the current data buffer.
-    currentBindGroup = device.createBindGroup({
-      layout: bindGroupLayout,
-      entries: [
-        { binding: 0, resource: { buffer: vsUniformBuffer } },
-        { binding: 1, resource: { buffer: fsUniformBuffer } },
-        { binding: 2, resource: { buffer: dataBuffer } },
-      ],
-    });
+    // Rebuild the bind group only when the underlying data buffer reference changes.
+    // Uniform buffers and layout are stable for the lifetime of the renderer.
+    if (currentBindGroup === null || boundDataBuffer !== dataBuffer) {
+      currentBindGroup = device.createBindGroup({
+        layout: bindGroupLayout,
+        entries: [
+          { binding: 0, resource: { buffer: vsUniformBuffer } },
+          { binding: 1, resource: { buffer: fsUniformBuffer } },
+          { binding: 2, resource: { buffer: dataBuffer } },
+        ],
+      });
+      boundDataBuffer = dataBuffer;
+    }
   };
 
   const render: LineRenderer["render"] = (passEncoder) => {
@@ -288,6 +302,7 @@ export function createLineRenderer(
     disposed = true;
 
     currentBindGroup = null;
+    boundDataBuffer = null;
     currentPointCount = 0;
 
     try {

@@ -45,21 +45,22 @@ Agents should **wait for `CHARTGPU_BASELINE_DONE`**, parse the JSON, then compar
 | Field | Value |
 |-------|--------|
 | File | `benchmarks/baselines/main.json` |
-| Generated | `2026-07-15T18:06:41.927Z` |
+| Generated | `2026-07-15T19:05:38.955Z` |
 | Adapter | `apple / metal-3 / 0x0000` |
 | Browser | Chrome 150 (macOS) |
 | Canvas | **1280×720 CSS**, DPR **2** |
 | Config | warmup **90**, measure **300** frames |
+| Notes | Post Phases 1–4 rebaseline (GPU decimation + hover path) |
 
 ### Baseline numbers (p50)
 
 | Scenario | FPS p50 | FPS mean | CPU ms p50 | CPU ms p95 | Library FPS | Drops |
 |----------|---------|----------|------------|------------|-------------|-------|
-| `static-1m-lttb` | 120.48 | 120.26 | 0.70 | 1.30 | 120.09 | 0 |
-| `hover-1m-lttb` | 120.48 | 120.26 | 1.55 | 2.60 | 120.01 | 0 |
-| `zoom-pan-1m` | 120.48 | 120.16 | 0.90 | 1.60 | 120.00 | 0 |
-| `stream-append-lttb` | 120.48 | 120.10 | 1.70 | 2.10 | 119.98 | 0 |
-| `stream-append-none` | 120.48 | 120.52 | 1.00 | 1.60 | 119.88 | 0 |
+| `static-1m-lttb` | 120.48 | 120.30 | 0.90 | 1.90 | 120.00 | 0 |
+| `hover-1m-lttb` | 120.48 | 120.26 | 0.80 | 2.00 | 120.01 | 0 |
+| `zoom-pan-1m` | 120.48 | 120.20 | 0.80 | 1.90 | 119.98 | 0 |
+| `stream-append-lttb` | 120.48 | 120.21 | 0.60 | 1.10 | 120.00 | 0 |
+| `stream-append-none` | 120.48 | 120.24 | 0.70 | 1.60 | 119.95 | 0 |
 
 **Interpretation notes**
 
