@@ -183,6 +183,16 @@ export function createLegend(
   container.appendChild(root);
 
   let disposed = false;
+  /**
+   * Identity skip for axes-only multi-series setOption (group 1): when the
+   * resolved series array reference is unchanged **and theme is unchanged**,
+   * do not rebuild N legend DOM nodes every frame. Root theme chrome always
+   * updates; per-item swatch borders use theme so theme identity changes force
+   * a list rebuild.
+   */
+  let lastSeriesRef: ReadonlyArray<SeriesConfig> | null = null;
+  let lastThemeRef: ThemeConfig | null = null;
+  let lastListLen = -1;
 
   const update: Legend['update'] = (series, theme) => {
     if (disposed) return;
@@ -192,6 +202,15 @@ export function createLegend(
     root.style.borderColor = theme.axisLineColor;
     root.style.fontFamily = theme.fontFamily;
     root.style.fontSize = `${theme.fontSize}px`;
+
+    // Same series array identity + same theme ref → list content and per-item
+    // theme-derived styles are unchanged. Skip O(n) createElement + replaceChildren.
+    if (lastSeriesRef === series && lastThemeRef === theme && lastListLen === series.length) {
+      return;
+    }
+    lastSeriesRef = series;
+    lastThemeRef = theme;
+    lastListLen = series.length;
 
     const items: HTMLElement[] = [];
     for (let seriesIndex = 0; seriesIndex < series.length; seriesIndex++) {

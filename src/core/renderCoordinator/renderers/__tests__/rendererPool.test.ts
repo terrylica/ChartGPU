@@ -72,8 +72,13 @@ vi.mock('../../../renderers/createBarRenderer', () => ({
   createBarRenderer: vi.fn(() => createMockRenderer('Bar')),
 }));
 
-import { createRendererPool } from '../rendererPool';
+import {
+  createRendererPool,
+  computeRendererPoolNeeds,
+  ensureRendererPoolsForSeries,
+} from '../rendererPool';
 import type { RendererPoolConfig } from '../rendererPool';
+import type { ResolvedSeriesConfig } from '../../../../config/OptionResolver';
 
 // Mock GPUDevice
 function createMockDevice(): GPUDevice {
@@ -194,6 +199,133 @@ describe('RendererPool', () => {
 
       pool.ensureLineRendererCount(2);
       expect(pool.getState().lineRenderers).toHaveLength(2);
+    });
+  });
+
+  describe('Type-aware pool needs (group 1 pure multi-line)', () => {
+    const lineSeries = (n: number, sampling: 'none' | 'lttb' = 'none'): ResolvedSeriesConfig[] =>
+      Array.from({ length: n }, (_, i) => ({
+        type: 'line',
+        name: `S${i}`,
+        data: [
+          [0, 0],
+          [1, 1],
+        ],
+        color: '#fff',
+        lineStyle: { width: 2, opacity: 1, color: '#fff' },
+        sampling,
+        samplingThreshold: 5000,
+        connectNulls: false,
+        yAxis: 'y',
+        visible: true,
+      })) as unknown as ResolvedSeriesConfig[];
+
+    it('pure sampling:none lines only need line pool (no area/scatter/decimation)', () => {
+      const needs = computeRendererPoolNeeds(lineSeries(1000, 'none'));
+      expect(needs.line).toBe(1000);
+      expect(needs.area).toBe(0);
+      expect(needs.scatter).toBe(0);
+      expect(needs.scatterDensity).toBe(0);
+      expect(needs.pie).toBe(0);
+      expect(needs.candlestick).toBe(0);
+      expect(needs.decimation).toBe(0);
+    });
+
+    it('lttb lines need decimation pool sized to series count', () => {
+      const needs = computeRendererPoolNeeds(lineSeries(50, 'lttb'));
+      expect(needs.line).toBe(50);
+      expect(needs.decimation).toBe(50);
+    });
+
+    it('ensureRendererPoolsForSeries allocates only needed types', () => {
+      const pool = createRendererPool(config);
+      ensureRendererPoolsForSeries(pool, lineSeries(8, 'none'));
+      const state = pool.getState();
+      expect(state.lineRenderers).toHaveLength(8);
+      expect(state.areaRenderers).toHaveLength(0);
+      expect(state.decimationComputes).toHaveLength(0);
+      expect(state.scatterRenderers).toHaveLength(0);
+      expect(state.pieRenderers).toHaveLength(0);
+      expect(state.candlestickRenderers).toHaveLength(0);
+    });
+
+    it('line+areaStyle also sizes area pool', () => {
+      const series = lineSeries(3, 'none').map((s) => ({
+        ...s,
+        areaStyle: { opacity: 0.3, color: '#0f0' },
+      })) as unknown as ResolvedSeriesConfig[];
+      const needs = computeRendererPoolNeeds(series);
+      expect(needs.line).toBe(3);
+      expect(needs.area).toBe(3);
+    });
+
+    it('mixed line+scatter sizes both pools to full series.length (index-aligned)', () => {
+      const mixed = [
+        ...lineSeries(2, 'none'),
+        {
+          type: 'scatter',
+          name: 'sc',
+          data: [[0, 0]],
+          color: '#0ff',
+          sampling: 'none',
+          samplingThreshold: 5000,
+          connectNulls: false,
+          yAxis: 'y',
+          visible: true,
+          mode: 'markers',
+        },
+      ] as unknown as ResolvedSeriesConfig[];
+      const needs = computeRendererPoolNeeds(mixed);
+      expect(needs.seriesCount).toBe(3);
+      expect(needs.line).toBe(3);
+      expect(needs.scatter).toBe(3);
+      expect(needs.area).toBe(0);
+      expect(needs.decimation).toBe(0);
+    });
+
+    it('pure scatter → line/decimation pools stay 0', () => {
+      const scatterOnly = [
+        {
+          type: 'scatter',
+          name: 'sc',
+          data: [[0, 0]],
+          color: '#0ff',
+          sampling: 'none',
+          samplingThreshold: 5000,
+          connectNulls: false,
+          yAxis: 'y',
+          visible: true,
+          mode: 'markers',
+        },
+      ] as unknown as ResolvedSeriesConfig[];
+      const needs = computeRendererPoolNeeds(scatterOnly);
+      expect(needs.line).toBe(0);
+      expect(needs.decimation).toBe(0);
+      expect(needs.scatter).toBe(1);
+    });
+
+    it('min/max sampling lines size decimation pool', () => {
+      expect(computeRendererPoolNeeds(lineSeries(4, 'lttb')).decimation).toBe(4);
+      const minLines = lineSeries(3, 'none').map((s) => ({
+        ...s,
+        sampling: 'min',
+      })) as unknown as ResolvedSeriesConfig[];
+      expect(computeRendererPoolNeeds(minLines).decimation).toBe(3);
+      const maxLines = lineSeries(2, 'none').map((s) => ({
+        ...s,
+        sampling: 'max',
+      })) as unknown as ResolvedSeriesConfig[];
+      expect(computeRendererPoolNeeds(maxLines).decimation).toBe(2);
+    });
+
+    it('ensureRendererPoolsForSeries grows then shrinks as types change', () => {
+      const pool = createRendererPool(config);
+      ensureRendererPoolsForSeries(pool, lineSeries(5, 'lttb'));
+      expect(pool.getState().lineRenderers).toHaveLength(5);
+      expect(pool.getState().decimationComputes).toHaveLength(5);
+      ensureRendererPoolsForSeries(pool, lineSeries(2, 'none'));
+      expect(pool.getState().lineRenderers).toHaveLength(2);
+      expect(pool.getState().decimationComputes).toHaveLength(0);
     });
   });
 

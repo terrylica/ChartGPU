@@ -140,12 +140,37 @@ export function patchSeriesPresentationKeepingSampledData(
   nextSeries: ResolvedChartGPUOptions['series'],
   previousSampled: ReadonlyArray<ResolvedSeriesConfig>
 ): ResolvedSeriesConfig[] {
+  // Identity short-circuit: full series-array reuse from OptionResolver (same
+  // user series ref) means every entry is === previous — return prior array
+  // without allocating N patched objects (group 1 multi-series axes-only).
+  if (
+    nextSeries.length === previousSampled.length &&
+    nextSeries.length > 0 &&
+    nextSeries[0] === previousSampled[0]
+  ) {
+    let allSame = true;
+    for (let i = 1; i < nextSeries.length; i++) {
+      if (nextSeries[i] !== previousSampled[i]) {
+        allSame = false;
+        break;
+      }
+    }
+    if (allSame) {
+      return previousSampled as ResolvedSeriesConfig[];
+    }
+  }
+
   const out: ResolvedSeriesConfig[] = new Array(nextSeries.length);
   for (let i = 0; i < nextSeries.length; i++) {
     const next = nextSeries[i]!;
     const prev = previousSampled[i];
     if (!prev || prev.type !== next.type || next.type === 'pie') {
       out[i] = next;
+      continue;
+    }
+    // Same resolved object identity (per-series reuse) — keep as-is.
+    if (next === prev) {
+      out[i] = prev;
       continue;
     }
     const prevAny = prev as ResolvedSeriesConfig & WithRawBoundsMeta;

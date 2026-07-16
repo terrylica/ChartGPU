@@ -46,6 +46,14 @@ Zoom triggers resampling on visible range only. Target scales with zoom level (c
 
 **appendData:** Cartesian only, append-only. **setOption:** Full data/config changes, supports animation.
 
+### Axes-only multi-series `setOption`
+
+When only axis ranges / grid change and each series config object is identity-stable, resolve reuses the prior series array (O(1) vs O(series count)). Treat series elements as immutable; use `appendData` or new series objects when data changes. See [options.md](api/options.md#series-configuration).
+
+### Multi-series dense hairline (draw LOD)
+
+Many short line series (e.g. 1000×1000) can exceed a **~500k total-segment** budget and switch to **1 device-px hairline** draw (post-resolve sampleCount 1) even when each series is under the 25k per-series threshold. This is draw-only; sampling and data residency are unchanged. Prefer fewer series or lower N for thick AA strokes. Details: [options.md — multi-series dense hairline](api/options.md#series-configuration).
+
 ## Memory & disposal
 
 - Call `chart.dispose()` when chart is no longer needed.

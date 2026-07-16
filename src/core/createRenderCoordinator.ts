@@ -72,7 +72,10 @@ import {
 import { createAxisRenderer } from '../renderers/createAxisRenderer';
 import { createGridRenderer } from '../renderers/createGridRenderer';
 import type { GridArea } from '../renderers/createGridRenderer';
-import { createRendererPool } from './renderCoordinator/renderers/rendererPool';
+import {
+  createRendererPool,
+  ensureRendererPoolsForSeries,
+} from './renderCoordinator/renderers/rendererPool';
 import {
   createTextureManager,
   ANNOTATION_OVERLAY_MSAA_SAMPLE_COUNT,
@@ -3098,13 +3101,7 @@ export function createRenderCoordinator(
     sampleCount: MAIN_SCENE_MSAA_SAMPLE_COUNT,
   });
 
-  rendererPool.ensureAreaRendererCount(currentOptions.series.length);
-  rendererPool.ensureLineRendererCount(currentOptions.series.length);
-  rendererPool.ensureDecimationComputeCount(currentOptions.series.length);
-  rendererPool.ensureScatterRendererCount(currentOptions.series.length);
-  rendererPool.ensureScatterDensityRendererCount(currentOptions.series.length);
-  rendererPool.ensurePieRendererCount(currentOptions.series.length);
-  rendererPool.ensureCandlestickRendererCount(currentOptions.series.length);
+  ensureRendererPoolsForSeries(rendererPool, currentOptions.series);
 
   const assertNotDisposed = (): void => {
     if (disposed) throw new Error('RenderCoordinator is disposed.');
@@ -3317,13 +3314,9 @@ export function createRenderCoordinator(
     }
 
     const nextCount = resolvedOptions.series.length;
-    rendererPool.ensureAreaRendererCount(nextCount);
-    rendererPool.ensureLineRendererCount(nextCount);
-    rendererPool.ensureDecimationComputeCount(nextCount);
-    rendererPool.ensureScatterRendererCount(nextCount);
-    rendererPool.ensureScatterDensityRendererCount(nextCount);
-    rendererPool.ensurePieRendererCount(nextCount);
-    rendererPool.ensureCandlestickRendererCount(nextCount);
+    // Type-aware pools: pure multi-line charts (group 1) only allocate line
+    // renderers — not area/scatter/pie/candle/decimation × N (setup hang at 4k+).
+    ensureRendererPoolsForSeries(rendererPool, resolvedOptions.series);
 
     // When the series count shrinks, explicitly destroy per-index GPU buffers for removed series.
     // This avoids recreating the entire DataStore and keeps existing buffers for retained indices.

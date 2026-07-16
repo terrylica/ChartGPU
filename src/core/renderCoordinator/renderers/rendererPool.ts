@@ -17,6 +17,8 @@ import { createCandlestickRenderer } from '../../../renderers/createCandlestickR
 import { createBarRenderer } from '../../../renderers/createBarRenderer';
 import { createDecimationCompute } from '../../../renderers/createDecimationCompute';
 import type { PipelineCache } from '../../PipelineCache';
+import type { ResolvedSeriesConfig } from '../../../config/OptionResolver';
+import { GPU_DECIMATION_SAMPLING_MODES } from '../../../data/gpuDecimationEligibility';
 
 /**
  * Configuration for renderer pool creation.
@@ -127,6 +129,107 @@ export interface RendererPool {
 }
 
 /**
+ * Per-type pool sizes for index-aligned renderer arrays.
+ *
+ * Arrays are still indexed by **series index** (not dense-by-type). When any
+ * series of a type exists, that type's pool is sized to `series.length` so
+ * `renderers.lineRenderers[i]` matches series i. Types that never appear get
+ * size **0** — critical for group 1 pure multi-line (avoids allocating
+ * area/scatter/pie/candle/decimation × N at create time).
+ */
+export type RendererPoolNeeds = Readonly<{
+  readonly seriesCount: number;
+  readonly area: number;
+  readonly line: number;
+  readonly scatter: number;
+  readonly scatterDensity: number;
+  readonly pie: number;
+  readonly candlestick: number;
+  readonly decimation: number;
+}>;
+
+/**
+ * Compute type-aware pool sizes from resolved series.
+ *
+ * - Line+`areaStyle` also needs an area slot at the same index.
+ * - Decimation pool only when any line uses a GPU-decimation sampling mode
+ *   (`lttb`/`min`/`max`). `sampling: 'none'` charts (group 1) get **0**.
+ */
+export function computeRendererPoolNeeds(
+  series: ReadonlyArray<ResolvedSeriesConfig>
+): RendererPoolNeeds {
+  const n = series.length;
+  let anyArea = false;
+  let anyLine = false;
+  let anyScatter = false;
+  let anyScatterDensity = false;
+  let anyPie = false;
+  let anyCandle = false;
+  let anyDecimation = false;
+
+  for (let i = 0; i < n; i++) {
+    const s = series[i]!;
+    switch (s.type) {
+      case 'line': {
+        anyLine = true;
+        if (s.areaStyle) anyArea = true;
+        // Pool sizing is cheap — do not scan for null gaps; over-allocating
+        // decimation when gaps force CPU path is rare vs under-alloc crash.
+        if (GPU_DECIMATION_SAMPLING_MODES.has(s.sampling)) anyDecimation = true;
+        break;
+      }
+      case 'area':
+        anyArea = true;
+        break;
+      case 'scatter':
+        if (s.mode === 'density') anyScatterDensity = true;
+        else anyScatter = true;
+        break;
+      case 'pie':
+        anyPie = true;
+        break;
+      case 'candlestick':
+        anyCandle = true;
+        break;
+      case 'bar':
+        // Singleton bar renderer — no pool growth.
+        break;
+      default:
+        break;
+    }
+  }
+
+  return {
+    seriesCount: n,
+    area: anyArea ? n : 0,
+    line: anyLine ? n : 0,
+    scatter: anyScatter ? n : 0,
+    scatterDensity: anyScatterDensity ? n : 0,
+    pie: anyPie ? n : 0,
+    candlestick: anyCandle ? n : 0,
+    decimation: anyDecimation ? n : 0,
+  };
+}
+
+/**
+ * Grow/shrink all type pools to match {@link computeRendererPoolNeeds}.
+ */
+export function ensureRendererPoolsForSeries(
+  pool: RendererPool,
+  series: ReadonlyArray<ResolvedSeriesConfig>
+): RendererPoolNeeds {
+  const needs = computeRendererPoolNeeds(series);
+  pool.ensureAreaRendererCount(needs.area);
+  pool.ensureLineRendererCount(needs.line);
+  pool.ensureDecimationComputeCount(needs.decimation);
+  pool.ensureScatterRendererCount(needs.scatter);
+  pool.ensureScatterDensityRendererCount(needs.scatterDensity);
+  pool.ensurePieRendererCount(needs.pie);
+  pool.ensureCandlestickRendererCount(needs.candlestick);
+  return needs;
+}
+
+/**
  * Creates a renderer pool for dynamic renderer management.
  *
  * The renderer pool uses lazy instantiation: renderers are only created when
@@ -138,6 +241,7 @@ export interface RendererPool {
  * - Bar renderer is a singleton (not pooled)
  * - Renderers are disposed when removed from the pool
  * - Arrays are cleared to release references
+ * - Prefer {@link ensureRendererPoolsForSeries} so unused types stay at size 0
  *
  * @param config - Configuration with device and target format
  * @returns Renderer pool instance

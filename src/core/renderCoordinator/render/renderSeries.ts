@@ -35,6 +35,17 @@ import { findVisibleRangeIndicesByX } from '../data/computeVisibleSlice';
 import { resolvePieRadiiCss } from '../utils/timeAxisUtils';
 import { getPointCount, getX, isRingXYColumns, isStagingRingView } from '../../../data/cartesianData';
 import { type FilterGapsCache, getFilteredGapsCached } from './filterGapsCache';
+import { beginLineSharedVsFrame } from '../../../renderers/createLineRenderer';
+
+/** Once-per-process warn when GPU-eligible line lacks a decimation pool slot. */
+const warnedMissingDecimationSlots = new Set<number>();
+function warnMissingDecimationSlotOnce(seriesIndex: number): void {
+  if (warnedMissingDecimationSlots.has(seriesIndex)) return;
+  warnedMissingDecimationSlots.add(seriesIndex);
+  console.warn(
+    `ChartGPU: line series ${seriesIndex} is GPU-decimation eligible but decimationComputes[${seriesIndex}] is missing; drawing raw undecimated stroke. Ensure ensureRendererPoolsForSeries sizes the decimation pool for lttb/min/max sampling.`
+  );
+}
 
 export interface SeriesRenderers {
   readonly lineRenderers: ReadonlyArray<LineRenderer>;
@@ -214,6 +225,19 @@ export function prepareSeries(renderers: SeriesRenderers, context: SeriesPrepare
 
   const introP = introPhase === 'running' ? clamp01(introProgress01) : 1;
 
+  // Multi-series hairline budget (group 1): count **visible** line series once.
+  // Policy approximates total segments as `lineSeriesCount * (pointCount - 1)` per
+  // series (equal-N suite shape); see `MULTI_SERIES_HAIRLINE_SEGMENT_BUDGET`.
+  let lineSeriesCount = 0;
+  for (let li = 0; li < seriesForRender.length; li++) {
+    const ls = seriesForRender[li]!;
+    if (ls.type === 'line' && ls.visible !== false) lineSeriesCount++;
+  }
+  // Shared VS transform: one writeBuffer per frame when all series share scales/width.
+  if (lineSeriesCount > 0) {
+    beginLineSharedVsFrame();
+  }
+
   // Preparation loop: prepare ALL series (including hidden) to maintain correct indices
   for (let i = 0; i < seriesForRender.length; i++) {
     const s = seriesForRender[i];
@@ -320,14 +344,34 @@ export function prepareSeries(renderers: SeriesRenderers, context: SeriesPrepare
               gridArea.devicePixelRatio,
               gridArea.canvasWidth,
               gridArea.canvasHeight,
-              rawPointCount
+              rawPointCount,
+              lineSeriesCount
             );
             gpuSeriesKindByIndex[i] = 'gpuDecimationRaw';
           } else {
             // Extreme-N bandwidth: WGSL dense-bucket candidate cap (512) bounds
             // per-bucket scans for lttb/min/max. Do not silently rewrite lttb→min
             // (ECG peak quality; append path is pack/write-bound after the cap).
-            const outputPointCount = renderers.decimationComputes[i].prepare({
+            const decimation = renderers.decimationComputes[i];
+            if (!decimation) {
+              // Pool undersized (should not happen when sampling is GPU-eligible).
+              warnMissingDecimationSlotOnce(i);
+              renderers.lineRenderers[i].prepare(
+                s,
+                rawBuffer,
+                xScale,
+                getYScale(s),
+                xOffset,
+                gridArea.devicePixelRatio,
+                gridArea.canvasWidth,
+                gridArea.canvasHeight,
+                rawPointCount,
+                lineSeriesCount
+              );
+              gpuSeriesKindByIndex[i] = 'gpuDecimationRaw';
+              break;
+            }
+            const outputPointCount = decimation.prepare({
               algorithm,
               rawBuffer,
               rawPointCount,
@@ -341,7 +385,7 @@ export function prepareSeries(renderers: SeriesRenderers, context: SeriesPrepare
               ringStart: ringLayout.start,
               ringCapacity: ringLayout.capacity,
             });
-            const decimatedBuffer = renderers.decimationComputes[i].getOutputBuffer();
+            const decimatedBuffer = decimation.getOutputBuffer();
             strokeBuffer = decimatedBuffer;
             strokePointCount = outputPointCount;
 
@@ -356,7 +400,8 @@ export function prepareSeries(renderers: SeriesRenderers, context: SeriesPrepare
               gridArea.devicePixelRatio,
               gridArea.canvasWidth,
               gridArea.canvasHeight,
-              outputPointCount
+              outputPointCount,
+              lineSeriesCount
             );
             gpuSeriesKindByIndex[i] = 'gpuDecimationRaw';
           }
@@ -459,7 +504,9 @@ export function prepareSeries(renderers: SeriesRenderers, context: SeriesPrepare
           xOffset,
           gridArea.devicePixelRatio,
           gridArea.canvasWidth,
-          gridArea.canvasHeight
+          gridArea.canvasHeight,
+          undefined,
+          lineSeriesCount
         );
 
         // Track the GPU buffer kind for future append fast-path decisions.
@@ -639,12 +686,15 @@ export function encodeDecimationCompute(
   seriesForRender: ReadonlyArray<ResolvedSeriesConfig>,
   encoder: GPUCommandEncoder
 ): void {
+  // Type-aware pools may leave decimation at size 0 for sampling:'none' charts.
+  if (renderers.decimationComputes.length === 0) return;
+
   let pass: GPUComputePassEncoder | null = null;
   for (let i = 0; i < seriesForRender.length; i++) {
     const s = seriesForRender[i];
     if (s.visible === false || s.type !== 'line') continue;
     const compute = renderers.decimationComputes[i];
-    if (!compute.needsEncode()) continue;
+    if (!compute?.needsEncode()) continue;
     if (pass == null) {
       pass = encoder.beginComputePass({
         label: 'decimationCompute/batchPass',
@@ -762,23 +812,29 @@ export function renderSeries(
 
   // Render line strokes (standard AA quads only; dense hairline deferred to
   // post-resolve sampleCount:1 pass — see renderDenseHairlineLines).
-  for (let idx = 0; idx < visibleSeriesForRender.length; idx++) {
-    const { series, originalIndex } = visibleSeriesForRender[idx];
-    if (series.type === 'line') {
-      // Line intro reveal: left-to-right plot scissor.
-      if (introP < 1) {
-        const w = clampInt(Math.floor(plotScissor.w * introP), 0, plotScissor.w);
-        if (w > 0 && plotScissor.h > 0) {
-          mainPass.setScissorRect(plotScissor.x, plotScissor.y, w, plotScissor.h);
-          renderers.lineRenderers[originalIndex].render(mainPass);
-          mainPass.setScissorRect(0, 0, gridArea.canvasWidth, gridArea.canvasHeight);
+  // Batch scissor: multi-series group 1 pays one setScissorRect for all lines
+  // instead of 2×N state changes per frame.
+  if (introP < 1) {
+    const w = clampInt(Math.floor(plotScissor.w * introP), 0, plotScissor.w);
+    if (w > 0 && plotScissor.h > 0) {
+      mainPass.setScissorRect(plotScissor.x, plotScissor.y, w, plotScissor.h);
+      for (let idx = 0; idx < visibleSeriesForRender.length; idx++) {
+        const { series, originalIndex } = visibleSeriesForRender[idx]!;
+        if (series.type === 'line') {
+          renderers.lineRenderers[originalIndex]?.render(mainPass);
         }
-      } else {
-        mainPass.setScissorRect(plotScissor.x, plotScissor.y, plotScissor.w, plotScissor.h);
-        renderers.lineRenderers[originalIndex].render(mainPass);
-        mainPass.setScissorRect(0, 0, gridArea.canvasWidth, gridArea.canvasHeight);
+      }
+      mainPass.setScissorRect(0, 0, gridArea.canvasWidth, gridArea.canvasHeight);
+    }
+  } else if (plotScissor.w > 0 && plotScissor.h > 0) {
+    mainPass.setScissorRect(plotScissor.x, plotScissor.y, plotScissor.w, plotScissor.h);
+    for (let idx = 0; idx < visibleSeriesForRender.length; idx++) {
+      const { series, originalIndex } = visibleSeriesForRender[idx]!;
+      if (series.type === 'line') {
+        renderers.lineRenderers[originalIndex]?.render(mainPass);
       }
     }
+    mainPass.setScissorRect(0, 0, gridArea.canvasWidth, gridArea.canvasHeight);
   }
 }
 
@@ -820,24 +876,33 @@ export function renderDenseHairlineLines(
   const { visibleSeriesForRender } = seriesPreparation;
   const introP = introPhase === 'running' ? clamp01(introProgress01) : 1;
 
-  for (let idx = 0; idx < visibleSeriesForRender.length; idx++) {
-    const { series, originalIndex } = visibleSeriesForRender[idx]!;
-    if (series.type !== 'line') continue;
-    const lr = renderers.lineRenderers[originalIndex];
-    if (!lr?.isDenseHairline()) continue;
-
-    if (introP < 1) {
-      const w = clampInt(Math.floor(plotScissor.w * introP), 0, plotScissor.w);
-      if (w > 0 && plotScissor.h > 0) {
-        hairlinePass.setScissorRect(plotScissor.x, plotScissor.y, w, plotScissor.h);
-        lr.renderHairline(hairlinePass);
-        hairlinePass.setScissorRect(0, 0, gridArea.canvasWidth, gridArea.canvasHeight);
+  // Batch scissor + single setPipeline for multi-series dense hairline (group 1).
+  const drawHairlineBatch = (pass: GPURenderPassEncoder): void => {
+    let pipelineBound = false;
+    for (let idx = 0; idx < visibleSeriesForRender.length; idx++) {
+      const { series, originalIndex } = visibleSeriesForRender[idx]!;
+      if (series.type !== 'line') continue;
+      const lr = renderers.lineRenderers[originalIndex];
+      if (!lr?.isDenseHairline()) continue;
+      if (!pipelineBound) {
+        lr.bindHairlinePipeline(pass);
+        pipelineBound = true;
       }
-    } else if (plotScissor.w > 0 && plotScissor.h > 0) {
-      hairlinePass.setScissorRect(plotScissor.x, plotScissor.y, plotScissor.w, plotScissor.h);
-      lr.renderHairline(hairlinePass);
+      lr.renderHairline(pass, { skipSetPipeline: true });
+    }
+  };
+
+  if (introP < 1) {
+    const w = clampInt(Math.floor(plotScissor.w * introP), 0, plotScissor.w);
+    if (w > 0 && plotScissor.h > 0) {
+      hairlinePass.setScissorRect(plotScissor.x, plotScissor.y, w, plotScissor.h);
+      drawHairlineBatch(hairlinePass);
       hairlinePass.setScissorRect(0, 0, gridArea.canvasWidth, gridArea.canvasHeight);
     }
+  } else if (plotScissor.w > 0 && plotScissor.h > 0) {
+    hairlinePass.setScissorRect(plotScissor.x, plotScissor.y, plotScissor.w, plotScissor.h);
+    drawHairlineBatch(hairlinePass);
+    hairlinePass.setScissorRect(0, 0, gridArea.canvasWidth, gridArea.canvasHeight);
   }
 }
 

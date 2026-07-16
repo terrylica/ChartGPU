@@ -29,7 +29,7 @@ beforeAll(() => {
   };
 });
 
-import { createLineRenderer } from '../createLineRenderer';
+import { createLineRenderer, beginLineSharedVsFrame } from '../createLineRenderer';
 
 function createMockDevice() {
   return {
@@ -250,6 +250,140 @@ describe('createLineRenderer bounds (P2-5)', () => {
     expect(hairline!.multisample?.count).not.toBe(2);
     expect(standard?.primitive?.topology).toBe('triangle-list');
     expect(standard?.multisample?.count).toBe(4);
+    renderer.dispose();
+  });
+
+  it('multi-series budget: prepare with lineSeriesCount=1000, pointCount=1000 → denseHairline', () => {
+    const device = createMockDevice();
+    const renderer = createLineRenderer(device);
+    const data: DataPoint[] = [
+      [0, 0],
+      [1, 1],
+    ];
+    const series = makeSeries(data);
+    const xScale = createLinearScale().domain(0, 1).range(-1, 1);
+    const yScale = createLinearScale().domain(0, 1).range(1, -1);
+    const dataBuffer = { label: 'data' } as GPUBuffer;
+    renderer.prepare(series, dataBuffer, xScale, yScale, 0, 1, 800, 600, 1000, 1000);
+    expect(renderer.isDenseHairline()).toBe(true);
+    renderer.dispose();
+  });
+
+  it('multi-series budget: same 1000 points with lineSeriesCount=1 stays standard', () => {
+    const device = createMockDevice();
+    const renderer = createLineRenderer(device);
+    const data: DataPoint[] = [
+      [0, 0],
+      [1, 1],
+    ];
+    const series = makeSeries(data);
+    const xScale = createLinearScale().domain(0, 1).range(-1, 1);
+    const yScale = createLinearScale().domain(0, 1).range(1, -1);
+    const dataBuffer = { label: 'data' } as GPUBuffer;
+    renderer.prepare(series, dataBuffer, xScale, yScale, 0, 1, 800, 600, 1000, 1);
+    expect(renderer.isDenseHairline()).toBe(false);
+    renderer.dispose();
+  });
+
+  it('shared VS: two renderers same frame identical transform → second skips VS writeBuffer', () => {
+    const device = createMockDevice();
+    const writeUniform = writeUniformBuffer as ReturnType<typeof vi.fn>;
+    writeUniform.mockClear();
+    beginLineSharedVsFrame();
+    const a = createLineRenderer(device);
+    const b = createLineRenderer(device);
+    const data: DataPoint[] = [
+      [0, 0],
+      [1, 1],
+    ];
+    const series = makeSeries(data);
+    const xScale = createLinearScale().domain(0, 1).range(-1, 1);
+    const yScale = createLinearScale().domain(0, 1).range(1, -1);
+    const bufA = { label: 'dataA' } as GPUBuffer;
+    const bufB = { label: 'dataB' } as GPUBuffer;
+
+    const vsWritesBefore = () =>
+      writeUniform.mock.calls.filter((c) => {
+        const dataArg = c[2];
+        return dataArg instanceof ArrayBuffer && dataArg.byteLength === 80;
+      }).length;
+
+    a.prepare(series, bufA, xScale, yScale, 0, 1, 800, 600, 10);
+    const afterFirst = vsWritesBefore();
+    expect(afterFirst).toBeGreaterThan(0);
+    b.prepare(series, bufB, xScale, yScale, 0, 1, 800, 600, 10);
+    const afterSecond = vsWritesBefore();
+    // Second matching series should not write another VS buffer (shared reuse).
+    expect(afterSecond).toBe(afterFirst);
+
+    a.dispose();
+    b.dispose();
+  });
+
+  it('shared VS: divergent line width falls back to private VS write', () => {
+    const device = createMockDevice();
+    const writeUniform = writeUniformBuffer as ReturnType<typeof vi.fn>;
+    writeUniform.mockClear();
+    beginLineSharedVsFrame();
+    const a = createLineRenderer(device);
+    const b = createLineRenderer(device);
+    const data: DataPoint[] = [
+      [0, 0],
+      [1, 1],
+    ];
+    const thin = makeSeries(data);
+    const thick = {
+      ...makeSeries(data),
+      lineStyle: { width: 5, opacity: 1, color: '#0af' },
+    };
+    const xScale = createLinearScale().domain(0, 1).range(-1, 1);
+    const yScale = createLinearScale().domain(0, 1).range(1, -1);
+    const bufA = { label: 'dataA' } as GPUBuffer;
+    const bufB = { label: 'dataB' } as GPUBuffer;
+
+    const vsCount = () =>
+      writeUniform.mock.calls.filter((c) => {
+        const dataArg = c[2];
+        return dataArg instanceof ArrayBuffer && dataArg.byteLength === 80;
+      }).length;
+
+    a.prepare(thin, bufA, xScale, yScale, 0, 1, 800, 600, 10);
+    const afterFirst = vsCount();
+    b.prepare(thick as typeof thin, bufB, xScale, yScale, 0, 1, 800, 600, 10);
+    // Divergent width → private buffer write on second series.
+    expect(vsCount()).toBeGreaterThan(afterFirst);
+
+    a.dispose();
+    b.dispose();
+  });
+
+  it('renderHairline skipSetPipeline true does not call setPipeline', () => {
+    const device = createMockDevice();
+    const renderer = createLineRenderer(device);
+    const data: DataPoint[] = [
+      [0, 0],
+      [1, 1],
+    ];
+    const series = makeSeries(data);
+    const xScale = createLinearScale().domain(0, 1).range(-1, 1);
+    const yScale = createLinearScale().domain(0, 1).range(1, -1);
+    const dataBuffer = { label: 'data' } as GPUBuffer;
+    renderer.prepare(series, dataBuffer, xScale, yScale, 0, 1, 800, 600, 50_000);
+    expect(renderer.isDenseHairline()).toBe(true);
+
+    const pass = {
+      setPipeline: vi.fn(),
+      setBindGroup: vi.fn(),
+      draw: vi.fn(),
+    } as unknown as GPURenderPassEncoder;
+    renderer.renderHairline(pass, { skipSetPipeline: true });
+    expect(pass.setPipeline).not.toHaveBeenCalled();
+    expect(pass.setBindGroup).toHaveBeenCalled();
+    expect(pass.draw).toHaveBeenCalled();
+
+    (pass.setPipeline as ReturnType<typeof vi.fn>).mockClear();
+    renderer.renderHairline(pass);
+    expect(pass.setPipeline).toHaveBeenCalledTimes(1);
     renderer.dispose();
   });
 

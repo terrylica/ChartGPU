@@ -776,10 +776,81 @@ const warnCandlestickNotImplemented = (): void => {
 /**
  * Optional reuse of a prior resolve result (P1-7).
  * When raw data refs + sampling config match, skip O(n) bounds scan and sampleSeriesDataPoints.
+ *
+ * `previousUserOptions` + `lastUserSeriesElements` enable full-series-array reuse when:
+ * - each series **element** matches the prior snapshot (detects `series[i] = {...}`),
+ * - theme/palette refs match.
+ *
+ * Treat the outer `series` array **and each series config object** as immutable for this
+ * fast path. Element replace is detected; property mutation under a stable element
+ * (e.g. `series[i].data = newData`) is **not** (same as per-series data-ref contract).
+ * Group-1 SciChart harness axes-only y-range rewrites re-pass the same stored series objects.
  */
 export type ResolveOptionsReuse = Readonly<{
   readonly previousResolved?: ResolvedChartGPUOptions | null;
+  /**
+   * Prior **user** options object from the last `setOption` / create (not resolved).
+   * Full resolved-series reuse requires **per-element** identity (+ theme/palette
+   * identity); the outer `series` array may be a new array wrapping the same elements.
+   * When user `theme`/`palette` refs match, the prior **resolved** theme object is
+   * also reused (stable identity for legend / chrome skip paths).
+   */
+  readonly previousUserOptions?: ChartGPUOptions | null;
+  /**
+   * Snapshot of user series **element** refs captured after the last resolve.
+   * Required to detect `series[i] = newConfig` under a stable outer array identity.
+   * ChartGPU maintains this; unit tests should pass it for false-positive coverage.
+   */
+  readonly lastUserSeriesElements?: ReadonlyArray<unknown> | null;
 }>;
+
+/**
+ * Gate for wholesale resolved-series reuse (axes-only multi-series).
+ *
+ * Requires:
+ * 1. previous resolved series present and same length
+ * 2. previousUserOptions present with a series array
+ * 3. theme + palette identity match
+ * 4. each next series element matches `lastUserSeriesElements[i]` (preferred) or,
+ *    when no snapshot, each element matches `previousUserOptions.series[i]`
+ *    (covers a new outer array wrapping the same element objects)
+ *
+ * **Immutable series contract:** Treat the outer `series` array and each config
+ * object as immutable for this path. Mutating `series[i].data` / colors under a
+ * stable element object is still not detected (same as per-series data-ref contract);
+ * replace the series element or the whole array when content/style changes.
+ */
+export function canReuseEntireUserSeriesArray(input: {
+  readonly previousResolvedSeries: ReadonlyArray<unknown> | null | undefined;
+  readonly previousUserOptions: ChartGPUOptions | null | undefined;
+  readonly userOptions: ChartGPUOptions;
+  readonly lastUserSeriesElements?: ReadonlyArray<unknown> | null;
+}): boolean {
+  const { previousResolvedSeries, previousUserOptions, userOptions, lastUserSeriesElements } = input;
+  if (previousResolvedSeries == null || previousUserOptions == null) return false;
+  const userSeriesArr = userOptions.series;
+  if (userSeriesArr == null) return false;
+  if (previousUserOptions.theme !== userOptions.theme) return false;
+  if (previousUserOptions.palette !== userOptions.palette) return false;
+  if (previousResolvedSeries.length !== userSeriesArr.length) return false;
+
+  const prevUserSeries = previousUserOptions.series;
+  if (prevUserSeries == null || prevUserSeries.length !== userSeriesArr.length) return false;
+
+  // Prefer explicit element snapshot (detects index reassignment under stable outer array).
+  // When the outer array identity is stable and no snapshot is provided, comparing
+  // prevUserSeries[i] to userSeriesArr[i] is tautological — fail closed so
+  // series[i]=… cannot silently reuse without ChartGPU's snapshot.
+  if (prevUserSeries === userSeriesArr && lastUserSeriesElements == null) {
+    return false;
+  }
+  const baseline = lastUserSeriesElements ?? prevUserSeries;
+  if (baseline.length !== userSeriesArr.length) return false;
+  for (let i = 0; i < userSeriesArr.length; i++) {
+    if (baseline[i] !== userSeriesArr[i]) return false;
+  }
+  return true;
+}
 
 /**
  * True when the previous resolved series can supply `data` + `rawBounds` without re-sampling.
@@ -862,7 +933,8 @@ export function resolveOptions(
   reuse?: ResolveOptionsReuse
 ): ResolvedChartGPUOptions {
   const previousSeries = reuse?.previousResolved?.series;
-  const baseTheme = resolveTheme(userOptions.theme);
+  const previousTheme = reuse?.previousResolved?.theme;
+  const prevUserForTheme = reuse?.previousUserOptions;
 
   // runtime safety for JS callers
   const autoScrollRaw = (userOptions as unknown as { readonly autoScroll?: unknown }).autoScroll;
@@ -878,27 +950,42 @@ export function resolveOptions(
   // Default: animation enabled (with defaults) unless explicitly disabled.
   const animation: ChartGPUOptions['animation'] = animationCandidate ?? true;
 
-  // Backward compatibility:
-  // - If `userOptions.palette` is provided (non-empty), treat it as an override for the theme palette.
-  const paletteOverride = sanitizePalette(userOptions.palette);
+  // Reuse prior resolved theme identity when user theme/palette inputs are identity-stable.
+  // Critical for legend DOM skip: coordinator passes resolved.theme every setOption; a fresh
+  // theme object every frame would force N createElement rebuilds on axes-only multi-series.
+  const canReuseResolvedTheme =
+    previousTheme != null &&
+    prevUserForTheme != null &&
+    prevUserForTheme.theme === userOptions.theme &&
+    prevUserForTheme.palette === userOptions.palette;
 
-  const themeCandidate: ThemeConfig =
-    paletteOverride.length > 0 ? { ...baseTheme, colorPalette: paletteOverride } : baseTheme;
+  let theme: ThemeConfig;
+  if (canReuseResolvedTheme) {
+    theme = previousTheme;
+  } else {
+    const baseTheme = resolveTheme(userOptions.theme);
+    // Backward compatibility:
+    // - If `userOptions.palette` is provided (non-empty), treat it as an override for the theme palette.
+    const paletteOverride = sanitizePalette(userOptions.palette);
 
-  // Ensure palette used for modulo indexing is never empty.
-  const paletteFromTheme = sanitizePalette(themeCandidate.colorPalette);
-  const safePalette =
-    paletteFromTheme.length > 0
-      ? paletteFromTheme
-      : sanitizePalette(defaultOptions.palette ?? defaultPalette).length > 0
-        ? sanitizePalette(defaultOptions.palette ?? defaultPalette)
-        : Array.from(defaultPalette);
+    const themeCandidate: ThemeConfig =
+      paletteOverride.length > 0 ? { ...baseTheme, colorPalette: paletteOverride } : baseTheme;
 
-  const paletteForIndexing = safePalette.length > 0 ? safePalette : ['#000000'];
-  const theme: ThemeConfig = {
-    ...themeCandidate,
-    colorPalette: paletteForIndexing.slice(),
-  };
+    // Ensure palette used for modulo indexing is never empty.
+    const paletteFromTheme = sanitizePalette(themeCandidate.colorPalette);
+    const safePalette =
+      paletteFromTheme.length > 0
+        ? paletteFromTheme
+        : sanitizePalette(defaultOptions.palette ?? defaultPalette).length > 0
+          ? sanitizePalette(defaultOptions.palette ?? defaultPalette)
+          : Array.from(defaultPalette);
+
+    const paletteForIndexing = safePalette.length > 0 ? safePalette : ['#000000'];
+    theme = {
+      ...themeCandidate,
+      colorPalette: paletteForIndexing.slice(),
+    };
+  }
 
   const grid: ResolvedGridConfig = {
     left: userOptions.grid?.left ?? defaultOptions.grid.left,
@@ -1113,7 +1200,20 @@ export function resolveOptions(
     };
   };
 
-  const series: ReadonlyArray<ResolvedSeriesConfig> = (userOptions.series ?? []).map((s, i) => {
+  // Group-1 axes-only: same series elements + theme/palette → reuse prior resolved
+  // series wholesale (no per-series object allocation). Requires per-element identity
+  // (and element snapshot when outer array is stable) so series[i]=… is not ignored.
+  const prevUser = reuse?.previousUserOptions;
+  const canReuseEntireSeriesArray = canReuseEntireUserSeriesArray({
+    previousResolvedSeries: previousSeries,
+    previousUserOptions: prevUser,
+    userOptions,
+    lastUserSeriesElements: reuse?.lastUserSeriesElements,
+  });
+
+  const series: ReadonlyArray<ResolvedSeriesConfig> = canReuseEntireSeriesArray
+    ? previousSeries!
+    : (userOptions.series ?? []).map((s, i) => {
     const explicitColor = normalizeOptionalColor(s.color);
     const inheritedColor = theme.colorPalette[i % theme.colorPalette.length];
     const color = explicitColor ?? inheritedColor;

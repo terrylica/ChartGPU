@@ -60,6 +60,7 @@ See [ChartGPU.ts](../../src/ChartGPU.ts) for the full interface and lifecycle be
 **Common methods:**
 
 - `setOption(...)`: update options and schedule a render.
+  - **Series identity:** Prefer immutable series configs. When the same series **element objects** are re-passed (axes-only y/x range ticks), ChartGPU may reuse the previous resolved series array without re-scanning each series. To change data, color, visibility, or style, pass **new series element objects** (or a new `series` array). See [options.md — series array identity reuse](options.md#series-configuration).
 - `appendData(seriesIndex, newPoints, options?)`: streaming append for cartesian series.
   - Formats: `DataPoint[]`, `XYArraysData`, `InterleavedXYData`, `OHLCDataPoint[]`
   - Optional `{ maxPoints }` (**per call**, not sticky series state — omit later for unbounded growth):

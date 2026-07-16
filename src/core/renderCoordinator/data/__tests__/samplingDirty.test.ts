@@ -153,6 +153,51 @@ describe('samplingDirty predicates (P1-7)', () => {
     expect(shouldRecomputeBaselineSampling(a, b)).toBe(false);
   });
 
+  it('patchSeriesPresentationKeepingSampledData identity short-circuit returns same array', () => {
+    const data: DataPoint[] = [
+      [0, 1],
+      [1, 2],
+    ];
+    const resolved = resolveOptions({
+      series: [
+        { type: 'line', data, sampling: 'none', color: '#f00' },
+        { type: 'line', data, sampling: 'none', color: '#0f0' },
+      ],
+      yAxis: { min: 0, max: 1 },
+    });
+    // Simulate OptionResolver full series-array reuse (same object refs).
+    const patched = patchSeriesPresentationKeepingSampledData(resolved.series, resolved.series);
+    expect(patched).toBe(resolved.series);
+  });
+
+  it('patchSeriesPresentationKeepingSampledData does not full-reuse on partial element mismatch', () => {
+    const data: DataPoint[] = [
+      [0, 1],
+      [1, 2],
+    ];
+    const a = resolveOptions({
+      series: [
+        { type: 'line', data, sampling: 'none', color: '#f00' },
+        { type: 'line', data, sampling: 'none', color: '#0f0' },
+      ],
+      yAxis: { min: 0, max: 1 },
+    });
+    const b = resolveOptions({
+      series: [
+        { type: 'line', data, sampling: 'none', color: '#f00' },
+        { type: 'line', data, sampling: 'none', color: '#00f' },
+      ],
+      yAxis: { min: 0, max: 1 },
+    });
+    // next[0] may differ by object identity from previous[0]; force partial:
+    // share index 0 object, differ at index 1.
+    const nextPartial = [a.series[0]!, b.series[1]!] as typeof a.series;
+    const patched = patchSeriesPresentationKeepingSampledData(nextPartial, a.series);
+    expect(patched).not.toBe(a.series);
+    expect(patched[0]).toBe(a.series[0]); // identity reuse per-slot
+    expect(patched[1]).not.toBe(a.series[1]);
+  });
+
   it('patchSeriesPresentationKeepingSampledData reuses sampled data ref', () => {
     const raw: DataPoint[] = Array.from({ length: 100 }, (_, i) => [i, Math.sin(i)]);
     const sampled: DataPoint[] = [

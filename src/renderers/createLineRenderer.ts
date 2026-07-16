@@ -25,7 +25,12 @@ export interface LineRenderer {
     devicePixelRatio?: number,
     canvasWidthDevicePx?: number,
     canvasHeightDevicePx?: number,
-    pointCountOverride?: number
+    pointCountOverride?: number,
+    /**
+     * Visible line series count for multi-series hairline budget
+     * ({@link resolveLineDrawPolicy} / group 1).
+     */
+    lineSeriesCount?: number
   ): void;
   /**
    * Draw into the **main** MSAA pass. Dense hairline series are deferred
@@ -41,8 +46,19 @@ export interface LineRenderer {
   /**
    * Draw dense hairline into a **single-sample** pass (sampleCount 1) on the
    * resolved main color. No-op when the last prepare was standard AA quads.
+   *
+   * @param options.skipSetPipeline - When true, assumes the hairline pipeline
+   *   is already bound (multi-series batch: set once, then N draw calls).
    */
-  renderHairline(passEncoder: GPURenderPassEncoder): void;
+  renderHairline(
+    passEncoder: GPURenderPassEncoder,
+    options?: Readonly<{ skipSetPipeline?: boolean }>
+  ): void;
+  /**
+   * Bind the dense-hairline pipeline (for multi-series batching).
+   * Safe to call even when this instance is not hairline this frame.
+   */
+  bindHairlinePipeline(passEncoder: GPURenderPassEncoder): void;
   dispose(): void;
 }
 
@@ -114,15 +130,14 @@ const writeTransformMat4F32 = (out: Float32Array, ax: number, bx: number, ay: nu
   out[15] = 1; // col3
 };
 
-export function createLineRenderer(device: GPUDevice, options?: LineRendererOptions): LineRenderer {
-  let disposed = false;
-  const targetFormat = options?.targetFormat ?? DEFAULT_TARGET_FORMAT;
-  // Be resilient: coerce invalid values to 1 (no MSAA).
-  const sampleCountRaw = options?.sampleCount ?? 1;
-  const sampleCount = Number.isFinite(sampleCountRaw) ? Math.max(1, Math.floor(sampleCountRaw)) : 1;
-  const pipelineCache = options?.pipelineCache;
+/** Shared bind-group layouts per device — avoid N layouts for N multi-series lines (group 1). */
+const lineBindGroupLayoutByDevice = new WeakMap<GPUDevice, GPUBindGroupLayout>();
 
-  const bindGroupLayout = device.createBindGroupLayout({
+function getLineBindGroupLayout(device: GPUDevice): GPUBindGroupLayout {
+  let layout = lineBindGroupLayoutByDevice.get(device);
+  if (layout) return layout;
+  layout = device.createBindGroupLayout({
+    label: 'lineRenderer/bindGroupLayout',
     entries: [
       {
         binding: 0,
@@ -141,6 +156,84 @@ export function createLineRenderer(device: GPUDevice, options?: LineRendererOpti
       },
     ],
   });
+  lineBindGroupLayoutByDevice.set(device, layout);
+  return layout;
+}
+
+/**
+ * Shared VS transform buffer per device (group 1 multi-series).
+ *
+ * All line series on the same axes + same effective width + same packing origin
+ * write identical VS uniforms when only y-domain ticks. The first prepare in a
+ * frame claims/writes the shared buffer; matching series bind it and skip
+ * per-series writeBuffer. Divergent series (different width / xOffset) fall
+ * back to their private buffer.
+ *
+ * **Multi-chart caveat:** frame claim uses a process-global epoch
+ * ({@link beginLineSharedVsFrame}). Charts that **interleave** prepare across
+ * instances on the same GPUDevice without each calling `beginLineSharedVsFrame`
+ * before their own line prepare loop can overwrite the shared buffer while
+ * another chart's bind groups still reference it. Safe when each chart
+ * prepares+submits without interleaving another chart's prepare on the same
+ * device (normal single-chart and sequential multi-chart render).
+ */
+type SharedLineVsState = {
+  buffer: GPUBuffer;
+  frameId: number;
+  ax: number;
+  bx: number;
+  ay: number;
+  by: number;
+  canvasW: number;
+  canvasH: number;
+  dpr: number;
+  lineWidth: number;
+  scratch: ArrayBuffer;
+  scratchF32: Float32Array;
+};
+
+const sharedLineVsByDevice = new WeakMap<GPUDevice, SharedLineVsState>();
+let lineSharedVsFrameId = 0;
+
+/**
+ * Call once before preparing any line series in a frame so shared VS can be
+ * claimed by the first series and reused by the rest.
+ */
+export function beginLineSharedVsFrame(): void {
+  lineSharedVsFrameId++;
+}
+
+function getSharedLineVs(device: GPUDevice): SharedLineVsState {
+  let s = sharedLineVsByDevice.get(device);
+  if (s) return s;
+  const scratch = new ArrayBuffer(80);
+  s = {
+    buffer: createUniformBuffer(device, 80, { label: 'lineRenderer/sharedVsUniforms' }),
+    frameId: -1,
+    ax: Number.NaN,
+    bx: Number.NaN,
+    ay: Number.NaN,
+    by: Number.NaN,
+    canvasW: Number.NaN,
+    canvasH: Number.NaN,
+    dpr: Number.NaN,
+    lineWidth: Number.NaN,
+    scratch,
+    scratchF32: new Float32Array(scratch),
+  };
+  sharedLineVsByDevice.set(device, s);
+  return s;
+}
+
+export function createLineRenderer(device: GPUDevice, options?: LineRendererOptions): LineRenderer {
+  let disposed = false;
+  const targetFormat = options?.targetFormat ?? DEFAULT_TARGET_FORMAT;
+  // Be resilient: coerce invalid values to 1 (no MSAA).
+  const sampleCountRaw = options?.sampleCount ?? 1;
+  const sampleCount = Number.isFinite(sampleCountRaw) ? Math.max(1, Math.floor(sampleCountRaw)) : 1;
+  const pipelineCache = options?.pipelineCache;
+
+  const bindGroupLayout = getLineBindGroupLayout(device);
 
   // VS uniforms: mat4x4 (64) + canvasSize (8) + dpr (4) + lineWidthCssPx (4) = 80 bytes.
   const vsUniformBuffer = createUniformBuffer(device, 80, {
@@ -166,6 +259,11 @@ export function createLineRenderer(device: GPUDevice, options?: LineRendererOpti
   let lastFsG = Number.NaN;
   let lastFsB = Number.NaN;
   let lastFsA = Number.NaN;
+  let lastColorKey: string | null = null;
+  let lastBaseR = Number.NaN;
+  let lastBaseG = Number.NaN;
+  let lastBaseB = Number.NaN;
+  let lastBaseA = Number.NaN;
   let lastAx = Number.NaN;
   let lastBx = Number.NaN;
   let lastAy = Number.NaN;
@@ -174,6 +272,8 @@ export function createLineRenderer(device: GPUDevice, options?: LineRendererOpti
   let lastCanvasH = Number.NaN;
   let lastDpr = Number.NaN;
   let lastLineWidth = Number.NaN;
+  /** Which VS buffer is currently referenced by currentBindGroup. */
+  let boundVsBuffer: GPUBuffer = vsUniformBuffer;
 
   const blendState: GPUBlendState = {
     color: {
@@ -255,7 +355,8 @@ export function createLineRenderer(device: GPUDevice, options?: LineRendererOpti
     devicePixelRatio = 1,
     canvasWidthDevicePx = 1,
     canvasHeightDevicePx = 1,
-    pointCountOverride
+    pointCountOverride,
+    lineSeriesCount
   ) => {
     assertNotDisposed();
 
@@ -283,11 +384,12 @@ export function createLineRenderer(device: GPUDevice, options?: LineRendererOpti
       Number.isFinite(seriesConfig.lineStyle.width) && seriesConfig.lineStyle.width > 0
         ? seriesConfig.lineStyle.width
         : DEFAULT_LINE_WIDTH_CSS_PX;
-    // Dense full-rewrite draw policy (group 3): at high N switch to line-list hairline
-    // (cuts AA-quad fill under 4× MSAA) without changing sampling / pack / residency.
+    // Dense full-rewrite (group 3) + multi-series fill cliff (group 1): switch to
+    // line-list hairline without changing sampling / pack / residency.
     const drawPolicy = resolveLineDrawPolicy({
       pointCount: currentPointCount,
       lineWidthCssPx: nominalLineWidthCss,
+      lineSeriesCount,
     });
     currentDrawPolicy = drawPolicy.policy;
     const lineWidthCss = drawPolicy.effectiveLineWidthCssPx;
@@ -296,17 +398,23 @@ export function createLineRenderer(device: GPUDevice, options?: LineRendererOpti
     vsUniformScratchF32[17] = canvasH;
     vsUniformScratchF32[18] = dpr;
     vsUniformScratchF32[19] = lineWidthCss;
-    const vsDirty =
-      lastAx !== ax ||
-      lastBx !== bxAdjusted ||
-      lastAy !== ay ||
-      lastBy !== by ||
-      lastCanvasW !== canvasW ||
-      lastCanvasH !== canvasH ||
-      lastDpr !== dpr ||
-      lastLineWidth !== lineWidthCss;
-    if (vsDirty) {
-      writeUniformBuffer(device, vsUniformBuffer, vsUniformScratchBuffer);
+
+    // Shared VS: first line prepare this frame writes once; matching series reuse.
+    const shared = getSharedLineVs(device);
+    let vsBufferForBind: GPUBuffer = vsUniformBuffer;
+    if (shared.frameId !== lineSharedVsFrameId) {
+      // Claim shared for this frame.
+      writeUniformBuffer(device, shared.buffer, vsUniformScratchBuffer);
+      shared.frameId = lineSharedVsFrameId;
+      shared.ax = ax;
+      shared.bx = bxAdjusted;
+      shared.ay = ay;
+      shared.by = by;
+      shared.canvasW = canvasW;
+      shared.canvasH = canvasH;
+      shared.dpr = dpr;
+      shared.lineWidth = lineWidthCss;
+      vsBufferForBind = shared.buffer;
       lastAx = ax;
       lastBx = bxAdjusted;
       lastAy = ay;
@@ -315,16 +423,71 @@ export function createLineRenderer(device: GPUDevice, options?: LineRendererOpti
       lastCanvasH = canvasH;
       lastDpr = dpr;
       lastLineWidth = lineWidthCss;
+    } else if (
+      shared.ax === ax &&
+      shared.bx === bxAdjusted &&
+      shared.ay === ay &&
+      shared.by === by &&
+      shared.canvasW === canvasW &&
+      shared.canvasH === canvasH &&
+      shared.dpr === dpr &&
+      shared.lineWidth === lineWidthCss
+    ) {
+      vsBufferForBind = shared.buffer;
+      lastAx = ax;
+      lastBx = bxAdjusted;
+      lastAy = ay;
+      lastBy = by;
+      lastCanvasW = canvasW;
+      lastCanvasH = canvasH;
+      lastDpr = dpr;
+      lastLineWidth = lineWidthCss;
+    } else {
+      // Divergent VS (different width / xOffset) — private buffer.
+      const vsDirty =
+        lastAx !== ax ||
+        lastBx !== bxAdjusted ||
+        lastAy !== ay ||
+        lastBy !== by ||
+        lastCanvasW !== canvasW ||
+        lastCanvasH !== canvasH ||
+        lastDpr !== dpr ||
+        lastLineWidth !== lineWidthCss;
+      if (vsDirty) {
+        writeUniformBuffer(device, vsUniformBuffer, vsUniformScratchBuffer);
+        lastAx = ax;
+        lastBx = bxAdjusted;
+        lastAy = ay;
+        lastBy = by;
+        lastCanvasW = canvasW;
+        lastCanvasH = canvasH;
+        lastDpr = dpr;
+        lastLineWidth = lineWidthCss;
+      }
+      vsBufferForBind = vsUniformBuffer;
     }
 
-    const [r, g, b, a] = parseSeriesColorToRgba01(seriesConfig.color);
+    // Color parse is relatively expensive (CSS string); cache base RGBA by color key.
+    const colorKey = seriesConfig.color;
     const opacity = clamp01(seriesConfig.lineStyle.opacity);
-    const fa = clamp01(a * opacity);
-    fsUniformScratchF32[0] = r;
-    fsUniformScratchF32[1] = g;
-    fsUniformScratchF32[2] = b;
-    fsUniformScratchF32[3] = fa;
+    if (lastColorKey !== colorKey) {
+      const [pr, pg, pb, pa] = parseSeriesColorToRgba01(colorKey);
+      lastBaseR = pr;
+      lastBaseG = pg;
+      lastBaseB = pb;
+      lastBaseA = pa;
+      lastColorKey = colorKey;
+    }
+    const r = lastBaseR;
+    const g = lastBaseG;
+    const b = lastBaseB;
+    const fa = clamp01(lastBaseA * opacity);
+    // `fa` already folds opacity; no separate lastOpacity key.
     if (lastFsR !== r || lastFsG !== g || lastFsB !== b || lastFsA !== fa) {
+      fsUniformScratchF32[0] = r;
+      fsUniformScratchF32[1] = g;
+      fsUniformScratchF32[2] = b;
+      fsUniformScratchF32[3] = fa;
       writeUniformBuffer(device, fsUniformBuffer, fsUniformScratchF32);
       lastFsR = r;
       lastFsG = g;
@@ -332,18 +495,18 @@ export function createLineRenderer(device: GPUDevice, options?: LineRendererOpti
       lastFsA = fa;
     }
 
-    // Rebuild the bind group only when the underlying data buffer reference changes.
-    // Uniform buffers and layout are stable for the lifetime of the renderer.
-    if (currentBindGroup === null || boundDataBuffer !== dataBuffer) {
+    // Rebuild bind group when data buffer or VS buffer (shared vs private) changes.
+    if (currentBindGroup === null || boundDataBuffer !== dataBuffer || boundVsBuffer !== vsBufferForBind) {
       currentBindGroup = device.createBindGroup({
         layout: bindGroupLayout,
         entries: [
-          { binding: 0, resource: { buffer: vsUniformBuffer } },
+          { binding: 0, resource: { buffer: vsBufferForBind } },
           { binding: 1, resource: { buffer: fsUniformBuffer } },
           { binding: 2, resource: { buffer: dataBuffer } },
         ],
       });
       boundDataBuffer = dataBuffer;
+      boundVsBuffer = vsBufferForBind;
     }
   };
 
@@ -368,11 +531,18 @@ export function createLineRenderer(device: GPUDevice, options?: LineRendererOpti
     return isDenseHairlinePolicy() && currentPointCount >= 2 && currentBindGroup != null;
   };
 
-  const renderHairline: LineRenderer['renderHairline'] = (passEncoder) => {
+  const bindHairlinePipeline: LineRenderer['bindHairlinePipeline'] = (passEncoder) => {
+    assertNotDisposed();
+    passEncoder.setPipeline(hairlinePipeline);
+  };
+
+  const renderHairline: LineRenderer['renderHairline'] = (passEncoder, options) => {
     assertNotDisposed();
     if (!isDenseHairlinePolicy() || !currentBindGroup || currentPointCount < 2) return;
     const segments = currentPointCount - 1;
-    passEncoder.setPipeline(hairlinePipeline);
+    if (!options?.skipSetPipeline) {
+      passEncoder.setPipeline(hairlinePipeline);
+    }
     passEncoder.setBindGroup(0, currentBindGroup);
     // Native 1 device-px stroke: 2 verts/instance (line-list), sampleCount 1 pass.
     passEncoder.draw(2, segments);
@@ -399,5 +569,5 @@ export function createLineRenderer(device: GPUDevice, options?: LineRendererOpti
     }
   };
 
-  return { prepare, render, isDenseHairline, renderHairline, dispose };
+  return { prepare, render, isDenseHairline, renderHairline, bindHairlinePipeline, dispose };
 }

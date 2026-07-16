@@ -843,6 +843,14 @@ export async function createChartGPU(
 
   let currentOptions: ChartGPUOptions = options;
   let resolvedOptions: ResolvedChartGPUOptions = resolveOptionsForChart(currentOptions);
+  /**
+   * Snapshot of user series element refs after the last resolve. Used with
+   * `canReuseEntireUserSeriesArray` so `series[i] = {...}` under a stable outer
+   * array does not silently reuse stale resolved series.
+   */
+  let lastUserSeriesElements: ReadonlyArray<unknown> | null = currentOptions.series
+    ? currentOptions.series.slice()
+    : null;
 
   // When true, hit-test columns were skipped under dual-store relief and must be
   // rebuilt from the coordinator before hitTest / after tooltip re-enable.
@@ -2019,11 +2027,22 @@ export async function createChartGPU(
     },
     setOption(nextOptions) {
       if (disposed) return;
+      // Capture prior user options before overwrite so axes-only paths can reuse
+      // the entire resolved series array when series **elements** are identity-stable
+      // (group 1 harness: same storedSeries objects + expanding yMin/yMax).
+      // Treat series array + each series config as immutable for this fast path;
+      // replace the element or array when data/style/visibility changes.
+      const previousUserOptions = currentOptions;
+      const previousElements = lastUserSeriesElements;
       currentOptions = nextOptions;
       // P1-7: pass previous resolve so unchanged series skip re-sample / bounds scan.
       resolvedOptions = resolveOptionsForChart(nextOptions, {
         previousResolved: resolvedOptions,
+        previousUserOptions,
+        lastUserSeriesElements: previousElements,
       });
+      // Refresh element snapshot after every resolve (hit or miss).
+      lastUserSeriesElements = nextOptions.series ? nextOptions.series.slice() : null;
       coordinator?.setOptions(resolvedOptions);
 
       // Dual-store relief on full rewrite: when tooltips are off, skip O(n)

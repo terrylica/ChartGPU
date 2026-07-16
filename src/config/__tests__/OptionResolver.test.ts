@@ -256,6 +256,262 @@ describe('OptionResolver candlestick contentHash reuse', () => {
   });
 });
 
+describe('OptionResolver full series-array identity reuse (group 1 axes-only)', () => {
+  it('reuses entire previous resolved series array when user series elements are stable', () => {
+    const dataA: DataPoint[] = [
+      [0, 1],
+      [1, 2],
+    ];
+    const dataB: DataPoint[] = [
+      [0, 3],
+      [1, 4],
+    ];
+    const userSeries = [
+      { type: 'line' as const, data: dataA, sampling: 'none' as const, color: '#f00' },
+      { type: 'line' as const, data: dataB, sampling: 'none' as const, color: '#0f0' },
+    ];
+    const firstUser = {
+      series: userSeries,
+      xAxis: { min: 0, max: 10 },
+      yAxis: { min: -10, max: 10 },
+    };
+    const first = resolveOptions(firstUser);
+    const elementSnapshot = userSeries.slice();
+    const secondUser = {
+      series: userSeries, // same array identity
+      xAxis: { min: 0, max: 10 },
+      yAxis: { min: -20, max: 20 }, // axes-only change
+    };
+    const second = resolveOptions(secondUser, {
+      previousResolved: first,
+      previousUserOptions: firstUser,
+      lastUserSeriesElements: elementSnapshot,
+    });
+    expect(second.series).toBe(first.series);
+    expect(second.series[0]).toBe(first.series[0]);
+    expect(second.series[1]).toBe(first.series[1]);
+    // Axes still resolve to new values
+    expect(second.yAxes[0]?.min).toBe(-20);
+    expect(second.yAxes[0]?.max).toBe(20);
+  });
+
+  it('reuses when new outer array wraps the same element objects', () => {
+    const data: DataPoint[] = [
+      [0, 1],
+      [1, 2],
+    ];
+    const s0 = { type: 'line' as const, data, sampling: 'none' as const, color: '#f00' };
+    const firstUser = { series: [s0], yAxis: { min: 0, max: 1 } };
+    const first = resolveOptions(firstUser);
+    const secondUser = { series: [s0], yAxis: { min: 0, max: 2 } }; // new array, same element
+    const second = resolveOptions(secondUser, {
+      previousResolved: first,
+      previousUserOptions: firstUser,
+      lastUserSeriesElements: [s0],
+    });
+    expect(second.series).toBe(first.series);
+  });
+
+  it('does not reuse when user series element is replaced under stable outer array', () => {
+    const data: DataPoint[] = [
+      [0, 1],
+      [1, 2],
+    ];
+    const userSeries: Array<{
+      type: 'line';
+      data: DataPoint[];
+      sampling: 'none';
+      color: string;
+    }> = [{ type: 'line', data, sampling: 'none', color: '#f00' }];
+    const firstUser = { series: userSeries, yAxis: { min: 0, max: 1 } };
+    const first = resolveOptions(firstUser);
+    const snapshot = userSeries.slice();
+    // Element replace under same outer array
+    userSeries[0] = {
+      type: 'line',
+      data: [
+        [0, 9],
+        [1, 8],
+      ],
+      sampling: 'none',
+      color: '#00f',
+    };
+    const second = resolveOptions(
+      { series: userSeries, yAxis: { min: 0, max: 2 } },
+      {
+        previousResolved: first,
+        previousUserOptions: firstUser,
+        lastUserSeriesElements: snapshot,
+      }
+    );
+    expect(second.series).not.toBe(first.series);
+    expect((second.series[0] as { color?: string }).color).toBe('#00f');
+  });
+
+  it('still reuses full series array when only series[i].data is replaced under stable element (immutable-element contract)', () => {
+    // Full-array reuse keys on element identity, not deep data. Mutating/replacing
+    // data under a stable element is the documented in-place contract (not detected).
+    // Element replace is required for full-array miss; data-only change under same
+    // element still reuses full array (same as prior contentHash path).
+    const data1: DataPoint[] = [
+      [0, 1],
+      [1, 2],
+    ];
+    const s0 = { type: 'line' as const, data: data1 as DataPoint[], sampling: 'none' as const, color: '#f00' };
+    const userSeries = [s0];
+    const firstUser = { series: userSeries, yAxis: { min: 0, max: 1 } };
+    const first = resolveOptions(firstUser);
+    const snapshot = userSeries.slice();
+    // Property replace under same element object — still full-array reuse (immutable contract).
+    (s0 as { data: DataPoint[] }).data = [
+      [0, 99],
+      [1, 98],
+    ];
+    const second = resolveOptions(
+      { series: userSeries, yAxis: { min: 0, max: 2 } },
+      {
+        previousResolved: first,
+        previousUserOptions: firstUser,
+        lastUserSeriesElements: snapshot,
+      }
+    );
+    // Full-array path still hits (element identity stable) — consumer must replace element.
+    expect(second.series).toBe(first.series);
+  });
+
+  it('reuses resolved theme identity when user theme/palette refs are unchanged (axes-only)', () => {
+    const data: DataPoint[] = [
+      [0, 1],
+      [1, 2],
+    ];
+    const userSeries = [{ type: 'line' as const, data, sampling: 'none' as const, color: '#f00' }];
+    const firstUser = { series: userSeries, theme: 'dark' as const, yAxis: { min: 0, max: 1 } };
+    const first = resolveOptions(firstUser);
+    const second = resolveOptions(
+      { series: userSeries, theme: 'dark' as const, yAxis: { min: -10, max: 10 } },
+      {
+        previousResolved: first,
+        previousUserOptions: firstUser,
+        lastUserSeriesElements: userSeries.slice(),
+      }
+    );
+    expect(second.theme).toBe(first.theme);
+    expect(second.series).toBe(first.series);
+  });
+
+  it('does not reuse resolved theme when user theme identity changes', () => {
+    const data: DataPoint[] = [
+      [0, 1],
+      [1, 2],
+    ];
+    const userSeries = [{ type: 'line' as const, data, sampling: 'none' as const, color: '#f00' }];
+    const firstUser = { series: userSeries, theme: 'dark' as const, yAxis: { min: 0, max: 1 } };
+    const first = resolveOptions(firstUser);
+    const second = resolveOptions(
+      { series: userSeries, theme: 'light' as const, yAxis: { min: 0, max: 2 } },
+      {
+        previousResolved: first,
+        previousUserOptions: firstUser,
+        lastUserSeriesElements: userSeries.slice(),
+      }
+    );
+    expect(second.theme).not.toBe(first.theme);
+  });
+
+  it('does not reuse when theme identity changes', () => {
+    const data: DataPoint[] = [
+      [0, 1],
+      [1, 2],
+    ];
+    const userSeries = [{ type: 'line' as const, data, sampling: 'none' as const, color: '#f00' }];
+    const firstUser = { series: userSeries, theme: 'dark' as const, yAxis: { min: 0, max: 1 } };
+    const first = resolveOptions(firstUser);
+    const second = resolveOptions(
+      { series: userSeries, theme: 'light' as const, yAxis: { min: 0, max: 2 } },
+      {
+        previousResolved: first,
+        previousUserOptions: firstUser,
+        lastUserSeriesElements: userSeries.slice(),
+      }
+    );
+    expect(second.series).not.toBe(first.series);
+  });
+
+  it('does not reuse when palette identity changes', () => {
+    const data: DataPoint[] = [
+      [0, 1],
+      [1, 2],
+    ];
+    const userSeries = [{ type: 'line' as const, data, sampling: 'none' as const }];
+    const paletteA = ['#f00', '#0f0'];
+    const paletteB = ['#00f', '#ff0'];
+    const firstUser = { series: userSeries, palette: paletteA, yAxis: { min: 0, max: 1 } };
+    const first = resolveOptions(firstUser);
+    const second = resolveOptions(
+      { series: userSeries, palette: paletteB, yAxis: { min: 0, max: 2 } },
+      {
+        previousResolved: first,
+        previousUserOptions: firstUser,
+        lastUserSeriesElements: userSeries.slice(),
+      }
+    );
+    expect(second.series).not.toBe(first.series);
+  });
+
+  it('does not reuse when previousUserOptions is omitted', () => {
+    const data: DataPoint[] = [
+      [0, 1],
+      [1, 2],
+    ];
+    const userSeries = [{ type: 'line' as const, data, sampling: 'none' as const, color: '#f00' }];
+    const firstUser = { series: userSeries, yAxis: { min: 0, max: 1 } };
+    const first = resolveOptions(firstUser);
+    const second = resolveOptions(
+      { series: userSeries, yAxis: { min: 0, max: 2 } },
+      { previousResolved: first, lastUserSeriesElements: userSeries.slice() }
+    );
+    expect(second.series).not.toBe(first.series);
+  });
+
+  it('does not reuse same outer array when lastUserSeriesElements snapshot is omitted (fail closed)', () => {
+    const data: DataPoint[] = [
+      [0, 1],
+      [1, 2],
+    ];
+    const userSeries = [{ type: 'line' as const, data, sampling: 'none' as const, color: '#f00' }];
+    const firstUser = { series: userSeries, yAxis: { min: 0, max: 1 } };
+    const first = resolveOptions(firstUser);
+    const second = resolveOptions(
+      { series: userSeries, yAxis: { min: 0, max: 2 } },
+      { previousResolved: first, previousUserOptions: firstUser }
+      // no lastUserSeriesElements — same-array element compare would be tautological
+    );
+    expect(second.series).not.toBe(first.series);
+  });
+
+  it('does not reuse when element objects differ (new series configs)', () => {
+    const data: DataPoint[] = [
+      [0, 1],
+      [1, 2],
+    ];
+    const firstUser = {
+      series: [{ type: 'line' as const, data, sampling: 'none' as const, color: '#f00' }],
+      yAxis: { min: 0, max: 1 },
+    };
+    const first = resolveOptions(firstUser);
+    const secondUser = {
+      series: [{ type: 'line' as const, data, sampling: 'none' as const, color: '#f00' }],
+      yAxis: { min: 0, max: 2 },
+    };
+    const second = resolveOptions(secondUser, {
+      previousResolved: first,
+      previousUserOptions: firstUser,
+      lastUserSeriesElements: firstUser.series.slice(),
+    });
+    expect(second.series).not.toBe(first.series);
+  });
+});
+
 describe('OptionResolver full series rewrite path', () => {
   it('does not full-scan hashCartesianSeriesData when data ref changes', () => {
     const a: DataPoint[] = [

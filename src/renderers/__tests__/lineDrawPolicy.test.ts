@@ -4,6 +4,7 @@ import {
   DENSE_HAIRLINE_POINT_THRESHOLD,
   DENSE_LINE_POINT_THRESHOLD,
   DENSE_LINE_MIN_WIDTH_CSS,
+  MULTI_SERIES_HAIRLINE_SEGMENT_BUDGET,
 } from '../lineDrawPolicy';
 
 describe('resolveLineDrawPolicy', () => {
@@ -75,5 +76,88 @@ describe('resolveLineDrawPolicy', () => {
       expect(r.policy === 'standard' || r.policy === 'denseHairline').toBe(true);
       expect((r.policy as string) === 'denseThin').toBe(false);
     }
+  });
+
+  describe('multi-series segment budget (group 1)', () => {
+    it('500×500 stays standard (protect display-refresh band)', () => {
+      const r = resolveLineDrawPolicy({
+        pointCount: 500,
+        lineWidthCssPx: 2,
+        lineSeriesCount: 500,
+      });
+      // 500 * 499 = 249_500 < 500_000
+      expect(500 * 499).toBeLessThan(MULTI_SERIES_HAIRLINE_SEGMENT_BUDGET);
+      expect(r.policy).toBe('standard');
+      expect(r.effectiveLineWidthCssPx).toBe(2);
+    });
+
+    it('1000×1000 enters denseHairline (mid cliff)', () => {
+      const r = resolveLineDrawPolicy({
+        pointCount: 1000,
+        lineWidthCssPx: 2,
+        lineSeriesCount: 1000,
+      });
+      // 1000 * 999 = 999_000 >= 500_000
+      expect(1000 * 999).toBeGreaterThanOrEqual(MULTI_SERIES_HAIRLINE_SEGMENT_BUDGET);
+      expect(r.policy).toBe('denseHairline');
+    });
+
+    it('2000×2000 enters denseHairline (hard cliff)', () => {
+      const r = resolveLineDrawPolicy({
+        pointCount: 2000,
+        lineWidthCssPx: 2,
+        lineSeriesCount: 2000,
+      });
+      expect(r.policy).toBe('denseHairline');
+    });
+
+    it('single series never uses multi-series budget alone at low N', () => {
+      const r = resolveLineDrawPolicy({
+        pointCount: 1000,
+        lineWidthCssPx: 2,
+        lineSeriesCount: 1,
+      });
+      expect(r.policy).toBe('standard');
+    });
+
+    it('false-positive: 200×200 multi-series stays standard', () => {
+      const r = resolveLineDrawPolicy({
+        pointCount: 200,
+        lineWidthCssPx: 2,
+        lineSeriesCount: 200,
+      });
+      expect(r.policy).toBe('standard');
+    });
+
+    it('just below segment budget stays standard (500 × 1000 → 499500 segs; under per-series 25k)', () => {
+      // Use pointCount < 25k so only multi-series budget applies.
+      // segments = 500 * (1000 - 1) = 499500 < 500000
+      const r = resolveLineDrawPolicy({
+        pointCount: 1000,
+        lineWidthCssPx: 2,
+        lineSeriesCount: 500,
+      });
+      expect(500 * (1000 - 1)).toBeLessThan(MULTI_SERIES_HAIRLINE_SEGMENT_BUDGET);
+      expect(r.policy).toBe('standard');
+    });
+
+    it('just at segment budget enters denseHairline (500 × 1001 → 500000 segs; under per-series 25k)', () => {
+      // segments = 500 * (1001 - 1) = 500000; pointCount 1001 << 25k
+      const r = resolveLineDrawPolicy({
+        pointCount: 1001,
+        lineWidthCssPx: 2,
+        lineSeriesCount: 500,
+      });
+      expect(500 * (1001 - 1)).toBe(MULTI_SERIES_HAIRLINE_SEGMENT_BUDGET);
+      expect(r.policy).toBe('denseHairline');
+    });
+
+    it('omitted lineSeriesCount behaves as single series', () => {
+      const r = resolveLineDrawPolicy({
+        pointCount: 1000,
+        lineWidthCssPx: 2,
+      });
+      expect(r.policy).toBe('standard');
+    });
   });
 });

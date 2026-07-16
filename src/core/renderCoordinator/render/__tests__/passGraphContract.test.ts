@@ -49,7 +49,19 @@ describe('frame graph contracts (WG-P1-5 / WG-P2-1)', () => {
     expect(renderSeriesSrc).toMatch(/isDenseHairline\(\)/);
     expect(renderSeriesSrc).toMatch(/renderHairline\(/);
     // Main series loop still calls .render( for lines (defer is inside LineRenderer).
-    expect(renderSeriesSrc).toMatch(/lineRenderers\[originalIndex\]\.render\(/);
+    // Optional chaining allowed (type-aware pools may leave holes in theory).
+    expect(renderSeriesSrc).toMatch(/lineRenderers\[originalIndex\]\??\.render\(/);
+  });
+
+  it('multi-series hairline budget counts only visible line series', () => {
+    // Regression: lineSeriesCount must filter visible !== false so hidden lines
+    // do not push the total-segment budget into denseHairline.
+    expect(renderSeriesSrc).toMatch(
+      /type === 'line' && [\s\S]{0,40}visible !== false/
+    );
+    // Equal-N approximation comment / budget wiring still present.
+    expect(renderSeriesSrc).toMatch(/lineSeriesCount/);
+    expect(renderSeriesSrc).toMatch(/beginLineSharedVsFrame/);
   });
 
   it('creates axis/crosshair/highlight with annotation MSAA sample count', () => {
