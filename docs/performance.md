@@ -17,6 +17,8 @@ Optimize ChartGPU for large datasets and real-time streaming.
 | `max` / `min` | Spikes | Peaks / valleys |
 | `none` | Small datasets (<5K) | All points |
 
+**GPU decimation (line, `lttb`/`min`/`max`, null-gap-free):** compute shaders replace CPU sampling. When points-per-bucket exceed **512**, each bucket evaluates a uniform **512-candidate** set (endpoints included) instead of every raw point — exact below that density; approximate extrema/shape at extreme N (e.g. 10M pts / 2500 buckets). This bounds GPU bandwidth for FIFO streaming without changing `sampling` mode.
+
 **Config:** Per-series `sampling`, `samplingThreshold` in [options](api/options.md#series-configuration). See [`examples/sampling/`](../examples/sampling/).
 
 ## Zoom-aware resampling

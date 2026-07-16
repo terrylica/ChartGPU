@@ -1969,19 +1969,41 @@ export function createRenderCoordinator(
               raw = createStagingRingView(staging, layout.start, layout.capacity, count, xOffset, prevView);
               runtimeRawDataByIndex[seriesIndex] = raw;
 
-              // O(1) x endpoints + incremental y (never shrinks on drop — same
-              // conservative product policy as RingXYColumns path).
+              // O(1) x endpoints from StagingRingView (staging is mirrored) +
+              // O(append) y scan of the new batch. Never shrinks y on drop —
+              // same conservative product policy as RingXYColumns path.
               const x0 = getX(raw as unknown as CartesianSeriesData, 0);
               const x1 = getX(raw as unknown as CartesianSeriesData, Math.max(0, count - 1));
               const prevB = runtimeRawBoundsByIndex[seriesIndex];
               let yMin = prevB?.yMin ?? Number.POSITIVE_INFINITY;
               let yMax = prevB?.yMax ?? Number.NEGATIVE_INFINITY;
               const end = plan.newSrcOffset + plan.keepNewCount;
-              for (let i = plan.newSrcOffset; i < end; i++) {
-                const y = getY(cartesianData, i);
-                if (Number.isFinite(y)) {
-                  if (y < yMin) yMin = y;
-                  if (y > yMax) yMax = y;
+              // FIFO suite: shared Float64 y columns — scan column directly
+              // (avoid getY dispatch × large append batches / frame).
+              const yCol =
+                typeof cartesianData === 'object' &&
+                cartesianData !== null &&
+                !Array.isArray(cartesianData) &&
+                !isStagingRingView(cartesianData) &&
+                !isRingXYColumns(cartesianData) &&
+                'y' in cartesianData
+                  ? (cartesianData as { y: ArrayLike<number> }).y
+                  : null;
+              if (yCol != null) {
+                for (let i = plan.newSrcOffset; i < end; i++) {
+                  const y = yCol[i] as number;
+                  if (Number.isFinite(y)) {
+                    if (y < yMin) yMin = y;
+                    if (y > yMax) yMax = y;
+                  }
+                }
+              } else {
+                for (let i = plan.newSrcOffset; i < end; i++) {
+                  const y = getY(cartesianData, i);
+                  if (Number.isFinite(y)) {
+                    if (y < yMin) yMin = y;
+                    if (y > yMax) yMax = y;
+                  }
                 }
               }
               if (Number.isFinite(x0) && Number.isFinite(x1) && Number.isFinite(yMin) && Number.isFinite(yMax)) {

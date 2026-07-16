@@ -262,6 +262,141 @@ describe('createDataStore', () => {
       expect(writes.mock.calls[0]![1]).toBe(32);
     });
 
+    it('append content hash bumps without full FNV of new floats (FIFO O(1) version)', () => {
+      const store = createDataStore(device);
+      const seed: Array<[number, number]> = [];
+      for (let i = 0; i < 256; i++) seed.push([i, i]);
+      store.setSeries(0, seed);
+      // Pure linear fill under capacity.
+      const h0 = store.getSeriesContentHash(0);
+      const big: Array<[number, number]> = [];
+      for (let i = 0; i < 128; i++) big.push([1000 + i, i]);
+      store.appendSeries(0, big, { maxPoints: 10_000 });
+      const h1 = store.getSeriesContentHash(0);
+      expect(h1).not.toBe(h0);
+      // Second append must bump again (dirty gate for GPU decimation).
+      store.appendSeries(0, [[2000, 1]], { maxPoints: 10_000 });
+      expect(store.getSeriesContentHash(0)).not.toBe(h1);
+    });
+
+    it('modular wrap bumps content version (O(1) stamp, not FNV of floats)', () => {
+      const store = createDataStore(device);
+      const seed: Array<[number, number]> = [];
+      for (let i = 0; i < 64; i++) seed.push([i, i]);
+      store.setSeries(0, seed);
+      store.setSeries(0, [
+        [0, 0],
+        [1, 1],
+        [2, 2],
+        [3, 3],
+      ]);
+      const h0 = store.getSeriesContentHash(0);
+      store.appendSeries(0, [[10, 10]], { maxPoints: 4 });
+      const h1 = store.getSeriesContentHash(0);
+      expect(h1).not.toBe(h0);
+      expect(store.getSeriesRingLayout(0).start).toBe(1);
+      // Identical y payload still bumps — version is content-agnostic, not FNV(y).
+      store.appendSeries(0, [[11, 10]], { maxPoints: 4 });
+      expect(store.getSeriesContentHash(0)).not.toBe(h1);
+    });
+
+    it('identical y append still bumps content version (not float FNV equality)', () => {
+      const store = createDataStore(device);
+      const seed: Array<[number, number]> = [];
+      for (let i = 0; i < 32; i++) seed.push([i, 1]);
+      store.setSeries(0, seed);
+      const h0 = store.getSeriesContentHash(0);
+      // Same y values, new x — stamp must change so decimation re-runs.
+      store.appendSeries(0, [
+        [100, 1],
+        [101, 1],
+      ]);
+      const h1 = store.getSeriesContentHash(0);
+      expect(h1).not.toBe(h0);
+      store.appendSeries(0, [
+        [102, 1],
+        [103, 1],
+      ]);
+      expect(store.getSeriesContentHash(0)).not.toBe(h1);
+    });
+
+    it('linear append writeBuffer sources appendScratch, not full staging parent', () => {
+      const store = createDataStore(device);
+      const seed: Array<[number, number]> = [];
+      for (let i = 0; i < 64; i++) seed.push([i, i]);
+      store.setSeries(0, seed);
+      store.setSeries(0, [
+        [0, 0],
+        [1, 1],
+        [2, 2],
+        [3, 3],
+      ]);
+      const staging = store.getSeriesStagingBuffer(0);
+      (device.queue.writeBuffer as ReturnType<typeof vi.fn>).mockClear();
+
+      store.appendSeries(
+        0,
+        [
+          [4, 4],
+          [5, 5],
+          [6, 6],
+        ],
+        { maxPoints: 64 }
+      );
+
+      const writes = device.queue.writeBuffer as ReturnType<typeof vi.fn>;
+      expect(writes).toHaveBeenCalledTimes(1);
+      const call = writes.mock.calls[0]!;
+      // writeBuffer(buffer, byteOffset, data, dataOffset, size)
+      const dataSrc = call[2] as ArrayBuffer;
+      const byteLength = call[4] as number;
+      expect(byteLength).toBe(3 * 2 * 4); // O(append) only
+      // Must not source the full-capacity staging ArrayBuffer parent.
+      expect(dataSrc).not.toBe(staging.buffer);
+      expect((dataSrc as ArrayBuffer).byteLength).toBeLessThan(staging.buffer.byteLength);
+    });
+
+    it('modular dual-write wrap sources appendScratch (not staging parent)', () => {
+      const store = createDataStore(device);
+      const seed: Array<[number, number]> = [];
+      for (let i = 0; i < 64; i++) seed.push([i, i]);
+      store.setSeries(0, seed);
+      store.setSeries(0, [
+        [0, 0],
+        [1, 1],
+        [2, 2],
+        [3, 3],
+      ]);
+      // Wrap so ringStart=1, write head = 1.
+      store.appendSeries(0, [[10, 10]], { maxPoints: 4 });
+      store.appendSeries(0, [[11, 11]], { maxPoints: 4 });
+      // start=2, write head=2; append 3 → phys 2,3,0 (wrap)
+      const staging = store.getSeriesStagingBuffer(0);
+      (device.queue.writeBuffer as ReturnType<typeof vi.fn>).mockClear();
+
+      store.appendSeries(
+        0,
+        [
+          [20, 20],
+          [21, 21],
+          [22, 22],
+        ],
+        { maxPoints: 4 }
+      );
+
+      const writes = device.queue.writeBuffer as ReturnType<typeof vi.fn>;
+      expect(writes.mock.calls.length).toBe(2); // dual modular write
+      let totalBytes = 0;
+      for (const call of writes.mock.calls) {
+        const dataSrc = call[2] as ArrayBuffer;
+        const byteLength = call[4] as number;
+        totalBytes += byteLength;
+        expect(dataSrc).not.toBe(staging.buffer);
+        expect((dataSrc as ArrayBuffer).byteLength).toBeLessThan(staging.buffer.byteLength);
+      }
+      expect(totalBytes).toBe(3 * 2 * 4); // O(append) total
+    });
+
     it('ring wrap overwrites oldest slots without full retained rewrite', () => {
       const store = createDataStore(device);
       const seed: Array<[number, number]> = [];

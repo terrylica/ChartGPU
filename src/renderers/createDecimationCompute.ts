@@ -16,6 +16,12 @@
  *   - `'lttb'` / `'auto'` — two-phase parallel LTTB (per-bucket averages, then
  *     triangle-area maximization against the neighboring bucket averages).
  *
+ * **Dense-bucket candidate cap (WGSL):** when a bucket's raw range exceeds 512
+ * points, all three kernels evaluate a uniform 512-sample candidate set
+ * (including endpoints) instead of every raw point. Below that density the
+ * scan is exact. At extreme N (e.g. 10M / 2500 buckets) min/max are therefore
+ * approximate extrema, not guaranteed true bucket min/max.
+ *
  * All entry points live in `src/shaders/decimation.wgsl` — that file documents
  * the per-bucket indexing convention and the output layout contract.
  */

@@ -145,6 +145,46 @@ fn mulDivU32(a : u32, b : u32, denom : u32) -> u32 {
   return main + udiv64by32(prod.x, prod.y, denom);
 }
 
+// Max raw points examined per interior bucket. When the bucket range is
+// larger, candidates are uniformly subsampled (including endpoints).
+//
+// Rationale (FIFO extreme-N, e.g. 10M × 5 series, samplingThreshold=2500):
+//   Parallel LTTB otherwise full-scans the visible span twice per series
+//   (~100M raw reads/frame at 10M×5). Cap keeps quality on dense waveforms
+//   while bounding GPU bandwidth.
+//
+// At 1M × 2500 buckets ≈ 400 pts/bucket → full scan (exact; no 1M×5 regression).
+// At 10M ≈ 4000 pts/bucket → 512 samples (~8× less bandwidth per pass).
+//
+// **Approximation (all three entry points when rangeLen > 512):**
+//   - LTTB / averages: triangle-area / mean over the uniform candidate set.
+//   - min/max: argmin/argmax over candidates only — not the true bucket
+//     extremum. Dense ECG/noise still preserves peaks well at 512 samples.
+//
+// Literal (not module const) so Chrome's WGSL front-end never couples this
+// to workgroup_size / array-size resolution (see AGENTS.md WG_SIZE note).
+//
+// Map candidate index s ∈ [0, candCount) → raw index in [rangeStart, rangeEnd).
+fn candidateRawIndex(rangeStart : u32, rangeLen : u32, s : u32, candCount : u32) -> u32 {
+  if (candCount <= 1u || rangeLen <= 1u) {
+    return rangeStart;
+  }
+  if (candCount >= rangeLen) {
+    return rangeStart + s;
+  }
+  // Uniform including endpoints: floor(s * (rangeLen - 1) / (candCount - 1)).
+  return rangeStart + mulDivU32(rangeLen - 1u, s, candCount - 1u);
+}
+
+// candCount = min(rangeLen, 512). Shared by all three entry points
+// (min/max, averages, LTTB) — see approximation note above.
+fn bucketCandidateCount(rangeLen : u32) -> u32 {
+  if (rangeLen > 512u) {
+    return 512u;
+  }
+  return rangeLen;
+}
+
 // Interior-bucket raw-index range, exclusive upper bound. Guarantees a
 // non-empty range so reductions always have at least one candidate.
 fn interiorBucketRange(bucketId : u32) -> vec2<u32> {
@@ -221,11 +261,14 @@ fn minMaxDecimate(
   }
   var bestIdx : u32 = rangeStart;
 
-  // Stride over the bucket range in workgroup-sized chunks (64 threads each).
-  // When rangeStart == rangeEnd (degenerate), every thread skips the loop and
-  // contributes sentinel values; the reduction still runs safely.
-  var i : u32 = rangeStart + tid;
-  while (i < rangeEnd) {
+  // Stride over candidates in workgroup-sized chunks (64 threads each).
+  // Oversized buckets are uniformly subsampled (see bucketCandidateCount).
+  // Degenerate empty range → candCount 0 → every thread skips; reduction safe.
+  let rangeLenMm = rangeEnd - rangeStart;
+  let candCountMm = bucketCandidateCount(rangeLenMm);
+  var sMm : u32 = tid;
+  while (sMm < candCountMm) {
+    let i = candidateRawIndex(rangeStart, rangeLenMm, sMm, candCountMm);
     let p = rawAt(i);
     if (isFiniteVec2(p)) {
       if (wantMax) {
@@ -240,7 +283,7 @@ fn minMaxDecimate(
         }
       }
     }
-    i = i + 64u;
+    sMm = sMm + 64u;
   }
 
   sharedScore[tid] = bestY;
@@ -329,15 +372,20 @@ fn computeBucketAverages(
   var sumY : f32 = 0.0;
   var cnt  : u32 = 0u;
 
-  var i : u32 = rangeStart + tid;
-  while (i < rangeEnd) {
+  // Uniform subsample when range is huge (same cap as min/max and LTTB).
+  // Approximate mean is enough for parallel-LTTB triangle anchors at extreme N.
+  let rangeLenAvg = rangeEnd - rangeStart;
+  let candCountAvg = bucketCandidateCount(rangeLenAvg);
+  var sAvg : u32 = tid;
+  while (sAvg < candCountAvg) {
+    let i = candidateRawIndex(rangeStart, rangeLenAvg, sAvg, candCountAvg);
     let p = rawAt(i);
     if (isFiniteVec2(p)) {
       sumX = sumX + p.x;
       sumY = sumY + p.y;
       cnt  = cnt + 1u;
     }
-    i = i + 64u;
+    sAvg = sAvg + 64u;
   }
 
   sharedSumX[tid]  = sumX;
@@ -421,8 +469,12 @@ fn parallelLttbDecimate(
   var bestScore : f32 = -1.0;
   var bestIdx   : u32 = rangeStart;
 
-  var i : u32 = rangeStart + tid;
-  while (i < rangeEnd) {
+  // Cap candidates on oversized buckets (see bucketCandidateCount).
+  let rangeLenLttb = rangeEnd - rangeStart;
+  let candCountLttb = bucketCandidateCount(rangeLenLttb);
+  var sLttb : u32 = tid;
+  while (sLttb < candCountLttb) {
+    let i = candidateRawIndex(rangeStart, rangeLenLttb, sLttb, candCountLttb);
     let c = rawAt(i);
     if (isFiniteVec2(c)) {
       // Unsigned triangle area (scaled by 2) via the cross product.
@@ -433,7 +485,7 @@ fn parallelLttbDecimate(
         bestIdx   = i;
       }
     }
-    i = i + 64u;
+    sLttb = sLttb + 64u;
   }
 
   sharedScore[tid] = bestScore;

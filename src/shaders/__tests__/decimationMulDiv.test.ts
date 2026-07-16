@@ -111,3 +111,75 @@ describe('decimation mulDivU32 (bucket index overflow regression)', () => {
     expect(mulDivU32(badSpan, lastB, interior)).toBe(Math.floor((badSpan * lastB) / interior));
   });
 });
+
+/**
+ * Mirror of bucketCandidateCount / candidateRawIndex in decimation.wgsl.
+ * Dense-bucket cap bounds GPU reads at extreme FIFO N (10M×5 LTTB).
+ */
+const MAX_BUCKET_CANDIDATES = 512;
+
+function bucketCandidateCount(rangeLen: number): number {
+  rangeLen = rangeLen >>> 0;
+  return rangeLen > MAX_BUCKET_CANDIDATES ? MAX_BUCKET_CANDIDATES : rangeLen;
+}
+
+function candidateRawIndex(rangeStart: number, rangeLen: number, s: number, candCount: number): number {
+  rangeStart = rangeStart >>> 0;
+  rangeLen = rangeLen >>> 0;
+  s = s >>> 0;
+  candCount = candCount >>> 0;
+  if (candCount <= 1 || rangeLen <= 1) return rangeStart;
+  if (candCount >= rangeLen) return rangeStart + s;
+  return rangeStart + mulDivU32(rangeLen - 1, s, candCount - 1);
+}
+
+describe('decimation dense-bucket candidate cap (FIFO 10M LTTB)', () => {
+  it('full-scans when rangeLen ≤ 512 (1M×2500 ≈ 400 pts/bucket — no 1M regression)', () => {
+    const rangeLen = 400;
+    expect(bucketCandidateCount(rangeLen)).toBe(400);
+    for (let s = 0; s < rangeLen; s++) {
+      expect(candidateRawIndex(10, rangeLen, s, rangeLen)).toBe(10 + s);
+    }
+  });
+
+  it('caps at 512 and includes endpoints for oversized buckets (10M path)', () => {
+    const rangeStart = 1000;
+    const rangeLen = 4000; // ~10M / 2500
+    const candCount = bucketCandidateCount(rangeLen);
+    expect(candCount).toBe(512);
+    expect(candidateRawIndex(rangeStart, rangeLen, 0, candCount)).toBe(rangeStart);
+    expect(candidateRawIndex(rangeStart, rangeLen, candCount - 1, candCount)).toBe(
+      rangeStart + rangeLen - 1
+    );
+    // Monotonic non-decreasing candidate indices
+    let prev = -1;
+    for (let s = 0; s < candCount; s++) {
+      const idx = candidateRawIndex(rangeStart, rangeLen, s, candCount);
+      expect(idx).toBeGreaterThanOrEqual(rangeStart);
+      expect(idx).toBeLessThan(rangeStart + rangeLen);
+      expect(idx).toBeGreaterThanOrEqual(prev);
+      prev = idx;
+    }
+  });
+
+  it('false-positive guard: rangeLen exactly 512 is not subsampled', () => {
+    expect(bucketCandidateCount(512)).toBe(512);
+    expect(bucketCandidateCount(513)).toBe(512);
+    expect(candidateRawIndex(0, 512, 511, 512)).toBe(511);
+  });
+
+  it('degenerate rangeLen 0/1 and candCount ≤ 1 match WGSL early-outs', () => {
+    // bucketCandidateCount: empty / singleton ranges stay exact (no cap).
+    expect(bucketCandidateCount(0)).toBe(0);
+    expect(bucketCandidateCount(1)).toBe(1);
+
+    // candidateRawIndex: candCount <= 1 or rangeLen <= 1 → rangeStart.
+    expect(candidateRawIndex(42, 0, 0, 0)).toBe(42);
+    expect(candidateRawIndex(42, 1, 0, 1)).toBe(42);
+    expect(candidateRawIndex(7, 100, 0, 0)).toBe(7);
+    expect(candidateRawIndex(7, 100, 0, 1)).toBe(7);
+    expect(candidateRawIndex(7, 1, 0, 1)).toBe(7);
+    // rangeLen <= 1 takes precedence even if candCount looks larger.
+    expect(candidateRawIndex(9, 1, 3, 5)).toBe(9);
+  });
+});

@@ -529,12 +529,34 @@ export function packXYInto(
   }
 
   if (isXYArraysData(src)) {
-    // Fast path: bulk copy with xOffset adjustment
-    for (let i = 0; i < actualPointCount; i++) {
-      const srcIdx = srcPointOffset + i;
-      const outIdx = outFloatOffset + i * 2;
-      out[outIdx] = src.x[srcIdx]! - xOffset;
-      out[outIdx + 1] = src.y[srcIdx]!;
+    // Hoist columns + bounds once. FIFO suite packs 250k×5 Float64 splits/frame.
+    const xs = src.x;
+    const ys = src.y;
+    let o = outFloatOffset;
+    let i = srcPointOffset;
+    const end = srcPointOffset + actualPointCount;
+    // Unroll ×4 for the xOffset===0 path (suite value-axis ECG).
+    if (xOffset === 0) {
+      const end4 = end - 3;
+      for (; i < end4; i += 4, o += 8) {
+        out[o] = xs[i] as number;
+        out[o + 1] = ys[i] as number;
+        out[o + 2] = xs[i + 1] as number;
+        out[o + 3] = ys[i + 1] as number;
+        out[o + 4] = xs[i + 2] as number;
+        out[o + 5] = ys[i + 2] as number;
+        out[o + 6] = xs[i + 3] as number;
+        out[o + 7] = ys[i + 3] as number;
+      }
+      for (; i < end; i++, o += 2) {
+        out[o] = xs[i] as number;
+        out[o + 1] = ys[i] as number;
+      }
+    } else {
+      for (; i < end; i++, o += 2) {
+        out[o] = (xs[i] as number) - xOffset;
+        out[o + 1] = ys[i] as number;
+      }
     }
     return;
   }

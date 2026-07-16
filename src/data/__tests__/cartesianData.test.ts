@@ -176,6 +176,80 @@ describe('packXYInto - Float32 interleaved bulk set (issue 2.4)', () => {
   });
 });
 
+/**
+ * XY-arrays pack path (Float64 columns) — ×4 unroll for xOffset===0 plus
+ * remainder / offset / xOffset≠0. FIFO suite uses this layout.
+ */
+describe('packXYInto - XY arrays unroll (FIFO typed columns)', () => {
+  function makeXY(n: number): { x: Float64Array; y: Float64Array } {
+    const x = new Float64Array(n);
+    const y = new Float64Array(n);
+    for (let i = 0; i < n; i++) {
+      x[i] = 100 + i;
+      y[i] = i * 0.5;
+    }
+    return { x, y };
+  }
+
+  function expectedInterleaved(
+    n: number,
+    srcPointOffset: number,
+    pointCount: number,
+    xOffset: number
+  ): number[] {
+    const out: number[] = [];
+    for (let i = 0; i < pointCount; i++) {
+      const idx = srcPointOffset + i;
+      out.push(100 + idx - xOffset, idx * 0.5);
+    }
+    return out;
+  }
+
+  it.each([1, 3, 4, 5, 7, 8])(
+    'packs count=%s with xOffset 0 (unroll + remainder)',
+    (n) => {
+      const src = makeXY(n);
+      const out = new Float32Array(n * 2);
+      packXYInto(out, 0, src, 0, n, 0);
+      expect(Array.from(out)).toEqual(expectedInterleaved(n, 0, n, 0));
+    }
+  );
+
+  it('honors srcPointOffset > 0', () => {
+    const src = makeXY(10);
+    const out = new Float32Array(6);
+    packXYInto(out, 0, src, 3, 3, 0);
+    expect(Array.from(out)).toEqual(expectedInterleaved(10, 3, 3, 0));
+  });
+
+  it('subtracts non-zero xOffset (non-unroll path)', () => {
+    const src = makeXY(5);
+    const out = new Float32Array(10);
+    packXYInto(out, 0, src, 0, 5, 100);
+    expect(Array.from(out)).toEqual(expectedInterleaved(5, 0, 5, 100));
+  });
+
+  it('combines srcPointOffset + xOffset + remainder length', () => {
+    const src = makeXY(12);
+    const out = new Float32Array(10);
+    // 5 points from offset 2 with xOffset 50 — exercises non-zero offset + remainder.
+    packXYInto(out, 0, src, 2, 5, 50);
+    expect(Array.from(out)).toEqual(expectedInterleaved(12, 2, 5, 50));
+  });
+
+  it('writes at outFloatOffset (not only at 0)', () => {
+    const src = makeXY(4);
+    const out = new Float32Array(12);
+    out.fill(-1);
+    packXYInto(out, 4, src, 0, 4, 0);
+    expect(out[0]).toBe(-1);
+    expect(out[1]).toBe(-1);
+    expect(out[2]).toBe(-1);
+    expect(out[3]).toBe(-1);
+    expect(Array.from(out.subarray(4))).toEqual(expectedInterleaved(4, 0, 4, 0));
+  });
+});
+
 describe('packXYInto - null gap handling', () => {
   it('writes NaN for null entries in DataPoint array', () => {
     const data: (DataPoint | null)[] = [[0, 1], null, [2, 3]];

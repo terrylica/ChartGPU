@@ -100,11 +100,14 @@ export interface DataStore {
    */
   isSeriesRingMode(index: number): boolean;
   /**
-   * Returns the FNV-1a content hash of the packed Float32 payload for this series.
-   * Changes whenever `setSeries` / `appendSeries` rewrites floats (even into the
-   * same buffer at the same point count). Used by GPU decimation dirty-gating
-   * (WG-P0-2) so same-N content rewrites re-dispatch compute.
+   * Content version for GPU dirty-gating (WG-P0-2).
    *
+   * - **`setSeries`**: FNV-1a of the packed Float32 payload (equal-content
+   *   early-out when the full rewrite matches the previous hash).
+   * - **`appendSeries`**: O(1) version stamp (not FNV of the new floats). Append
+   *   always mutates residency; hashing 250k×5 floats/frame was pure tax.
+   *
+   * Changes whenever packed content is rewritten (including same-N appends).
    * Throws if the series has not been set yet.
    */
   getSeriesContentHash(index: number): number;
@@ -192,56 +195,23 @@ function hashFloat32ArrayBits(data: Float32Array): number {
 }
 
 /**
- * Packs `pointCount` points from `src` into modular ring slots of `out`,
- * starting at physical index `physStart` (wraps at `ringCapacity`).
+ * O(1) content-version bump for append paths.
+ *
+ * Full FNV over packed floats is only needed on `setSeries` for equal-content
+ * early-out. Append always mutates GPU residency; hashing every new float
+ * (250k×5 at FIFO 10M) was a pure tax on the decimation dirty gate.
  */
-function packXYIntoRing(
-  out: Float32Array,
-  physStart: number,
-  ringCapacity: number,
-  src: CartesianSeriesData,
-  srcPointOffset: number,
-  pointCount: number,
-  xOffset: number
-): void {
-  if (pointCount <= 0 || ringCapacity <= 0) return;
-  const first = Math.min(pointCount, ringCapacity - physStart);
-  if (first > 0) {
-    packXYInto(out, physStart * 2, src, srcPointOffset, first, xOffset);
+function bumpContentVersion(hash: number, keepNewCount: number, dropPrevCount = 0): number {
+  let h = (hash + 0x9e3779b9) >>> 0;
+  h = Math.imul(h ^ (keepNewCount >>> 0), 0x01000193) >>> 0;
+  if (dropPrevCount > 0) {
+    h = (h + 0x85ebca6b) >>> 0;
   }
-  const rest = pointCount - first;
-  if (rest > 0) {
-    packXYInto(out, 0, src, srcPointOffset + first, rest, xOffset);
+  // Ensure a change even when keepNewCount is 0 (drop-only edge).
+  if (h === (hash >>> 0)) {
+    h = (h + 1) >>> 0;
   }
-}
-
-/**
- * Uploads a modular contiguous-or-wrapped point range from staging to the GPU.
- * `physStart` / `pointCount` are in points; may split into two writeBuffer calls.
- */
-function writeRingRangeToGpu(
-  device: GPUDevice,
-  buffer: GPUBuffer,
-  staging: Float32Array,
-  physStart: number,
-  ringCapacity: number,
-  pointCount: number
-): void {
-  if (pointCount <= 0) return;
-  const first = Math.min(pointCount, ringCapacity - physStart);
-  if (first > 0) {
-    const view = staging.subarray(physStart * 2, (physStart + first) * 2);
-    if (view.byteLength > 0) {
-      device.queue.writeBuffer(buffer, physStart * 2 * 4, view.buffer, view.byteOffset, view.byteLength);
-    }
-  }
-  const rest = pointCount - first;
-  if (rest > 0) {
-    const view = staging.subarray(0, rest * 2);
-    if (view.byteLength > 0) {
-      device.queue.writeBuffer(buffer, 0, view.buffer, view.byteOffset, view.byteLength);
-    }
-  }
+  return h;
 }
 
 /**
@@ -321,6 +291,83 @@ function copyRetainedPointsToNewBuffer(
 export function createDataStore(device: GPUDevice): DataStore {
   const series = new Map<number, SeriesEntry>();
   let disposed = false;
+  /**
+   * Small pack scratch for O(append) GPU uploads. Avoids `queue.writeBuffer` sourcing
+   * a subarray of the full-capacity staging ArrayBuffer (can be 80MB+ at 10M pts) —
+   * browser drivers often pin/validate the parent buffer. Scratch stays ~append-sized.
+   */
+  let appendScratch: Float32Array = new Float32Array(0);
+
+  const ensureAppendScratch = (pointCount: number): Float32Array => {
+    const need = Math.max(0, pointCount | 0) * 2;
+    if (appendScratch.length >= need) return appendScratch;
+    const next = Math.max(need, appendScratch.length > 0 ? appendScratch.length * 2 : 64);
+    // Power-of-two float count (even) for stable growth.
+    let cap = 64;
+    while (cap < next) cap *= 2;
+    appendScratch = new Float32Array(cap);
+    return appendScratch;
+  };
+
+  /**
+   * Pack `pointCount` new points into a small append scratch, mirror into
+   * modular/linear staging, and ranged-write GPU from the **scratch** buffer
+   * (not a subarray of the full-capacity staging ArrayBuffer — browser drivers
+   * often pin/validate the parent, which is 80MB+ at 10M pts).
+   */
+  const packAppendAndUpload = (
+    stagingBuffer: Float32Array,
+    gpuBuffer: GPUBuffer,
+    physStart: number,
+    ringCapacity: number,
+    newPoints: CartesianSeriesData,
+    srcPointOffset: number,
+    pointCount: number,
+    xOffset: number,
+    linearDestPointOffset: number | null
+  ): void => {
+    if (pointCount <= 0) return;
+    const scratch = ensureAppendScratch(pointCount);
+    packXYInto(scratch, 0, newPoints, srcPointOffset, pointCount, xOffset);
+
+    if (linearDestPointOffset != null) {
+      const floats = pointCount * 2;
+      stagingBuffer.set(scratch.subarray(0, floats), linearDestPointOffset * 2);
+      const byteOffset = linearDestPointOffset * 2 * 4;
+      const byteLength = floats * 4;
+      if (byteLength > 0) {
+        device.queue.writeBuffer(gpuBuffer, byteOffset, scratch.buffer, scratch.byteOffset, byteLength);
+      }
+      return;
+    }
+
+    // Modular ring: 1–2 GPU writes from scratch + staging mirror for leave-ring.
+    const cap = ringCapacity;
+    const first = Math.min(pointCount, cap - physStart);
+    const floatsFirst = first * 2;
+    if (first > 0) {
+      stagingBuffer.set(scratch.subarray(0, floatsFirst), physStart * 2);
+      device.queue.writeBuffer(
+        gpuBuffer,
+        physStart * 2 * 4,
+        scratch.buffer,
+        scratch.byteOffset,
+        floatsFirst * 4
+      );
+    }
+    const rest = pointCount - first;
+    if (rest > 0) {
+      const floatsRest = rest * 2;
+      stagingBuffer.set(scratch.subarray(floatsFirst, floatsFirst + floatsRest), 0);
+      device.queue.writeBuffer(
+        gpuBuffer,
+        0,
+        scratch.buffer,
+        scratch.byteOffset + floatsFirst * 4,
+        floatsRest * 4
+      );
+    }
+  };
 
   // Lazy equal-N y-only GPU rewrite (Track C Option B — compute y lanes).
   let yRewritePipeline: GPUComputePipeline | null = null;
@@ -678,24 +725,22 @@ export function createDataStore(device: GPUDevice): DataStore {
       ringStart = 0;
 
       if (pureGrowthAppend) {
-        packXYInto(stagingBuffer, oldCount * 2, newPoints, 0, newPointCount, existing.xOffset);
-        const appendedView = stagingBuffer.subarray(oldCount * 2, nextPointCount * 2);
-        if (appendedView.byteLength > 0) {
-          device.queue.writeBuffer(
-            buffer,
-            oldCount * 2 * 4,
-            appendedView.buffer,
-            appendedView.byteOffset,
-            appendedView.byteLength
-          );
-        }
-        const appendWords = new Uint32Array(appendedView.buffer, appendedView.byteOffset, appendedView.byteLength / 4);
-        const nextHash32 = fnv1aUpdate(existing.hash32, appendWords);
+        packAppendAndUpload(
+          stagingBuffer,
+          buffer,
+          0,
+          0,
+          newPoints,
+          0,
+          newPointCount,
+          existing.xOffset,
+          oldCount
+        );
         series.set(index, {
           buffer,
           capacityBytes,
           pointCount: nextPointCount,
-          hash32: nextHash32,
+          hash32: bumpContentVersion(existing.hash32, newPointCount, 0),
           xOffset: existing.xOffset,
           stagingBuffer,
           ringStart: 0,
@@ -738,34 +783,25 @@ export function createDataStore(device: GPUDevice): DataStore {
 
       const writeHead = prevPointCount >= cap ? ringStart : (ringStart + prevPointCount) % cap;
 
-      packXYIntoRing(stagingBuffer, writeHead, cap, newPoints, newSrcOffset, keepNewCount, existing.xOffset);
-      writeRingRangeToGpu(device, buffer, stagingBuffer, writeHead, cap, keepNewCount);
+      packAppendAndUpload(
+        stagingBuffer,
+        buffer,
+        writeHead,
+        cap,
+        newPoints,
+        newSrcOffset,
+        keepNewCount,
+        existing.xOffset,
+        null
+      );
 
       const nextRingStart = dropPrevCount > 0 ? (ringStart + dropPrevCount) % cap : ringStart;
-
-      let nextHash32 = existing.hash32;
-      if (keepNewCount <= cap - writeHead) {
-        const writtenView = stagingBuffer.subarray(writeHead * 2, (writeHead + keepNewCount) * 2);
-        nextHash32 = fnv1aUpdate(
-          nextHash32,
-          new Uint32Array(writtenView.buffer, writtenView.byteOffset, writtenView.byteLength / 4)
-        );
-      } else {
-        const first = cap - writeHead;
-        const v1 = stagingBuffer.subarray(writeHead * 2, (writeHead + first) * 2);
-        const v2 = stagingBuffer.subarray(0, (keepNewCount - first) * 2);
-        nextHash32 = fnv1aUpdate(nextHash32, new Uint32Array(v1.buffer, v1.byteOffset, v1.byteLength / 4));
-        nextHash32 = fnv1aUpdate(nextHash32, new Uint32Array(v2.buffer, v2.byteOffset, v2.byteLength / 4));
-      }
-      if (dropPrevCount > 0) {
-        nextHash32 = (nextHash32 + 0x9e3779b9) >>> 0;
-      }
 
       series.set(index, {
         buffer,
         capacityBytes,
         pointCount: nextPointCount,
-        hash32: nextHash32,
+        hash32: bumpContentVersion(existing.hash32, keepNewCount, dropPrevCount),
         xOffset: existing.xOffset,
         stagingBuffer,
         ringStart: nextRingStart,
@@ -776,28 +812,23 @@ export function createDataStore(device: GPUDevice): DataStore {
 
     // ── Pure linear ranged append (no maxPoints, no growth) ──
     if (pureLinearRanged) {
-      packXYInto(stagingBuffer, prevPointCount * 2, newPoints, 0, newPointCount, existing.xOffset);
-
-      const appendedView = stagingBuffer.subarray(prevPointCount * 2, nextPointCount * 2);
-      if (appendedView.byteLength > 0) {
-        const byteOffset = prevPointCount * 2 * 4;
-        device.queue.writeBuffer(
-          buffer,
-          byteOffset,
-          appendedView.buffer,
-          appendedView.byteOffset,
-          appendedView.byteLength
-        );
-      }
-
-      const appendWords = new Uint32Array(appendedView.buffer, appendedView.byteOffset, appendedView.byteLength / 4);
-      const nextHash32 = fnv1aUpdate(existing.hash32, appendWords);
+      packAppendAndUpload(
+        stagingBuffer,
+        buffer,
+        0,
+        0,
+        newPoints,
+        0,
+        newPointCount,
+        existing.xOffset,
+        prevPointCount
+      );
 
       series.set(index, {
         buffer,
         capacityBytes,
         pointCount: nextPointCount,
-        hash32: nextHash32,
+        hash32: bumpContentVersion(existing.hash32, newPointCount, 0),
         xOffset: existing.xOffset,
         stagingBuffer,
         ringStart: 0,

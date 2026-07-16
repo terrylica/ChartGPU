@@ -934,4 +934,176 @@ describe('prepareSeries GPU decimation (WG-P0-1 xOffset)', () => {
     // No storageBuffer arg (undefined) — private chronological pack.
     expect(areaArgs[5]).toBeUndefined();
   });
+
+  function runDecimationPrepare(
+    opts: Readonly<{
+      n: number;
+      sampling: 'lttb' | 'min' | 'max';
+      samplingThreshold: number;
+      visibleXDomain: { min: number; max: number };
+      rawBounds?: { xMin: number; xMax: number; yMin: number; yMax: number } | null;
+      ringLayout?: { start: number; capacity: number };
+    }>
+  ) {
+    const points: Array<[number, number]> = [];
+    for (let i = 0; i < opts.n; i++) points.push([i, i]);
+    const series = {
+      ...makeLineSeries(points),
+      sampling: opts.sampling,
+      samplingThreshold: opts.samplingThreshold,
+      rawBounds: opts.rawBounds ?? {
+        xMin: 0,
+        xMax: opts.n - 1,
+        yMin: 0,
+        yMax: opts.n - 1,
+      },
+    } as ResolvedSeriesConfig;
+    const decimationPrepare = vi.fn(() => Math.max(2, opts.samplingThreshold));
+    const rawBuffer = { label: 'raw' } as unknown as GPUBuffer;
+    const decimatedBuffer = { label: 'dec' } as unknown as GPUBuffer;
+    const ring = opts.ringLayout ?? { start: 0, capacity: 0 };
+
+    prepareSeries(
+      {
+        lineRenderers: [{ prepare: vi.fn(), render: vi.fn(), dispose: vi.fn() } as any],
+        areaRenderers: [],
+        barRenderer: { prepare: vi.fn(), render: vi.fn(), dispose: vi.fn() } as any,
+        scatterRenderers: [],
+        scatterDensityRenderers: [],
+        pieRenderers: [],
+        candlestickRenderers: [],
+        decimationComputes: [
+          {
+            prepare: decimationPrepare,
+            needsEncode: vi.fn(() => false),
+            encodeCompute: vi.fn(),
+            getOutputBuffer: vi.fn(() => decimatedBuffer),
+            getOutputPointCount: vi.fn(() => Math.max(2, opts.samplingThreshold)),
+            dispose: vi.fn(),
+          },
+        ],
+      },
+      {
+        currentOptions: {
+          xAxis: { type: 'value' },
+          yAxes: [{ id: 'y', min: -1 }],
+          series: [series],
+        } as any,
+        seriesForRender: [series],
+        xScale: makeScale(0, opts.n - 1),
+        yScales: new Map([['y', makeScale(-1, 1)]]),
+        gridArea: makeGridArea(),
+        dataStore: {
+          setSeries: vi.fn(),
+          appendSeries: vi.fn(),
+          removeSeries: vi.fn(),
+          getSeriesBuffer: vi.fn(() => rawBuffer),
+          getSeriesPointCount: vi.fn(() => opts.n),
+          getSeriesRingLayout: vi.fn(() => ring),
+          isSeriesRingMode: vi.fn(() => ring.capacity > 0),
+          getSeriesContentHash: vi.fn(() => 1),
+          getSeriesStagingBuffer: vi.fn(() => new Float32Array(0)),
+          getSeriesXOffset: vi.fn(() => 0),
+          dispose: vi.fn(),
+        },
+        appendedGpuThisFrame: new Set(),
+        gpuSeriesKindByIndex: ['unknown'],
+        zoomState: null,
+        visibleXDomain: opts.visibleXDomain,
+        introPhase: 'done',
+        introProgress01: 1,
+        withAlpha: (c: string) => c,
+        maxRadiusCss: 4,
+        lastSetSeriesCache: new Map(),
+        filterGapsCache: createFilterGapsCache(),
+      }
+    );
+
+    expect(decimationPrepare).toHaveBeenCalled();
+    return decimationPrepare.mock.calls[0]![0] as {
+      algorithm: string;
+      visibleStart: number;
+      visibleEnd: number;
+      ringStart?: number;
+      ringCapacity?: number;
+    };
+  }
+
+  it('never silently rewrites sampling algorithm (keeps lttb at extreme density)', () => {
+    // span 5000 >> targetBuckets*512 would have been the old min-downgrade gate.
+    const args = runDecimationPrepare({
+      n: 5000,
+      sampling: 'lttb',
+      samplingThreshold: 8,
+      visibleXDomain: { min: 0, max: 4999 },
+    });
+    expect(args.algorithm).toBe('lttb');
+  });
+
+  it('keeps max sampling as max (not rewritten to min/lttb)', () => {
+    const args = runDecimationPrepare({
+      n: 5000,
+      sampling: 'max',
+      samplingThreshold: 8,
+      visibleXDomain: { min: 0, max: 4999 },
+    });
+    expect(args.algorithm).toBe('max');
+  });
+
+  it('keeps min sampling as min', () => {
+    const args = runDecimationPrepare({
+      n: 5000,
+      sampling: 'min',
+      samplingThreshold: 8,
+      visibleXDomain: { min: 0, max: 4999 },
+    });
+    expect(args.algorithm).toBe('min');
+  });
+
+  it('domainCoversAll: full rawBounds + full visible domain → visible [0, n)', () => {
+    const n = 100;
+    const args = runDecimationPrepare({
+      n,
+      sampling: 'lttb',
+      samplingThreshold: 8,
+      visibleXDomain: { min: 0, max: 99 },
+      rawBounds: { xMin: 0, xMax: 99, yMin: 0, yMax: 99 },
+    });
+    expect(args.visibleStart).toBe(0);
+    expect(args.visibleEnd).toBe(n);
+    expect(args.algorithm).toBe('lttb');
+  });
+
+  it('domainCoversAll false-positive guard: zoomed partial domain uses binary search range', () => {
+    // rawBounds full [0,99]; visible only [20,40] → must NOT short-circuit to full range.
+    const n = 100;
+    const args = runDecimationPrepare({
+      n,
+      sampling: 'lttb',
+      samplingThreshold: 8,
+      visibleXDomain: { min: 20, max: 40 },
+      rawBounds: { xMin: 0, xMax: 99, yMin: 0, yMax: 99 },
+    });
+    // Monotonic binary search: start at x>=20 → index 20; end first x>40 → 41
+    expect(args.visibleStart).toBe(20);
+    expect(args.visibleEnd).toBe(41);
+    expect(args.algorithm).toBe('lttb');
+  });
+
+  it('modular ring + full domain still keeps lttb and full visible span short-circuit', () => {
+    const n = 64;
+    const args = runDecimationPrepare({
+      n,
+      sampling: 'lttb',
+      samplingThreshold: 8,
+      visibleXDomain: { min: 0, max: 63 },
+      rawBounds: { xMin: 0, xMax: 63, yMin: 0, yMax: 63 },
+      ringLayout: { start: 5, capacity: 64 },
+    });
+    expect(args.algorithm).toBe('lttb');
+    expect(args.visibleStart).toBe(0);
+    expect(args.visibleEnd).toBe(n);
+    expect(args.ringStart).toBe(5);
+    expect(args.ringCapacity).toBe(64);
+  });
 });

@@ -292,10 +292,18 @@ export function prepareSeries(renderers: SeriesRenderers, context: SeriesPrepare
           // only when raw is unavailable (should not happen on the GPU-eligible
           // path). Decimation maps logical indices via modular ringStart/ringCapacity.
           const ringLayout = dataStore.getSeriesRingLayout(i);
+          // Full-span (autoScroll FIFO suite): skip binary search entirely.
+          const rb = (s as { rawBounds?: { xMin: number; xMax: number } | null }).rawBounds;
+          const domainCoversAll =
+            rb != null &&
+            Number.isFinite(rb.xMin) &&
+            Number.isFinite(rb.xMax) &&
+            visibleXDomain.min <= rb.xMin &&
+            visibleXDomain.max >= rb.xMax;
           const visible =
-            rawDataForGpu != null
-              ? findVisibleRangeIndicesByX(rawDataForGpu, visibleXDomain.min, visibleXDomain.max)
-              : { start: 0, end: rawPointCount };
+            rawDataForGpu == null || domainCoversAll
+              ? { start: 0, end: rawPointCount }
+              : findVisibleRangeIndicesByX(rawDataForGpu, visibleXDomain.min, visibleXDomain.max);
 
           const algorithm = mapSamplingToDecimationAlgorithm(s.sampling);
 
@@ -316,6 +324,9 @@ export function prepareSeries(renderers: SeriesRenderers, context: SeriesPrepare
             );
             gpuSeriesKindByIndex[i] = 'gpuDecimationRaw';
           } else {
+            // Extreme-N bandwidth: WGSL dense-bucket candidate cap (512) bounds
+            // per-bucket scans for lttb/min/max. Do not silently rewrite lttb→min
+            // (ECG peak quality; append path is pack/write-bound after the cap).
             const outputPointCount = renderers.decimationComputes[i].prepare({
               algorithm,
               rawBuffer,
