@@ -5,7 +5,7 @@ import { parseCssColorToRgba01 } from '../utils/colors';
 import { createRenderPipeline, createUniformBuffer, writeUniformBuffer } from './rendererUtils';
 import { getPointCount } from '../data/cartesianData';
 import type { PipelineCache } from '../core/PipelineCache';
-import { resolveLineDrawPolicy } from './lineDrawPolicy';
+import { resolveLineDrawPolicy, type LineDrawPolicy } from './lineDrawPolicy';
 
 export interface LineRenderer {
   /**
@@ -27,7 +27,22 @@ export interface LineRenderer {
     canvasHeightDevicePx?: number,
     pointCountOverride?: number
   ): void;
+  /**
+   * Draw into the **main** MSAA pass. Dense hairline series are deferred
+   * ({@link isDenseHairline}) and must be drawn with {@link renderHairline}
+   * into a sampleCount:1 load-pass on the resolved main texture.
+   */
   render(passEncoder: GPURenderPassEncoder): void;
+  /**
+   * True when the last prepare selected dense hairline (line-list @ 1 device px).
+   * Main-pass `render` is a no-op for these; draw via {@link renderHairline}.
+   */
+  isDenseHairline(): boolean;
+  /**
+   * Draw dense hairline into a **single-sample** pass (sampleCount 1) on the
+   * resolved main color. No-op when the last prepare was standard AA quads.
+   */
+  renderHairline(passEncoder: GPURenderPassEncoder): void;
   dispose(): void;
 }
 
@@ -160,6 +175,20 @@ export function createLineRenderer(device: GPUDevice, options?: LineRendererOpti
   let lastDpr = Number.NaN;
   let lastLineWidth = Number.NaN;
 
+  const blendState: GPUBlendState = {
+    color: {
+      operation: 'add',
+      srcFactor: 'src-alpha',
+      dstFactor: 'one-minus-src-alpha',
+    },
+    alpha: {
+      operation: 'add',
+      srcFactor: 'one',
+      dstFactor: 'one-minus-src-alpha',
+    },
+  };
+
+  // Standard path: screen-space AA quads (6 verts/segment).
   const pipeline = createRenderPipeline(
     device,
     {
@@ -175,18 +204,7 @@ export function createLineRenderer(device: GPUDevice, options?: LineRendererOpti
         label: 'line.wgsl',
         formats: targetFormat,
         // Enable standard alpha blending so per-series `lineStyle.opacity` and AA transparency work.
-        blend: {
-          color: {
-            operation: 'add',
-            srcFactor: 'src-alpha',
-            dstFactor: 'one-minus-src-alpha',
-          },
-          alpha: {
-            operation: 'add',
-            srcFactor: 'one',
-            dstFactor: 'one-minus-src-alpha',
-          },
-        },
+        blend: blendState,
       },
       primitive: { topology: 'triangle-list', cullMode: 'none' },
       multisample: { count: sampleCount },
@@ -194,7 +212,35 @@ export function createLineRenderer(device: GPUDevice, options?: LineRendererOpti
     pipelineCache
   );
 
+  // Dense hairline: native line-list (2 verts/segment, 1 device px). Group 3 ≥25k cliff.
+  // Always sampleCount **1** — drawn in a post-resolve single-sample pass so 50k
+  // segments do not pay 4× MSAA overdraw (main AA-quad path stays at `sampleCount`).
+  const hairlinePipeline = createRenderPipeline(
+    device,
+    {
+      label: 'lineRenderer/hairlinePipeline',
+      bindGroupLayouts: [bindGroupLayout],
+      vertex: {
+        code: lineWgsl,
+        label: 'line.wgsl',
+        entryPoint: 'vsMainHairline',
+        buffers: [],
+      },
+      fragment: {
+        code: lineWgsl,
+        label: 'line.wgsl',
+        entryPoint: 'fsMainHairline',
+        formats: targetFormat,
+        blend: blendState,
+      },
+      primitive: { topology: 'line-list', cullMode: 'none' },
+      multisample: { count: 1 },
+    },
+    pipelineCache
+  );
+
   let currentPointCount = 0;
+  let currentDrawPolicy: LineDrawPolicy = 'standard';
 
   const assertNotDisposed = (): void => {
     if (disposed) throw new Error('LineRenderer is disposed.');
@@ -237,12 +283,14 @@ export function createLineRenderer(device: GPUDevice, options?: LineRendererOpti
       Number.isFinite(seriesConfig.lineStyle.width) && seriesConfig.lineStyle.width > 0
         ? seriesConfig.lineStyle.width
         : DEFAULT_LINE_WIDTH_CSS_PX;
-    // Dense full-rewrite draw policy (group 3): slightly thinner stroke at high N
-    // cuts AA fill without changing sampling / pack / residency.
-    const lineWidthCss = resolveLineDrawPolicy({
+    // Dense full-rewrite draw policy (group 3): at high N switch to line-list hairline
+    // (cuts AA-quad fill under 4× MSAA) without changing sampling / pack / residency.
+    const drawPolicy = resolveLineDrawPolicy({
       pointCount: currentPointCount,
       lineWidthCssPx: nominalLineWidthCss,
-    }).effectiveLineWidthCssPx;
+    });
+    currentDrawPolicy = drawPolicy.policy;
+    const lineWidthCss = drawPolicy.effectiveLineWidthCssPx;
 
     vsUniformScratchF32[16] = canvasW;
     vsUniformScratchF32[17] = canvasH;
@@ -299,15 +347,35 @@ export function createLineRenderer(device: GPUDevice, options?: LineRendererOpti
     }
   };
 
+  const isDenseHairlinePolicy = (): boolean => currentDrawPolicy === 'denseHairline';
+
   const render: LineRenderer['render'] = (passEncoder) => {
     assertNotDisposed();
     // Need at least 2 points to form 1 segment.
     if (!currentBindGroup || currentPointCount < 2) return;
+    // Dense hairline is deferred to the single-sample post-resolve pass.
+    if (isDenseHairlinePolicy()) return;
 
+    const segments = currentPointCount - 1;
     passEncoder.setPipeline(pipeline);
     passEncoder.setBindGroup(0, currentBindGroup);
     // 6 vertices per instance (quad), (pointCount - 1) instances (segments).
-    passEncoder.draw(6, currentPointCount - 1);
+    passEncoder.draw(6, segments);
+  };
+
+  const isDenseHairline: LineRenderer['isDenseHairline'] = () => {
+    assertNotDisposed();
+    return isDenseHairlinePolicy() && currentPointCount >= 2 && currentBindGroup != null;
+  };
+
+  const renderHairline: LineRenderer['renderHairline'] = (passEncoder) => {
+    assertNotDisposed();
+    if (!isDenseHairlinePolicy() || !currentBindGroup || currentPointCount < 2) return;
+    const segments = currentPointCount - 1;
+    passEncoder.setPipeline(hairlinePipeline);
+    passEncoder.setBindGroup(0, currentBindGroup);
+    // Native 1 device-px stroke: 2 verts/instance (line-list), sampleCount 1 pass.
+    passEncoder.draw(2, segments);
   };
 
   const dispose: LineRenderer['dispose'] = () => {
@@ -317,6 +385,7 @@ export function createLineRenderer(device: GPUDevice, options?: LineRendererOpti
     currentBindGroup = null;
     boundDataBuffer = null;
     currentPointCount = 0;
+    currentDrawPolicy = 'standard';
 
     try {
       vsUniformBuffer.destroy();
@@ -330,5 +399,5 @@ export function createLineRenderer(device: GPUDevice, options?: LineRendererOpti
     }
   };
 
-  return { prepare, render, dispose };
+  return { prepare, render, isDenseHairline, renderHairline, dispose };
 }

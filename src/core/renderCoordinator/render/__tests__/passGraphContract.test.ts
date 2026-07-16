@@ -22,6 +22,36 @@ describe('frame graph contracts (WG-P1-5 / WG-P2-1)', () => {
     expect(overlaysSrc).not.toMatch(/topOverlayPass/);
   });
 
+  it('optionally draws dense hairline after main resolve (sampleCount 1 load-pass, not topOverlay)', () => {
+    // Group 3 DoD: high-N line-list avoids 4× MSAA overdraw via post-resolve pass.
+    // Must stay off the swapchain and must not reintroduce topOverlayPass.
+    expect(coordinatorSrc).toMatch(/denseHairlinePass/);
+    expect(coordinatorSrc).toMatch(/hasDenseHairlineLines/);
+    expect(coordinatorSrc).toMatch(/renderDenseHairlineLines/);
+    const mainEnd = coordinatorSrc.indexOf('mainPass.end()');
+    const hair = coordinatorSrc.indexOf("label: 'renderCoordinator/denseHairlinePass'");
+    const overlay = coordinatorSrc.indexOf("label: 'renderCoordinator/annotationOverlayMsaaPass'");
+    expect(mainEnd).toBeGreaterThan(-1);
+    expect(hair).toBeGreaterThan(mainEnd);
+    expect(overlay).toBeGreaterThan(hair);
+    // Load-pass on resolved main (not swapchain); no sampleCount: 2 anywhere in block.
+    const hairBlock = coordinatorSrc.slice(hair, overlay);
+    expect(hairBlock).toMatch(/mainResolveView/);
+    expect(hairBlock).toMatch(/loadOp:\s*'load'/);
+    expect(hairBlock).not.toMatch(/sampleCount:\s*2/);
+    expect(hairBlock).not.toMatch(/swapchainView/);
+  });
+
+  it('renderSeries defers dense hairline out of main pass helpers', () => {
+    // Multi-layer contract: main path uses .render(); hairline uses .renderHairline().
+    expect(renderSeriesSrc).toMatch(/function hasDenseHairlineLines/);
+    expect(renderSeriesSrc).toMatch(/function renderDenseHairlineLines/);
+    expect(renderSeriesSrc).toMatch(/isDenseHairline\(\)/);
+    expect(renderSeriesSrc).toMatch(/renderHairline\(/);
+    // Main series loop still calls .render( for lines (defer is inside LineRenderer).
+    expect(renderSeriesSrc).toMatch(/lineRenderers\[originalIndex\]\.render\(/);
+  });
+
   it('creates axis/crosshair/highlight with annotation MSAA sample count', () => {
     expect(ANNOTATION_OVERLAY_MSAA_SAMPLE_COUNT).toBe(4);
     // Each of the three UI overlay creators must pass sampleCount: ANNOTATION_OVERLAY_MSAA_SAMPLE_COUNT

@@ -22,8 +22,8 @@ Chart configuration. Full types: [`types.ts`](../../src/config/types.ts).
 - **Y-only DataStore rewrite (lines)**: When length is stable and every x matches the previous pack, only y floats are rewritten in CPU staging; GPU uploads a dense **N×4** y channel and a compute pass rewrites y lanes into interleaved storage (not a full N×8 `writeBuffer`). Length change, any x change, **any non-finite x** in the series or staging (including stable null gaps), or modular ring layout force a full interleaved rewrite. Unsorted Brownian xy (group 3) never hits this path.
 - **Equal-N y-only scatter (const radius)**: When x is stable (e.g. `x = i`), scatter uses dual x/y instance buffers and uploads only the y channel (N×4). Index-sorted equal-N rewrites with `sampling: 'lttb'` (matching prior sampling + threshold) re-bind y at the **frozen prior LTTB index set** in O(k) instead of full O(N) LTTB — approximate hold: newly emerging y extrema between retained indices do not appear until full LTTB resumes (length, x change, or sampling/threshold config change). min/max/average always re-sample. Brownian xy updates stay on the full path.
 - **Dense scatter draw (const radius)**: When points-per-plot-pixel is high, drawn marker radius may compact toward ~1 device pixel (draw-only; does not change `sampling` or uploaded point count). Low-density charts keep full `symbolSize`.
-- **Dense line draw**: At very high point counts (≥ ~200k points), effective stroke width used for GPU expansion may thin toward 1 CSS px (draw-only; series `lineStyle.width` config is unchanged). Applies to **all** high-N lines (including FIFO), not only unsorted full rewrites.
-- **Main scene MSAA (library-wide)**: Main series and overlay UI both use **4× MSAA** (`MAIN_SCENE_MSAA_SAMPLE_COUNT` / `ANNOTATION_OVERLAY_MSAA_SAMPLE_COUNT`). WebGPU only allows portable multisample counts of **1 or 4** — `sampleCount: 2` is invalid and will fail validation (`Invalid CommandBuffer`). Dense scatter/line performance uses draw-policy LOD instead of reducing MSAA.
+- **Dense line draw (hairline)**: When a line series has **≥ ~25 000 displayed points** (raw or `pointCountOverride` after GPU decimation), ChartGPU switches **draw only** to a native **1 device-px `line-list` hairline** (`denseHairline`). Those segments are drawn in a **post-resolve sampleCount:1** pass (not under main 4× MSAA overdraw). Series `lineStyle.width` config is unchanged; low-N lines (e.g. ≤10k, or FIFO rows after LTTB/GPU decimation keeps N low) keep full AA quads + configured width. Applies to **all** high-N lines, not only unsorted full rewrites.
+- **Main scene MSAA (library-wide)**: Main series pass and overlay UI both use **4× MSAA** (`MAIN_SCENE_MSAA_SAMPLE_COUNT` / `ANNOTATION_OVERLAY_MSAA_SAMPLE_COUNT`) by default. Dense hairline lines additionally use a **legal sampleCount:1** pass after main resolve (see Internals group-3 contract). WebGPU only allows portable multisample counts of **1 or 4** — `sampleCount: 2` is invalid and will fail validation (`Invalid CommandBuffer`).
 
 ### CandlestickSeriesConfig
 
@@ -34,6 +34,7 @@ Chart configuration. Full types: [`types.ts`](../../src/config/types.ts).
 ### LineSeriesConfig
 
 - **`lineStyle?: { width?, opacity?, color? }`** (default width 2). **`areaStyle?`** for fill under line. Color precedence: `lineStyle.color` → `series.color` → palette.
+- **High-N hairline topology**: At ≥ ~25k displayed points the GPU may draw with `line-list` hairline topology (1 device px) regardless of `lineStyle.width` — draw-only LOD; does not change sampling or uploaded point count. See **Dense line draw (hairline)** above and Internals § full-series rewrite contracts.
 
 #### Null Gaps (Line Segmentation)
 

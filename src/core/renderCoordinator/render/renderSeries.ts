@@ -760,7 +760,8 @@ export function renderSeries(
     }
   }
 
-  // Render line strokes
+  // Render line strokes (standard AA quads only; dense hairline deferred to
+  // post-resolve sampleCount:1 pass — see renderDenseHairlineLines).
   for (let idx = 0; idx < visibleSeriesForRender.length; idx++) {
     const { series, originalIndex } = visibleSeriesForRender[idx];
     if (series.type === 'line') {
@@ -777,6 +778,65 @@ export function renderSeries(
         renderers.lineRenderers[originalIndex].render(mainPass);
         mainPass.setScissorRect(0, 0, gridArea.canvasWidth, gridArea.canvasHeight);
       }
+    }
+  }
+}
+
+/**
+ * True when any visible line series will draw via the dense hairline path.
+ * Used to open the post-resolve single-sample pass only when needed.
+ */
+export function hasDenseHairlineLines(
+  renderers: SeriesRenderers,
+  seriesPreparation: SeriesPreparationResult
+): boolean {
+  const { visibleSeriesForRender } = seriesPreparation;
+  for (let idx = 0; idx < visibleSeriesForRender.length; idx++) {
+    const { series, originalIndex } = visibleSeriesForRender[idx]!;
+    if (series.type !== 'line') continue;
+    const lr = renderers.lineRenderers[originalIndex];
+    if (lr?.isDenseHairline()) return true;
+  }
+  return false;
+}
+
+/**
+ * Draw deferred dense hairline lines into a **sampleCount:1** pass on the
+ * resolved main color (loadOp: load). Avoids 4× MSAA overdraw on high-N
+ * unsorted full rewrites (group 3 @ 50k DoD).
+ */
+export function renderDenseHairlineLines(
+  renderers: SeriesRenderers,
+  context: {
+    readonly gridArea: GridArea;
+    readonly hairlinePass: GPURenderPassEncoder;
+    readonly plotScissor: { x: number; y: number; w: number; h: number };
+    readonly introPhase: 'pending' | 'running' | 'done';
+    readonly introProgress01: number;
+  },
+  seriesPreparation: SeriesPreparationResult
+): void {
+  const { gridArea, hairlinePass, plotScissor, introPhase, introProgress01 } = context;
+  const { visibleSeriesForRender } = seriesPreparation;
+  const introP = introPhase === 'running' ? clamp01(introProgress01) : 1;
+
+  for (let idx = 0; idx < visibleSeriesForRender.length; idx++) {
+    const { series, originalIndex } = visibleSeriesForRender[idx]!;
+    if (series.type !== 'line') continue;
+    const lr = renderers.lineRenderers[originalIndex];
+    if (!lr?.isDenseHairline()) continue;
+
+    if (introP < 1) {
+      const w = clampInt(Math.floor(plotScissor.w * introP), 0, plotScissor.w);
+      if (w > 0 && plotScissor.h > 0) {
+        hairlinePass.setScissorRect(plotScissor.x, plotScissor.y, w, plotScissor.h);
+        lr.renderHairline(hairlinePass);
+        hairlinePass.setScissorRect(0, 0, gridArea.canvasWidth, gridArea.canvasHeight);
+      }
+    } else if (plotScissor.w > 0 && plotScissor.h > 0) {
+      hairlinePass.setScissorRect(plotScissor.x, plotScissor.y, plotScissor.w, plotScissor.h);
+      lr.renderHairline(hairlinePass);
+      hairlinePass.setScissorRect(0, 0, gridArea.canvasWidth, gridArea.canvasHeight);
     }
   }
 }

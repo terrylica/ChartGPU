@@ -602,8 +602,45 @@ export function packXYInto(
   }
 
   if (useTupleFastPath) {
-    // Fast path when first non-null is a tuple (SciChart group 3 / 2). Still
-    // handles mid-series nulls and rare object points without corrupting later tuples.
+    // Fast path when first non-null is a tuple (SciChart group 3 / 2).
+    // Dense homogeneous [x,y] (no nulls): skip per-point Array.isArray + null checks.
+    //
+    // Dense eligibility (must not miss sparse mid-nulls off a coarse lattice):
+    // - First + last must be non-null arrays
+    // - Full scan for null / non-array (O(n) once; still cheaper than per-point
+    //   dual branch when homogeneous — pure group-3 rows have no nulls)
+    // Sparse lattice-only probes were unsafe: a single mid-null off the lattice
+    // could enter the unchecked dense pack and throw / corrupt.
+    let denseHomogeneous = xOffset === 0 && actualPointCount > 0;
+    if (denseHomogeneous) {
+      const first = arr[srcPointOffset];
+      const last = arr[srcPointOffset + actualPointCount - 1];
+      if (first == null || !Array.isArray(first) || last == null || !Array.isArray(last)) {
+        denseHomogeneous = false;
+      } else {
+        for (let s = 1; s < actualPointCount - 1; s++) {
+          const p = arr[srcPointOffset + s];
+          if (p == null || !Array.isArray(p)) {
+            denseHomogeneous = false;
+            break;
+          }
+        }
+      }
+    }
+
+    if (denseHomogeneous) {
+      // Hottest group-3 path: pure [x,y] tuples, value-axis (no packing offset).
+      let o = outFloatOffset;
+      const end = srcPointOffset + actualPointCount;
+      for (let i = srcPointOffset; i < end; i++, o += 2) {
+        const p = arr[i] as [number, number];
+        out[o] = p[0] as number;
+        out[o + 1] = p[1] as number;
+      }
+      return;
+    }
+
+    // Safe tuple path: mid-series nulls / rare object points / non-zero xOffset.
     for (let i = 0; i < actualPointCount; i++) {
       const srcIdx = srcPointOffset + i;
       const outIdx = outFloatOffset + i * 2;

@@ -316,6 +316,57 @@ describe('packXYInto - null gap handling', () => {
     expect(Array.from(out)).toEqual([1, 2, 3, 4, 5, 6]);
   });
 
+  it('dense homogeneous group-3 path packs large pure [x,y] tuples (hit)', () => {
+    // Full-scan dense eligibility; large N matches suite-scale pure tuples.
+    const n = 64;
+    const data: DataPoint[] = Array.from({ length: n }, (_, i) => [i, i * 2] as DataPoint);
+    const out = new Float32Array(n * 2);
+    packXYInto(out, 0, data, 0, n, 0);
+    for (let i = 0; i < n; i++) {
+      expect(out[i * 2]).toBe(i);
+      expect(out[i * 2 + 1]).toBe(i * 2);
+    }
+  });
+
+  it('mid-series null forces safe tuple path (denseHomogeneous false-positive miss)', () => {
+    const data: (DataPoint | null)[] = [
+      [0, 0],
+      [1, 1],
+      null,
+      [3, 3],
+      [4, 4],
+      [5, 5],
+      [6, 6],
+      [7, 7],
+      [8, 8],
+    ];
+    const out = new Float32Array(data.length * 2);
+    packXYInto(out, 0, data as any, 0, data.length, 0);
+    expect(out[0]).toBe(0);
+    expect(out[1]).toBe(0);
+    expect(Number.isNaN(out[4])).toBe(true);
+    expect(Number.isNaN(out[5])).toBe(true);
+    expect(out[6]).toBe(3);
+    expect(out[7]).toBe(3);
+  });
+
+  it('large-N mid-null off lattice forces safe path (Issue 2 review)', () => {
+    // Previously a sparse ⅛-step probe could miss index 17 and take the dense
+    // unchecked path (throw / corrupt). Full-scan eligibility must catch this.
+    const n = 128;
+    const data: (DataPoint | null)[] = Array.from({ length: n }, (_, i) => [i, i] as DataPoint);
+    const nullAt = 17; // off any /8 lattice that would start at 0
+    data[nullAt] = null;
+    const out = new Float32Array(n * 2);
+    packXYInto(out, 0, data as any, 0, n, 0);
+    expect(out[0]).toBe(0);
+    expect(out[2]).toBe(1);
+    expect(Number.isNaN(out[nullAt * 2])).toBe(true);
+    expect(Number.isNaN(out[nullAt * 2 + 1])).toBe(true);
+    expect(out[(nullAt + 1) * 2]).toBe(nullAt + 1);
+    expect(out[(n - 1) * 2]).toBe(n - 1);
+  });
+
   it('leading null then tuples still packs later tuples (Issue 1)', () => {
     const data: (DataPoint | null)[] = [null, [1, 2], [3, 4]];
     const out = new Float32Array(6);

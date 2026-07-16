@@ -21,7 +21,9 @@ import type { PipelineCache } from '../../PipelineCache';
  * WebGPU only allows multisample counts of **1 or 4** (portable). A prior
  * residual attempt used 2× for fill-rate; that fails validation on Chrome
  * (`Invalid CommandBuffer` / invalid texture sampleCount) and is not legal.
- * Keep main + overlay at 4×; dense-series wins come from draw policy LOD.
+ * Keep main + overlay at 4×. Dense high-N lines use a **post-resolve
+ * sampleCount:1 hairline pass** (see `renderDenseHairlineLines`) so unsorted
+ * full rewrites do not pay 4× MSAA overdraw on every segment.
  */
 export const MAIN_SCENE_MSAA_SAMPLE_COUNT = 4;
 

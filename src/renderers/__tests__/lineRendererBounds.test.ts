@@ -60,7 +60,22 @@ vi.mock('../rendererUtils', () => ({
   writeUniformBuffer: vi.fn(),
 }));
 
-import { writeUniformBuffer } from '../rendererUtils';
+import { createRenderPipeline, writeUniformBuffer } from '../rendererUtils';
+
+function makeSeries(data: DataPoint[]): ResolvedLineSeriesConfig {
+  return {
+    type: 'line',
+    data,
+    rawData: data,
+    color: '#0af',
+    lineStyle: { width: 2, opacity: 1, color: '#0af' },
+    sampling: 'none',
+    samplingThreshold: 5000,
+    connectNulls: false,
+    yAxis: 'y',
+    visible: true,
+  } as ResolvedLineSeriesConfig;
+}
 
 describe('createLineRenderer uniform dirty-skip (issue 2.5)', () => {
   it('skips uniform writes on second prepare with identical inputs', () => {
@@ -184,33 +199,22 @@ describe('createLineRenderer bounds (P2-5)', () => {
     expect(src).toMatch(/computeClipAffineFromScale\(yScale, 0, 1\)/);
   });
 
-  it('denseThin prepare writes thinned line width into VS uniform at high N', () => {
+  it('denseHairline prepare writes floor line width into VS uniform at high N', () => {
     const device = createMockDevice();
     const writeUniform = writeUniformBuffer as ReturnType<typeof vi.fn>;
     writeUniform.mockClear();
     const renderer = createLineRenderer(device);
-    // pointCountOverride drives policy; 1M → fully thinned to 1 CSS px
+    // pointCountOverride drives policy; ≥25k → hairline floor 1 CSS px
     const data: DataPoint[] = [
       [0, 0],
       [1, 1],
     ];
-    const series = {
-      type: 'line',
-      data,
-      rawData: data,
-      color: '#0af',
-      lineStyle: { width: 2, opacity: 1, color: '#0af' },
-      sampling: 'none',
-      samplingThreshold: 5000,
-      connectNulls: false,
-      yAxis: 'y',
-      visible: true,
-    } as ResolvedLineSeriesConfig;
+    const series = makeSeries(data);
     const xScale = createLinearScale().domain(0, 1).range(-1, 1);
     const yScale = createLinearScale().domain(0, 1).range(1, -1);
     const dataBuffer = { label: 'data' } as GPUBuffer;
 
-    renderer.prepare(series, dataBuffer, xScale, yScale, 0, 1, 800, 600, 1_000_000);
+    renderer.prepare(series, dataBuffer, xScale, yScale, 0, 1, 800, 600, 50_000);
 
     const vsWrites = writeUniform.mock.calls.filter((c) => {
       const dataArg = c[2];
@@ -218,8 +222,150 @@ describe('createLineRenderer bounds (P2-5)', () => {
     });
     expect(vsWrites.length).toBeGreaterThan(0);
     const f32 = new Float32Array(vsWrites[vsWrites.length - 1]![2] as ArrayBuffer);
-    // lineWidthCssPx at float index 19
+    // lineWidthCssPx at float index 19 (bookkeeping; hairline pipeline ignores expansion)
     expect(f32[19]).toBe(1);
+    renderer.dispose();
+  });
+
+  it('hairline pipeline is line-list with sampleCount 1 (never 2)', () => {
+    const device = createMockDevice();
+    const createPipe = createRenderPipeline as ReturnType<typeof vi.fn>;
+    createPipe.mockClear();
+    const renderer = createLineRenderer(device, { sampleCount: 4 });
+    // Two pipelines: standard (main MSAA) + hairline (always sampleCount 1)
+    expect(createPipe).toHaveBeenCalledTimes(2);
+    const configs = createPipe.mock.calls.map((c) => c[1] as {
+      label?: string;
+      primitive?: { topology?: string };
+      multisample?: { count?: number };
+      vertex?: { entryPoint?: string };
+    });
+    const hairline = configs.find(
+      (c) => c.label === 'lineRenderer/hairlinePipeline' || c.vertex?.entryPoint === 'vsMainHairline'
+    );
+    const standard = configs.find((c) => c.label === 'lineRenderer/pipeline');
+    expect(hairline).toBeDefined();
+    expect(hairline!.primitive?.topology).toBe('line-list');
+    expect(hairline!.multisample?.count).toBe(1);
+    expect(hairline!.multisample?.count).not.toBe(2);
+    expect(standard?.primitive?.topology).toBe('triangle-list');
+    expect(standard?.multisample?.count).toBe(4);
+    renderer.dispose();
+  });
+
+  it('pointCountOverride below threshold stays standard (false-positive miss)', () => {
+    const device = createMockDevice();
+    const renderer = createLineRenderer(device);
+    // Tiny data array but policy uses override (e.g. GPU decimation / low displayed N).
+    const data: DataPoint[] = [
+      [0, 0],
+      [1, 1],
+    ];
+    const series = makeSeries(data);
+    const xScale = createLinearScale().domain(0, 1).range(-1, 1);
+    const yScale = createLinearScale().domain(0, 1).range(1, -1);
+    const dataBuffer = { label: 'data' } as GPUBuffer;
+    // 10k displayed — below hairline threshold (FIFO-like after decimation)
+    renderer.prepare(series, dataBuffer, xScale, yScale, 0, 1, 800, 600, 10_000);
+    expect(renderer.isDenseHairline()).toBe(false);
+
+    const draws: Array<{ v: number; i: number }> = [];
+    const pass = {
+      setPipeline: vi.fn(),
+      setBindGroup: vi.fn(),
+      draw: vi.fn((v: number, i: number) => {
+        draws.push({ v, i });
+      }),
+    } as unknown as GPURenderPassEncoder;
+    renderer.render(pass);
+    expect(draws).toEqual([{ v: 6, i: 9_999 }]);
+    renderer.renderHairline(pass);
+    expect(draws).toEqual([{ v: 6, i: 9_999 }]); // hairline no-op when standard
+    renderer.dispose();
+  });
+
+  it('pointCountOverride high forces hairline even when data array is short', () => {
+    const device = createMockDevice();
+    const renderer = createLineRenderer(device);
+    const data: DataPoint[] = [
+      [0, 0],
+      [1, 1],
+    ];
+    const series = makeSeries(data);
+    const xScale = createLinearScale().domain(0, 1).range(-1, 1);
+    const yScale = createLinearScale().domain(0, 1).range(1, -1);
+    const dataBuffer = { label: 'data' } as GPUBuffer;
+    renderer.prepare(series, dataBuffer, xScale, yScale, 0, 1, 800, 600, 50_000);
+    expect(renderer.isDenseHairline()).toBe(true);
+    renderer.dispose();
+  });
+
+  it('denseHairline defers main render; renderHairline uses line-list draw(2, segments)', () => {
+    const device = createMockDevice();
+    const renderer = createLineRenderer(device);
+    const data: DataPoint[] = [
+      [0, 0],
+      [1, 1],
+      [2, 0],
+    ];
+    const series = makeSeries(data);
+    const xScale = createLinearScale().domain(0, 2).range(-1, 1);
+    const yScale = createLinearScale().domain(0, 1).range(1, -1);
+    const dataBuffer = { label: 'data' } as GPUBuffer;
+    renderer.prepare(series, dataBuffer, xScale, yScale, 0, 1, 800, 600, 50_000);
+
+    expect(renderer.isDenseHairline()).toBe(true);
+
+    const mainDraws: Array<{ v: number; i: number }> = [];
+    const mainPass = {
+      setPipeline: vi.fn(),
+      setBindGroup: vi.fn(),
+      draw: vi.fn((v: number, i: number) => {
+        mainDraws.push({ v, i });
+      }),
+    } as unknown as GPURenderPassEncoder;
+    renderer.render(mainPass);
+    expect(mainDraws).toEqual([]); // deferred out of MSAA main pass
+
+    const hairDraws: Array<{ v: number; i: number }> = [];
+    const hairPass = {
+      setPipeline: vi.fn(),
+      setBindGroup: vi.fn(),
+      draw: vi.fn((v: number, i: number) => {
+        hairDraws.push({ v, i });
+      }),
+    } as unknown as GPURenderPassEncoder;
+    renderer.renderHairline(hairPass);
+    expect(hairDraws).toEqual([{ v: 2, i: 49_999 }]);
+    renderer.dispose();
+  });
+
+  it('standard render uses AA-quad draw(6, segments) at low N', () => {
+    const device = createMockDevice();
+    const renderer = createLineRenderer(device);
+    const data: DataPoint[] = [
+      [0, 0],
+      [1, 1],
+      [2, 0],
+    ];
+    const series = makeSeries(data);
+    const xScale = createLinearScale().domain(0, 2).range(-1, 1);
+    const yScale = createLinearScale().domain(0, 1).range(1, -1);
+    const dataBuffer = { label: 'data' } as GPUBuffer;
+    // 3 points from data length (no override) → standard policy
+    renderer.prepare(series, dataBuffer, xScale, yScale, 0, 1, 800, 600);
+
+    const draws: Array<{ v: number; i: number }> = [];
+    const pass = {
+      setPipeline: vi.fn(),
+      setBindGroup: vi.fn(),
+      draw: vi.fn((v: number, i: number) => {
+        draws.push({ v, i });
+      }),
+    } as unknown as GPURenderPassEncoder;
+
+    renderer.render(pass);
+    expect(draws).toEqual([{ v: 6, i: 2 }]);
     renderer.dispose();
   });
 
@@ -258,5 +404,21 @@ describe('createLineRenderer bounds (P2-5)', () => {
     const f32 = new Float32Array(vsWrites[vsWrites.length - 1]![2] as ArrayBuffer);
     expect(f32[19]).toBe(2);
     renderer.dispose();
+  });
+});
+
+describe('line.wgsl hairline gap contract (Issue 1 review)', () => {
+  it('vsMainHairline dual-endpoint NaN-checks both segment ends', async () => {
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+    const src = fs.readFileSync(path.resolve(__dirname, '../../shaders/line.wgsl'), 'utf8');
+    const hairStart = src.indexOf('fn vsMainHairline');
+    expect(hairStart).toBeGreaterThan(-1);
+    const hairBody = src.slice(hairStart, src.indexOf('fn fsMainHairline'));
+    // Must read both endpoints and reject if either is NaN (not only points[iid+vid]).
+    expect(hairBody).toMatch(/points\[iid\]/);
+    expect(hairBody).toMatch(/points\[iid \+ 1u\]/);
+    expect(hairBody).toMatch(/pA\.x != pA\.x/);
+    expect(hairBody).toMatch(/pB\.x != pB\.x/);
   });
 });

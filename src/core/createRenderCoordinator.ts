@@ -65,6 +65,8 @@ import {
   encodeDecimationCompute,
   renderSeries as renderSeriesPass,
   renderAboveSeriesAnnotations,
+  hasDenseHairlineLines,
+  renderDenseHairlineLines,
   type LastSetSeriesCache,
 } from './renderCoordinator/render/renderSeries';
 import { createAxisRenderer } from '../renderers/createAxisRenderer';
@@ -4291,7 +4293,35 @@ export function createRenderCoordinator(
 
     mainPass.end();
 
-    // MSAA annotation overlay pass: blit main color ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¾ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ MSAA target, then draw above-series annotations.
+    // Dense hairline lines (group 3 ≥25k): draw after main resolve into a
+    // sampleCount:1 load-pass. Avoids 4× MSAA overdraw on high-N line-list
+    // segments while grid/other series keep main 4×. Legal sample counts only 1|4.
+    if (hasDenseHairlineLines(poolState, seriesPreparation)) {
+      const hairlinePass = encoder.beginRenderPass({
+        label: 'renderCoordinator/denseHairlinePass',
+        colorAttachments: [
+          {
+            view: texState.mainResolveView!,
+            loadOp: 'load',
+            storeOp: 'store',
+          },
+        ],
+      });
+      renderDenseHairlineLines(
+        poolState,
+        {
+          gridArea,
+          hairlinePass,
+          plotScissor,
+          introPhase,
+          introProgress01,
+        },
+        seriesPreparation
+      );
+      hairlinePass.end();
+    }
+
+    // MSAA annotation overlay pass: blit resolved main → MSAA target, then above-series annotations.
     const overlayPass = encoder.beginRenderPass({
       label: 'renderCoordinator/annotationOverlayMsaaPass',
       colorAttachments: [
