@@ -8,8 +8,6 @@
  *
  * **Full rewrite path:** When the data reference changes every frame (SciChart-
  * style harnesses regenerating arrays), use {@link cheapCartesianContentStamp}.
- * Full float scans live in `internal/legacy/seriesContentHashFull` (issue 3.1)
- * and are production-dead; re-exported below only for unit-test spies.
  *
  * @module seriesContentHash
  */
@@ -60,8 +58,3 @@ export function cheapOHLCContentStamp(data: ReadonlyArray<OHLCDataPoint>): numbe
   return h >>> 0;
 }
 
-/**
- * @deprecated Production-dead full O(N) scan (issue 3.1). Prefer cheap stamps.
- * Re-exported for unit tests only — lives in internal/legacy.
- */
-export { hashCartesianSeriesData, hashOHLCSeriesData } from './internal/legacy/seriesContentHashFull';

@@ -72,7 +72,7 @@ export function isMonotonicNonDecreasingFiniteX(data: CartesianSeriesData): bool
  * Checks if OHLC data is monotonic non-decreasing by timestamp with all finite values.
  * Results are cached in a WeakMap to avoid repeated O(n) scans.
  */
-export function isMonotonicNonDecreasingFiniteTimestamp(data: ReadonlyArray<OHLCDataPoint>): boolean {
+function isMonotonicNonDecreasingFiniteTimestamp(data: ReadonlyArray<OHLCDataPoint>): boolean {
   const cached = monotonicTimestampCache.get(data);
   if (cached !== undefined) return cached;
 

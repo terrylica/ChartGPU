@@ -1,3 +1,5 @@
+import { resolveUploadPolicy } from '../../../data/seriesResidency';
+import { resolveLinePackingXOffset } from '../data/resolveLinePackingXOffset';
 /**
  * Series Rendering Utilities
  *
@@ -33,9 +35,8 @@ import { clampInt } from '../utils/canvasUtils';
 import { clamp01 } from '../animation/animationHelpers';
 import { findVisibleRangeIndicesByX } from '../data/computeVisibleSlice';
 import { resolvePieRadiiCss } from '../utils/timeAxisUtils';
-import { getPointCount, getX, isRingXYColumns, isStagingRingView } from '../../../data/cartesianData';
+import { isRingXYColumns, isStagingRingView } from '../../../data/cartesianData';
 import { type FilterGapsCache, getFilteredGapsCached } from './filterGapsCache';
-import { beginLineSharedVsFrame } from '../../../renderers/createLineRenderer';
 
 /** Once-per-process warn when GPU-eligible line lacks a decimation pool slot. */
 const warnedMissingDecimationSlots = new Set<number>();
@@ -114,7 +115,7 @@ export interface SeriesRenderContext {
   markerBelowCount: number;
 }
 
-export interface AboveSeriesAnnotationContext {
+interface AboveSeriesAnnotationContext {
   hasCartesianSeries: boolean;
   gridArea: GridArea;
   overlayPass: GPURenderPassEncoder;
@@ -197,9 +198,23 @@ export function prepareSeries(renderers: SeriesRenderers, context: SeriesPrepare
     }
     const xOffset = options?.xOffset ?? 0;
     const cached = lastSetSeriesCache.get(seriesIndex);
-    if (cached && cached.data === data && cached.xOffset === xOffset) {
-      return;
-    }
+    // Shared upload-policy verbs with scatter/candle (skip vs fullRewrite).
+    // Ranged append is owned by appendFlush + appendedGpuThisFrame: call sites
+    // only invoke setSeriesIfChanged when the series was NOT GPU-appended this frame.
+    const policy = resolveUploadPolicy({
+      residency: {
+        kind: 'dataStore',
+        gpuBuffer: null,
+        pointCount: 0,
+        contentVersion: 0,
+        lastRef: cached?.data ?? null,
+      },
+      dataRef: data,
+      geometryCacheHit: !!(cached && cached.data === data && cached.xOffset === xOffset),
+      appendedThisFrame: false,
+      needsGrowth: false,
+    });
+    if (policy === 'skip') return;
     // Protect active modular rings from accidental linearizing setSeries.
     if (isRingXYColumns(data)) {
       try {
@@ -226,16 +241,13 @@ export function prepareSeries(renderers: SeriesRenderers, context: SeriesPrepare
   const introP = introPhase === 'running' ? clamp01(introProgress01) : 1;
 
   // Multi-series hairline budget (group 1): count **visible** line series once.
-  // Policy approximates total segments as `lineSeriesCount * (pointCount - 1)` per
-  // series (equal-N suite shape); see `MULTI_SERIES_HAIRLINE_SEGMENT_BUDGET`.
+  // Used only for hairline segment budget and multi-series prepare inputs
+  // (equal-N approximation); see `MULTI_SERIES_HAIRLINE_SEGMENT_BUDGET`.
+  // Each line renderer has its own VS uniform buffer (no device-global shared VS).
   let lineSeriesCount = 0;
   for (let li = 0; li < seriesForRender.length; li++) {
     const ls = seriesForRender[li]!;
     if (ls.type === 'line' && ls.visible !== false) lineSeriesCount++;
-  }
-  // Shared VS transform: one writeBuffer per frame when all series share scales/width.
-  if (lineSeriesCount > 0) {
-    beginLineSharedVsFrame();
   }
 
   // Preparation loop: prepare ALL series (including hidden) to maintain correct indices
@@ -262,45 +274,16 @@ export function prepareSeries(renderers: SeriesRenderers, context: SeriesPrepare
           // alias, append this frame, or existing series), use DataStore's fixed
           // origin — after FIFO drops the original oldest, chronological getX(0)
           // is a newer timestamp and must NOT be used as the line affine offset.
-          const domainFirstX = (() => {
-            if (currentOptions.xAxis.type !== 'time') return 0;
-            const count = getPointCount(rawDataForGpu);
-            for (let k = 0; k < count; k++) {
-              const x = getX(rawDataForGpu, k);
-              if (Number.isFinite(x)) return x;
-            }
-            return 0;
-          })();
-          // Prefer DataStore's fixed packing origin when the series is already
-          // resident (append / idle after FIFO). domain-first drifts after the
-          // original oldest sample is dropped (issue 0.2 cache miss).
-          const packingXOffset = (() => {
-            if (isStagingRingView(rawDataForGpu)) {
-              return rawDataForGpu.xOffset;
-            }
-            if (currentOptions.xAxis.type !== 'time') return 0;
-            try {
-              return dataStore.getSeriesXOffset(i);
-            } catch {
-              return domainFirstX;
-            }
-          })();
+          const { packingXOffset, xOffset } = resolveLinePackingXOffset({
+            data: rawDataForGpu,
+            dataStore,
+            seriesIndex: i,
+            xAxisType: currentOptions.xAxis.type,
+          });
 
           if (!appendedGpuThisFrame.has(i)) {
             setSeriesIfChanged(i, rawDataForGpu, { xOffset: packingXOffset });
           }
-
-          const xOffset = (() => {
-            if (currentOptions.xAxis.type !== 'time') return 0;
-            if (isStagingRingView(rawDataForGpu)) {
-              return rawDataForGpu.xOffset;
-            }
-            try {
-              return dataStore.getSeriesXOffset(i);
-            } catch {
-              return packingXOffset;
-            }
-          })();
 
           const rawBuffer = dataStore.getSeriesBuffer(i);
           const rawPointCount = dataStore.getSeriesPointCount(i);
@@ -467,45 +450,15 @@ export function prepareSeries(renderers: SeriesRenderers, context: SeriesPrepare
         // When connectNulls is true, strip null/NaN gap entries so the line draws through gaps.
         // Cached by data ref identity (P2-12) so static frames do not re-allocate.
         const uploadData = s.connectNulls ? getFilteredGapsCached(filterGapsCache, i, s.data) : s.data;
-        const domainFirstX = (() => {
-          if (currentOptions.xAxis.type !== 'time') return 0;
-          const d = uploadData;
-          const count = getPointCount(d);
-          for (let k = 0; k < count; k++) {
-            const x = getX(d, k);
-            if (Number.isFinite(x)) return x;
-          }
-          return 0;
-        })();
-        // Staging / GPU-backed: packing origin is fixed on DataStore; domain-first
-        // would drift after maxPoints FIFO drops the original oldest sample.
-        const packingXOffset = (() => {
-          if (isStagingRingView(uploadData)) {
-            return uploadData.xOffset;
-          }
-          if (currentOptions.xAxis.type !== 'time') return 0;
-          try {
-            return dataStore.getSeriesXOffset(i);
-          } catch {
-            return domainFirstX;
-          }
-        })();
+        const { packingXOffset, xOffset } = resolveLinePackingXOffset({
+          data: uploadData,
+          dataStore,
+          seriesIndex: i,
+          xAxisType: currentOptions.xAxis.type,
+        });
         if (!appendedGpuThisFrame.has(i)) {
           setSeriesIfChanged(i, uploadData, { xOffset: packingXOffset });
         }
-        const xOffset = (() => {
-          if (currentOptions.xAxis.type !== 'time') return 0;
-          if (isStagingRingView(uploadData)) {
-            return uploadData.xOffset;
-          }
-          // Prefer store origin when series already exists (append fast path /
-          // setSeries skip). After setSeries, getSeriesXOffset matches packing.
-          try {
-            return dataStore.getSeriesXOffset(i);
-          } catch {
-            return packingXOffset;
-          }
-        })();
         const buffer = dataStore.getSeriesBuffer(i);
         // Pass filtered data to the renderer so point count matches the GPU buffer.
         const lineSeriesForRenderer = uploadData !== s.data ? { ...s, data: uploadData } : s;

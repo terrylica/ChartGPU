@@ -239,7 +239,7 @@ describe('OptionResolver candlestick contentHash reuse', () => {
     const first = resolveOptions({
       series: [{ type: 'candlestick', data, sampling: 'none' }],
     });
-    const hashSpy = vi.spyOn(seriesContentHashModule, 'hashOHLCSeriesData');
+    const cheapSpy = vi.spyOn(seriesContentHashModule, 'cheapOHLCContentStamp');
     const second = resolveOptions(
       {
         series: [{ type: 'candlestick', data, sampling: 'none', color: '#f00' }],
@@ -247,11 +247,12 @@ describe('OptionResolver candlestick contentHash reuse', () => {
       },
       { previousResolved: first }
     );
-    expect(hashSpy).not.toHaveBeenCalled();
+    // Stable data ref reuses contentHash without restamping.
+    expect(cheapSpy).not.toHaveBeenCalled();
     expect((second.series[0] as { contentHash?: number }).contentHash).toBe(
       (first.series[0] as { contentHash?: number }).contentHash
     );
-    hashSpy.mockRestore();
+    cheapSpy.mockRestore();
     warnSpy.mockRestore();
   });
 });
@@ -513,7 +514,7 @@ describe('OptionResolver full series-array identity reuse (group 1 axes-only)', 
 });
 
 describe('OptionResolver full series rewrite path', () => {
-  it('does not full-scan hashCartesianSeriesData when data ref changes', () => {
+  it('uses cheapCartesianContentStamp when data ref changes', () => {
     const a: DataPoint[] = [
       [0, 1],
       [1, 2],
@@ -529,7 +530,6 @@ describe('OptionResolver full series rewrite path', () => {
       xAxis: { min: 0, max: 10 },
       yAxis: { min: 0, max: 10 },
     });
-    const fullHashSpy = vi.spyOn(seriesContentHashModule, 'hashCartesianSeriesData');
     const cheapSpy = vi.spyOn(seriesContentHashModule, 'cheapCartesianContentStamp');
     const second = resolveOptions(
       {
@@ -539,12 +539,10 @@ describe('OptionResolver full series rewrite path', () => {
       },
       { previousResolved: first }
     );
-    expect(fullHashSpy).not.toHaveBeenCalled();
     expect(cheapSpy).toHaveBeenCalled();
     expect((second.series[0] as { contentHash?: number }).contentHash).not.toBe(
       (first.series[0] as { contentHash?: number }).contentHash
     );
-    fullHashSpy.mockRestore();
     cheapSpy.mockRestore();
   });
 
@@ -640,12 +638,9 @@ describe('OptionResolver full series rewrite path', () => {
     const first = resolveOptions({
       series: [{ type: 'candlestick', data: a, sampling: 'none' }],
     });
-    const fullSpy = vi.spyOn(seriesContentHashModule, 'hashOHLCSeriesData');
     const cheapSpy = vi.spyOn(seriesContentHashModule, 'cheapOHLCContentStamp');
     resolveOptions({ series: [{ type: 'candlestick', data: b, sampling: 'none' }] }, { previousResolved: first });
-    expect(fullSpy).not.toHaveBeenCalled();
     expect(cheapSpy).toHaveBeenCalled();
-    fullSpy.mockRestore();
     cheapSpy.mockRestore();
     warnSpy.mockRestore();
   });

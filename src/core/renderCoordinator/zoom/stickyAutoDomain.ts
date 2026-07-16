@@ -12,7 +12,7 @@
 
 export const DEFAULT_STICKY_DOMAIN_HEADROOM = 0.1;
 
-export type StickyDomain = { min: number; max: number };
+type StickyDomain = { min: number; max: number };
 
 /**
  * Sticky auto-domain applies only when **both** axis ends are auto.

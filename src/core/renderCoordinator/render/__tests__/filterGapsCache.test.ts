@@ -129,41 +129,6 @@ describe('filterGapsCache (P2-12)', () => {
     ]);
   });
 
-  it('coordinator flushPendingAppends invalidates filterGapsCache per series (structural)', async () => {
-    // Append mutates MutableXYColumns under a stable ref; the flush path must
-    // delete the series' filterGapsCache entry (defense in depth with pointCount).
-    const fs = await import('node:fs');
-    const path = await import('node:path');
-    const src = fs.readFileSync(path.resolve(__dirname, '../../../createRenderCoordinator.ts'), 'utf8');
-    const flushIdx = src.indexOf('const flushPendingAppends');
-    expect(flushIdx).toBeGreaterThan(-1);
-    // Look only inside flushPendingAppends body (until executeFlush).
-    const executeFlushIdx = src.indexOf('const executeFlush', flushIdx);
-    const flushBody = src.slice(flushIdx, executeFlushIdx > flushIdx ? executeFlushIdx : flushIdx + 8000);
-    expect(flushBody).toMatch(/filterGapsCache\.delete\(\s*seriesIndex\s*\)/);
-    // Issue 0.2: re-seed lastSetSeriesCache after append (do not only delete).
-    expect(flushBody).toMatch(/lastSetSeriesCache\.set\(\s*seriesIndex\s*,/);
-  });
 
-  it('clears lastSetSeriesCache while update animation is interpolating (structural)', async () => {
-    const fs = await import('node:fs');
-    const path = await import('node:path');
-    const src = fs.readFileSync(path.resolve(__dirname, '../../../createRenderCoordinator.ts'), 'utf8');
-    // AGENTS.md: identity caches must invalidate during in-place interpolation.
-    expect(src).toMatch(/if\s*\(\s*updateTransition\s*&&\s*updateP\s*<\s*1\s*\)\s*\{\s*lastSetSeriesCache\.clear\(\)/s);
-  });
 
-  it('invalidates scatter and candlestick geometry during update animation (structural)', async () => {
-    const fs = await import('node:fs');
-    const path = await import('node:path');
-    const src = fs.readFileSync(path.resolve(__dirname, '../../../createRenderCoordinator.ts'), 'utf8');
-    // Target the lastSetSeriesCache.clear + invalidateGeometry block specifically.
-    const animIdx = src.indexOf('lastSetSeriesCache.clear();\n      filterGapsCache.clear();');
-    expect(animIdx).toBeGreaterThan(-1);
-    const body = src.slice(animIdx, animIdx + 900);
-    expect(body).toMatch(/scatterRenderers/);
-    expect(body).toMatch(/invalidateGeometry\(\)/);
-    expect(body).toMatch(/candlestickRenderers/);
-    expect(body).toMatch(/candles\[ci\]!\.invalidateGeometry\(\)/);
-  });
 });

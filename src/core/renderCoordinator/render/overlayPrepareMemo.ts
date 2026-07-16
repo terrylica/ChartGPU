@@ -14,7 +14,7 @@ import type { LinearScale } from '../../../utils/scales';
 import type { GridArea } from '../../../renderers/createGridRenderer';
 
 /** Compact layout + grid line inputs that affect grid vertex/color uploads. */
-export interface GridPrepareSignature {
+interface GridPrepareSignature {
   readonly left: number;
   readonly right: number;
   readonly top: number;
@@ -30,7 +30,7 @@ export interface GridPrepareSignature {
 }
 
 /** Compact axis inputs that affect axis vertex/color uploads. */
-export interface AxisPrepareSignature {
+interface AxisPrepareSignature {
   readonly orientation: 'x' | 'y';
   readonly axisId: string;
   readonly left: number;

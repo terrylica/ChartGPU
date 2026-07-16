@@ -8,7 +8,8 @@
  */
 
 /**
- * Default maximum fraction digits for tick formatting.
+ * Default maximum fraction digits for tick formatting (single source of truth).
+ * Imported by timeAxisUtils to avoid 6-vs-8 drift.
  */
 const DEFAULT_MAX_TICK_FRACTION_DIGITS = 8;
 
@@ -42,7 +43,7 @@ export function generateLinearTicks(domainMin: number, domainMax: number, tickCo
  * @param cap - Maximum number of decimal places to consider (default: 8)
  * @returns Number of decimal places (0 to cap)
  */
-export function computeMaxFractionDigitsFromStep(
+function computeMaxFractionDigitsFromStep(
   tickStep: number,
   cap: number = DEFAULT_MAX_TICK_FRACTION_DIGITS
 ): number {

@@ -5,33 +5,26 @@
 
 import { describe, it, expect } from 'vitest';
 import {
-  // Canvas utils
   getCanvasCssWidth,
   getCanvasCssHeight,
   getCanvasCssSizeFromDevicePixels,
-  // Data point utils
+  clampInt,
+} from '../canvasUtils';
+import {
   finiteOrNull,
   finiteOrUndefined,
   isTupleDataPoint,
   getPointXY,
   isTupleOHLCDataPoint,
-  // Bounds computation
-  computeRawBoundsFromData,
-  extendBoundsWithDataPoints,
-  normalizeDomain,
-  // Axis utils
-  clamp01,
-  clampInt,
-  lerp,
-  rgba01ToCssRgba,
-  // Time utils
-  pad2,
-  parseNumberOrPercent,
-  computeMaxFractionDigitsFromStep,
-  // Tick generation
+} from '../dataPointUtils';
+import { normalizeDomain } from '../boundsComputation';
+import { clamp01 } from '../axisUtils';
+import {
   generateLinearTicks,
-} from '../index';
-import { computeAdaptiveTimeXAxisTicks } from '../timeAxisUtils';
+  resolvePieCenterPlotCss,
+  resolvePieRadiiCss,
+  computeAdaptiveTimeXAxisTicks,
+} from '../timeAxisUtils';
 
 describe('Data Point Utilities', () => {
   it('finiteOrNull returns number for finite values', () => {
@@ -84,48 +77,10 @@ describe('Data Point Utilities', () => {
 });
 
 describe('Bounds Computation', () => {
-  it('computeRawBoundsFromData computes correct bounds', () => {
-    const data = [
-      { x: 1, y: 10 },
-      { x: 5, y: 20 },
-      { x: 3, y: 15 },
-    ];
-    const bounds = computeRawBoundsFromData(data);
-    expect(bounds).toEqual({ xMin: 1, xMax: 5, yMin: 10, yMax: 20 });
-  });
 
-  it('computeRawBoundsFromData handles tuple format', () => {
-    const data = [
-      [1, 10],
-      [5, 20],
-      [3, 15],
-    ] as const;
-    const bounds = computeRawBoundsFromData(data as any);
-    expect(bounds).toEqual({ xMin: 1, xMax: 5, yMin: 10, yMax: 20 });
-  });
 
-  it('computeRawBoundsFromData returns null for empty data', () => {
-    expect(computeRawBoundsFromData([])).toBe(null);
-  });
 
-  it('computeRawBoundsFromData handles zero-span domains', () => {
-    const data = [
-      { x: 5, y: 10 },
-      { x: 5, y: 10 },
-    ];
-    const bounds = computeRawBoundsFromData(data);
-    expect(bounds).toEqual({ xMin: 5, xMax: 6, yMin: 10, yMax: 11 });
-  });
 
-  it('extendBoundsWithDataPoints extends existing bounds', () => {
-    const initial = { xMin: 1, xMax: 5, yMin: 10, yMax: 20 };
-    const newPoints = [
-      { x: 0, y: 25 },
-      { x: 6, y: 5 },
-    ];
-    const extended = extendBoundsWithDataPoints(initial, newPoints);
-    expect(extended).toEqual({ xMin: 0, xMax: 6, yMin: 5, yMax: 25 });
-  });
 
   it('normalizeDomain ensures min <= max', () => {
     expect(normalizeDomain(5, 10)).toEqual({ min: 5, max: 10 });
@@ -154,46 +109,18 @@ describe('Axis Utilities', () => {
     expect(clampInt(-5, 0, 10)).toBe(0);
     expect(clampInt(15, 0, 10)).toBe(10);
   });
-
-  it('lerp interpolates between values', () => {
-    expect(lerp(0, 10, 0.5)).toBe(5);
-    expect(lerp(0, 10, 0)).toBe(0);
-    expect(lerp(0, 10, 1)).toBe(10);
-  });
-
-  it('rgba01ToCssRgba converts to CSS string', () => {
-    expect(rgba01ToCssRgba([1, 0, 0, 1])).toBe('rgba(255,0,0,1)');
-    expect(rgba01ToCssRgba([0, 0.5, 1, 0.5])).toBe('rgba(0,128,255,0.5)');
-  });
 });
 
 describe('Time Axis Utilities', () => {
-  it('pad2 pads single digits', () => {
-    expect(pad2(5)).toBe('05');
-    expect(pad2(12)).toBe('12');
-    expect(pad2(0)).toBe('00');
+  it('resolvePieCenterPlotCss resolves percent centers', () => {
+    const c = resolvePieCenterPlotCss({ x: '50%', y: '50%' }, 200, 100);
+    expect(c).toEqual({ x: 100, y: 50 });
   });
 
-  it('parseNumberOrPercent parses numbers', () => {
-    expect(parseNumberOrPercent(100, 1000)).toBe(100);
-    expect(parseNumberOrPercent('150', 1000)).toBe(150);
-  });
-
-  it('parseNumberOrPercent parses percentages', () => {
-    expect(parseNumberOrPercent('50%', 1000)).toBe(500);
-    expect(parseNumberOrPercent('100%', 200)).toBe(200);
-  });
-
-  it('parseNumberOrPercent returns null for invalid input', () => {
-    expect(parseNumberOrPercent('invalid', 100)).toBe(null);
-    expect(parseNumberOrPercent('', 100)).toBe(null);
-  });
-
-  it('computeMaxFractionDigitsFromStep computes correct precision', () => {
-    expect(computeMaxFractionDigitsFromStep(1)).toBe(0);
-    expect(computeMaxFractionDigitsFromStep(0.1)).toBe(1);
-    expect(computeMaxFractionDigitsFromStep(0.01)).toBe(2);
-    expect(computeMaxFractionDigitsFromStep(2.5)).toBe(1);
+  it('resolvePieRadiiCss resolves outer radius from percent', () => {
+    const r = resolvePieRadiiCss('50%', 100);
+    expect(r.outer).toBe(50);
+    expect(r.inner).toBe(0);
   });
 
   it('generateLinearTicks generates evenly-spaced ticks', () => {

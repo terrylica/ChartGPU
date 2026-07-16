@@ -13,7 +13,6 @@ import type { GPUContextLike } from '../../createRenderCoordinator';
 import type { ResolvedChartGPUOptions } from '../../../config/OptionResolver';
 import type { GridArea } from '../../../renderers/createGridRenderer';
 import { parseCssColorToRgba01 } from '../../../utils/colors';
-import { normalizeDomain } from './boundsComputation';
 import { clampInt } from './canvasUtils';
 
 /**
@@ -80,7 +79,7 @@ export const computeGridArea = (gpuContext: GPUContextLike, options: ResolvedCha
  * @param rgba - Array of [r, g, b, a] in range [0, 1]
  * @returns CSS rgba() string
  */
-export const rgba01ToCssRgba = (rgba: readonly [number, number, number, number]): string => {
+const rgba01ToCssRgba = (rgba: readonly [number, number, number, number]): string => {
   const r = Math.max(0, Math.min(255, Math.round(rgba[0] * 255)));
   const g = Math.max(0, Math.min(255, Math.round(rgba[1] * 255)));
   const b = Math.max(0, Math.min(255, Math.round(rgba[2] * 255)));
@@ -145,34 +144,8 @@ export const computePlotClipRect = (
  * @param v - Value to clamp
  * @returns Clamped value
  */
-export const clamp01 = (v: number): number => Math.min(1, Math.max(0, v));
-
-/**
- * Linear interpolation between two values with clamped t.
- *
- * @param a - Start value
- * @param b - End value
- * @param t01 - Interpolation parameter in range [0, 1]
- * @returns Interpolated value
- */
-export const lerp = (a: number, b: number, t01: number): number => a + (b - a) * clamp01(t01);
-
-/**
- * Interpolates between two domains (min/max pairs).
- * Ensures result is a valid domain (min ≤ max, both finite).
- *
- * @param from - Start domain
- * @param to - End domain
- * @param t01 - Interpolation parameter in range [0, 1]
- * @returns Interpolated domain
- */
-export const lerpDomain = (
-  from: { readonly min: number; readonly max: number },
-  to: { readonly min: number; readonly max: number },
-  t01: number
-): { readonly min: number; readonly max: number } => {
-  return normalizeDomain(lerp(from.min, to.min, t01), lerp(from.max, to.max, t01));
-};
+/** Canonical implementation lives in animationHelpers — re-exported for coordinate/UI importers. */
+export { clamp01 } from '../animation/animationHelpers';
 
 /**
  * Computes scissor rect in device pixels from grid margins.

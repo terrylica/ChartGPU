@@ -9,9 +9,6 @@ import { bucketStackedXKey } from '../utils/barStackKey';
 import { getPointCount, getX, getY, getSize } from '../data/cartesianData';
 import { isMonotonicNonDecreasingFiniteX } from '../core/renderCoordinator/data/computeVisibleSlice';
 
-/** Re-export for callers that imported from this module. Prefer `utils/barStackKey`. */
-export { bucketStackedXKey };
-
 const DEFAULT_MAX_DISTANCE_PX = 20;
 const DEFAULT_BAR_GAP = 0.01; // Minimal gap between bars within a group (was 0.1)
 const DEFAULT_BAR_CATEGORY_GAP = 0.2;

@@ -8,16 +8,13 @@ import {
   clamp01,
   resolveAnimationConfig,
   createEasingWithDelay,
-  hasDrawableMarks,
   hasAnyDrawableMarks,
   lerpDomain,
-  lerp,
   interpolateCartesianData,
   interpolatePieData,
   isDomainEqual,
   computeNextIntroPhase,
   applyBarIntroProgress,
-  type IntroPhase,
 } from '../animationHelpers';
 
 describe('clamp01', () => {
@@ -170,7 +167,7 @@ describe('createEasingWithDelay', () => {
   });
 });
 
-describe('hasDrawableMarks', () => {
+describe('hasAnyDrawableMarks', () => {
   it('returns true for line series with data', () => {
     const series = {
       type: 'line' as const,
@@ -179,12 +176,12 @@ describe('hasDrawableMarks', () => {
         [1, 2],
       ],
     };
-    expect(hasDrawableMarks(series as any)).toBe(true);
+    expect(hasAnyDrawableMarks([series as any])).toBe(true);
   });
 
   it('returns false for line series with no data', () => {
     const series = { type: 'line' as const, data: [] };
-    expect(hasDrawableMarks(series as any)).toBe(false);
+    expect(hasAnyDrawableMarks([series as any])).toBe(false);
   });
 
   it('returns true for pie series with positive value', () => {
@@ -192,7 +189,7 @@ describe('hasDrawableMarks', () => {
       type: 'pie' as const,
       data: [{ name: 'A', value: 10, color: '#000', startAngle: 0, endAngle: 90 }],
     };
-    expect(hasDrawableMarks(series as any)).toBe(true);
+    expect(hasAnyDrawableMarks([series as any])).toBe(true);
   });
 
   it('returns false for pie series with zero values', () => {
@@ -200,7 +197,7 @@ describe('hasDrawableMarks', () => {
       type: 'pie' as const,
       data: [{ name: 'A', value: 0, color: '#000', startAngle: 0, endAngle: 0 }],
     };
-    expect(hasDrawableMarks(series as any)).toBe(false);
+    expect(hasAnyDrawableMarks([series as any])).toBe(false);
   });
 
   it('returns false for pie series with non-finite values', () => {
@@ -208,31 +205,16 @@ describe('hasDrawableMarks', () => {
       type: 'pie' as const,
       data: [{ name: 'A', value: NaN, color: '#000', startAngle: 0, endAngle: 0 }],
     };
-    expect(hasDrawableMarks(series as any)).toBe(false);
+    expect(hasAnyDrawableMarks([series as any])).toBe(false);
   });
 
-  it('returns true for area series with data', () => {
-    const series = { type: 'area' as const, data: [[0, 1]] };
-    expect(hasDrawableMarks(series as any)).toBe(true);
+  it('returns true for area/bar/scatter/candlestick series with data', () => {
+    expect(hasAnyDrawableMarks([{ type: 'area' as const, data: [[0, 1]] } as any])).toBe(true);
+    expect(hasAnyDrawableMarks([{ type: 'bar' as const, data: [[0, 1]] } as any])).toBe(true);
+    expect(hasAnyDrawableMarks([{ type: 'scatter' as const, data: [[0, 1]] } as any])).toBe(true);
+    expect(hasAnyDrawableMarks([{ type: 'candlestick' as const, data: [[0, 1, 2, 3, 4]] } as any])).toBe(true);
   });
 
-  it('returns true for bar series with data', () => {
-    const series = { type: 'bar' as const, data: [[0, 1]] };
-    expect(hasDrawableMarks(series as any)).toBe(true);
-  });
-
-  it('returns true for scatter series with data', () => {
-    const series = { type: 'scatter' as const, data: [[0, 1]] };
-    expect(hasDrawableMarks(series as any)).toBe(true);
-  });
-
-  it('returns true for candlestick series with data', () => {
-    const series = { type: 'candlestick' as const, data: [[0, 1, 2, 3, 4]] };
-    expect(hasDrawableMarks(series as any)).toBe(true);
-  });
-});
-
-describe('hasAnyDrawableMarks', () => {
   it('returns true when at least one series has marks', () => {
     const series = [
       { type: 'line' as const, data: [] },
@@ -307,30 +289,6 @@ describe('lerpDomain', () => {
   });
 });
 
-describe('lerp', () => {
-  it('interpolates between two numbers', () => {
-    expect(lerp(0, 100, 0.5)).toBe(50);
-    expect(lerp(10, 20, 0.25)).toBe(12.5);
-  });
-
-  it('returns from at t=0', () => {
-    expect(lerp(10, 20, 0)).toBe(10);
-  });
-
-  it('returns to at t=1', () => {
-    expect(lerp(10, 20, 1)).toBe(20);
-  });
-
-  it('clamps t to [0, 1]', () => {
-    expect(lerp(10, 20, -0.5)).toBe(10);
-    expect(lerp(10, 20, 1.5)).toBe(20);
-  });
-
-  it('handles negative numbers', () => {
-    expect(lerp(-10, 10, 0.5)).toBe(0);
-  });
-});
-
 describe('interpolateCartesianData', () => {
   it('interpolates tuple data points', () => {
     const from = [
@@ -349,7 +307,7 @@ describe('interpolateCartesianData', () => {
     expect(result![1]).toEqual([10, 60]);
   });
 
-  it('interpolates object data points', () => {
+  it('interpolates object data points into tuple slots', () => {
     const from = [
       { x: 0, y: 0 },
       { x: 10, y: 10 },
@@ -362,8 +320,9 @@ describe('interpolateCartesianData', () => {
     const result = interpolateCartesianData(from, to, 0.5, null);
 
     expect(result).not.toBe(null);
-    expect(result![0]).toEqual({ x: 0, y: 50 });
-    expect(result![1]).toEqual({ x: 10, y: 60 });
+    // Fresh cache is tuple-backed for packing/renderer compatibility.
+    expect(result![0]).toEqual([0, 50]);
+    expect(result![1]).toEqual([10, 60]);
   });
 
   it('returns null for mismatched array lengths', () => {
@@ -387,11 +346,12 @@ describe('interpolateCartesianData', () => {
   it('reuses cache array when same length', () => {
     const from = [[0, 0]] as const;
     const to = [[0, 100]] as const;
-    const cache: any[] = [null];
+    const cache: any[] = [[0, 0]];
 
     const result = interpolateCartesianData(from, to, 0.5, cache);
 
     expect(result).toBe(cache); // Same array reference
+    expect(cache[0]).toEqual([0, 50]);
   });
 
   it('creates new array when cache length differs', () => {

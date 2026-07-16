@@ -10,16 +10,8 @@
 
 import type { OHLCDataPoint } from '../../../config/types';
 import type { LinearScale } from '../../../utils/scales';
-import { clipXToCanvasCssPx, clipYToCanvasCssPx } from '../utils/axisUtils';
+import type { GridArea } from '../../../renderers/createGridRenderer';
 import { isTupleOHLCDataPoint } from '../utils/dataPointUtils';
-
-/**
- * Tooltip anchor position in canvas-local CSS pixels.
- */
-export interface TooltipAnchor {
-  readonly x: number;
-  readonly y: number;
-}
 
 /**
  * Cached tooltip state for content deduplication.
@@ -27,7 +19,7 @@ export interface TooltipAnchor {
  * Tracks the last displayed content and position to avoid unnecessary DOM updates
  * when the tooltip hasn't actually changed.
  */
-export interface TooltipCache {
+interface TooltipCache {
   content: string | null;
   x: number | null;
   y: number | null;
@@ -93,82 +85,6 @@ export function clearTooltipCache(cache: TooltipCache): void {
 }
 
 /**
- * Computes container-local CSS pixel anchor coordinates for a candlestick tooltip.
- *
- * The anchor is positioned near the candle body center for stable tooltip positioning
- * even when the cursor is at the edge of the candlestick.
- *
- * Coordinate transformations:
- * 1. Extract O/H/L/C from data point (tuple: [timestamp, open, close, low, high])
- * 2. Compute body center Y = (open + close) / 2
- * 3. Transform to clip space via scales
- * 4. Convert clip space to canvas-local CSS pixels
- * 5. Add container offset for absolute positioning
- *
- * Returns null if any coordinate computation fails (non-finite values).
- *
- * @param point - OHLC data point (tuple or object format)
- * @param xScale - Linear scale for X axis
- * @param yScale - Linear scale for Y axis
- * @param canvasCssWidth - Canvas width in CSS pixels
- * @param canvasCssHeight - Canvas height in CSS pixels
- * @param offsetX - Container offset X in CSS pixels (default: 0)
- * @param offsetY - Container offset Y in CSS pixels (default: 0)
- * @returns Tooltip anchor position or null if computation fails
- */
-export function computeCandlestickTooltipAnchor(
-  point: OHLCDataPoint,
-  xScale: LinearScale,
-  yScale: LinearScale,
-  canvasCssWidth: number,
-  canvasCssHeight: number,
-  offsetX: number = 0,
-  offsetY: number = 0
-): TooltipAnchor | null {
-  // Extract coordinates from data point (supports both tuple and object formats)
-  let timestamp: number;
-  let open: number;
-  let close: number;
-
-  if (isTupleOHLCDataPoint(point)) {
-    // Tuple format: [timestamp, open, close, low, high]
-    [timestamp, open, close] = point;
-  } else {
-    // Object format: { timestamp, open, close, low, high }
-    timestamp = point.timestamp;
-    open = point.open;
-    close = point.close;
-  }
-
-  // Validate extracted values
-  if (!Number.isFinite(timestamp) || !Number.isFinite(open) || !Number.isFinite(close)) {
-    return null;
-  }
-
-  // Compute body center Y coordinate
-  const bodyCenterY = (open + close) / 2;
-
-  // Transform to clip space
-  const xClip = xScale.scale(timestamp);
-  const yClip = yScale.scale(bodyCenterY);
-
-  // Convert to canvas-local CSS pixels
-  const xCss = clipXToCanvasCssPx(xClip, canvasCssWidth);
-  const yCss = clipYToCanvasCssPx(yClip, canvasCssHeight);
-
-  // Validate computed coordinates
-  if (!Number.isFinite(xCss) || !Number.isFinite(yCss)) {
-    return null;
-  }
-
-  // Add container offset for absolute positioning
-  return {
-    x: offsetX + xCss,
-    y: offsetY + yCss,
-  };
-}
-
-/**
  * Determines if a data point is an OHLC/candlestick point.
  *
  * Checks if the point is a 5-element tuple (timestamp, open, close, low, high)
@@ -186,3 +102,48 @@ export function isOHLCDataPoint(point: any): point is OHLCDataPoint {
   }
   return false;
 }
+
+export function computeCandlestickTooltipAnchorFromMatch(
+  match: { readonly point: OHLCDataPoint },
+  xScale: LinearScale,
+  yScales: Map<string, LinearScale>,
+  gridArea: GridArea,
+  canvas: HTMLCanvasElement
+): Readonly<{ x: number; y: number }> | null {
+  const point = match.point;
+
+  const timestamp = isTupleOHLCDataPoint(point) ? point[0] : point.timestamp;
+  const open = isTupleOHLCDataPoint(point) ? point[1] : point.open;
+  const close = isTupleOHLCDataPoint(point) ? point[2] : point.close;
+
+  if (!Number.isFinite(timestamp) || !Number.isFinite(open) || !Number.isFinite(close)) {
+    return null;
+  }
+
+  // Body center in domain space
+  const bodyMidY = (open + close) / 2;
+
+  // Transform to grid-local CSS pixels
+  const xGridCss = xScale.scale(timestamp);
+  const yScale = yScales.values().next().value;
+  const yGridCss = yScale ? yScale.scale(bodyMidY) : 0;
+
+  if (!Number.isFinite(xGridCss) || !Number.isFinite(yGridCss)) {
+    return null;
+  }
+
+  // Convert to canvas-local CSS pixels
+  const xCanvasCss = gridArea.left + xGridCss;
+  const yCanvasCss = gridArea.top + yGridCss;
+
+  // Convert to container-local CSS pixels
+  const xContainerCss = (typeof (canvas as any).offsetLeft === 'number') ? canvas.offsetLeft + xCanvasCss : xCanvasCss;
+  const yContainerCss = (typeof (canvas as any).offsetLeft === 'number') ? canvas.offsetTop + yCanvasCss : yCanvasCss;
+
+  if (!Number.isFinite(xContainerCss) || !Number.isFinite(yContainerCss)) {
+    return null;
+  }
+
+  return { x: xContainerCss, y: yContainerCss };
+}
+

@@ -13,7 +13,7 @@ import type { LinearScale } from '../../../utils/scales';
 /**
  * Source of pointer events - either real mouse input or externally synchronized.
  */
-export type PointerSource = 'mouse' | 'sync';
+type PointerSource = 'mouse' | 'sync';
 
 /**
  * Pointer state tracking both canvas-local CSS pixels and plot-relative grid coordinates.
@@ -38,7 +38,7 @@ export interface PointerState {
 /**
  * Interaction scales for coordinate transformations between domain and grid space.
  */
-export interface InteractionScales {
+interface InteractionScales {
   readonly xScale: LinearScale;
   readonly yScale: LinearScale;
   readonly plotWidthCss: number;
@@ -48,7 +48,7 @@ export interface InteractionScales {
 /**
  * Grid area boundaries in CSS pixels.
  */
-export interface GridArea {
+interface GridArea {
   readonly left: number;
   readonly top: number;
   readonly width: number;
@@ -123,7 +123,7 @@ export function clearPointer(prevState: PointerState): PointerState {
  * @param xScale - Linear scale for X axis
  * @returns Grid X in CSS pixels, or null if conversion fails
  */
-export function domainToGridX(interactionX: number, xScale: LinearScale): number | null {
+function domainToGridX(interactionX: number, xScale: LinearScale): number | null {
   const gridX = xScale.scale(interactionX);
   return Number.isFinite(gridX) ? gridX : null;
 }
@@ -154,7 +154,7 @@ export function gridToDomainX(gridX: number, xScale: LinearScale): number | null
  * @param gridArea - Grid area boundaries for canvas-local coordinate calculation
  * @returns Effective pointer state, or null if sync mode is inactive
  */
-export function computeSyncPointer(
+function computeSyncPointer(
   interactionX: number | null,
   scales: InteractionScales,
   gridArea: GridArea

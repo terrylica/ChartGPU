@@ -24,7 +24,7 @@ beforeAll(() => {
 });
 
 import { createTextureManager } from '../textureManager';
-import type { TextureManagerConfig } from '../textureManager';
+type TextureManagerConfig = Parameters<typeof createTextureManager>[0];
 
 // Mock GPUDevice and related WebGPU types
 function createMockDevice(): GPUDevice {

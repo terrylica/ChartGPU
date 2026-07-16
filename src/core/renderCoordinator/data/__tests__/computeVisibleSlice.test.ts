@@ -6,7 +6,6 @@ import { describe, it, expect } from 'vitest';
 import {
   isTupleOHLCDataPoint,
   isMonotonicNonDecreasingFiniteX,
-  isMonotonicNonDecreasingFiniteTimestamp,
   sliceVisibleRangeByX,
   findVisibleRangeIndicesByX,
   sliceVisibleRangeByOHLC,
@@ -138,53 +137,7 @@ describe('computeVisibleSlice', () => {
     });
   });
 
-  describe('Monotonicity checks - OHLC', () => {
-    it('detects monotonic tuple OHLC data', () => {
-      const data: OHLCDataPoint[] = [
-        [1000, 10, 12, 9, 11],
-        [2000, 11, 13, 10, 12],
-        [3000, 12, 14, 11, 13],
-      ];
-      expect(isMonotonicNonDecreasingFiniteTimestamp(data)).toBe(true);
-    });
-
-    it('detects monotonic object OHLC data', () => {
-      const data: OHLCDataPoint[] = [
-        { timestamp: 1000, open: 10, high: 12, low: 9, close: 11 },
-        { timestamp: 2000, open: 11, high: 13, low: 10, close: 12 },
-      ];
-      expect(isMonotonicNonDecreasingFiniteTimestamp(data)).toBe(true);
-    });
-
-    it('detects non-monotonic OHLC data', () => {
-      const data: OHLCDataPoint[] = [
-        [1000, 10, 12, 9, 11],
-        [3000, 12, 14, 11, 13],
-        [2000, 11, 13, 10, 12],
-      ];
-      expect(isMonotonicNonDecreasingFiniteTimestamp(data)).toBe(false);
-    });
-
-    it('rejects OHLC data with non-finite timestamps', () => {
-      const data: OHLCDataPoint[] = [
-        [1000, 10, 12, 9, 11],
-        [NaN, 11, 13, 10, 12],
-      ];
-      expect(isMonotonicNonDecreasingFiniteTimestamp(data)).toBe(false);
-    });
-
-    it('caches OHLC monotonicity results', () => {
-      const data: OHLCDataPoint[] = [
-        [1000, 10, 12, 9, 11],
-        [2000, 11, 13, 10, 12],
-      ];
-      const result1 = isMonotonicNonDecreasingFiniteTimestamp(data);
-      const result2 = isMonotonicNonDecreasingFiniteTimestamp(data);
-      expect(result1).toBe(result2);
-      expect(result1).toBe(true);
-    });
-  });
-
+  
   describe('sliceVisibleRangeByX', () => {
     it('slices monotonic tuple data using binary search', () => {
       const data: DataPoint[] = [

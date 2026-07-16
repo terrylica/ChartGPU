@@ -60,19 +60,20 @@ flowchart TB
       GPUInit --> CanvasConfig["canvasContext.configure(format)"]
     end
 
-    subgraph RenderCoordinatorLayer["Render coordinator - createRenderCoordinator.ts"]
+    subgraph RenderCoordinatorLayer["Render coordinator - shell + renderCoordinator/*"]
       subgraph CoordModules["Coordinator modules - src/core/renderCoordinator/*"]
+        Impl["createRenderCoordinatorImpl - composition + frame"]
         Utils["utils/ - Canvas, bounds, axes, time formatting"]
-        GPU["gpu/ - Texture management, MSAA"]
+        GPU["gpu/ - Texture management, 2-pass 4× MSAA"]
         RenderersModule["renderers/ - Renderer pool management"]
-        DataMods["data/ - Visible slice computation"]
+        DataMods["data/ - Slice, display resolve, append policy, packing xOffset"]
         Zoom["zoom/ - Zoom state utilities"]
         Anim["animation/ - Animation helpers"]
         Interact["interaction/ - Pointer and hit-testing"]
         UI["ui/ - Tooltip and legend helpers"]
         AxisMods["axis/ - Tick computation and labels"]
         Annot["annotations/ - Annotation processing"]
-        Render["render/ - Series, overlays, labels"]
+        Render["render/ - Series/frame helpers, overlays, labels"]
       end
 
       Coordinator --> CoordModules
@@ -151,8 +152,9 @@ flowchart TB
 | **ChartGPU** | `src/ChartGPU.ts` | Factory + instance lifecycle, canvas management, public events |
 | **GPUContext** | `src/core/GPUContext.ts` | WebGPU adapter/device/context initialization |
 | **PipelineCache (optional)** | `src/core/PipelineCache.ts` | Shared cache for `GPUShaderModule`, `GPURenderPipeline`, and `GPUComputePipeline` across charts on the same `GPUDevice` (opt-in via `ChartGPU.create(..., { pipelineCache })`) |
-| **Render Coordinator** | `src/core/createRenderCoordinator.ts` | Layout, scales, data upload, **2-pass MSAA** (main **4×** resolve → overlay **4×** blit + annotations + axes; Phase 4b) |
-| **Coordinator Modules** | `src/core/renderCoordinator/*` | 11 specialized modules (utils, gpu/textureManager with main 4× / overlay 4× MSAA, renderers, data, zoom, animation, interaction, ui, axis, annotations, render) |
+| **Render Coordinator shell** | `src/core/createRenderCoordinator.ts` | Public factory re-export |
+| **Render Coordinator impl** | `src/core/renderCoordinator/createRenderCoordinatorImpl.ts` | Layout, scales, data upload, **2-pass MSAA** (main **4×** resolve → overlay **4×** blit + annotations + axes) |
+| **Coordinator Modules** | `src/core/renderCoordinator/*` | Domain modules: utils, gpu/textureManager (main 4× / overlay 4× MSAA), renderers, data (display resolve / append policy), zoom, animation, interaction, ui, axis, annotations, render/frame helpers |
 | **GPU Renderers** | `src/renderers/*` | Series-type-specific WebGPU pipeline renderers (main scene @ 4× MSAA; overlay axes/crosshair/highlight/above-annotations @ 4×) |
 | **WGSL Shaders** | `src/shaders/*` | Vertex/fragment/compute shaders (line shader uses screen-space quad expansion + SDF anti-aliasing) |
 | **Chart Sync** | `src/interaction/createChartSync.ts` | Multi-chart crosshair and zoom synchronization |

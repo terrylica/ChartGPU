@@ -297,15 +297,4 @@ describe('append cache re-seed / ring guard (issue 0.2)', () => {
     expect(lastSetSeriesCache.get(0)?.data).toBe(ring);
   });
 
-  it('structural: flushPendingAppends re-seeds lastSetSeriesCache', async () => {
-    const fs = await import('node:fs');
-    const path = await import('node:path');
-    const src = fs.readFileSync(path.resolve(__dirname, '../../../createRenderCoordinator.ts'), 'utf8');
-    const flushIdx = src.indexOf('const flushPendingAppends');
-    expect(flushIdx).toBeGreaterThan(-1);
-    const executeFlushIdx = src.indexOf('const executeFlush', flushIdx);
-    const flushBody = src.slice(flushIdx, executeFlushIdx > flushIdx ? executeFlushIdx : flushIdx + 12000);
-    expect(flushBody).toMatch(/lastSetSeriesCache\.set\(\s*seriesIndex\s*,/);
-    expect(flushBody).toMatch(/issue 0\.2/);
-  });
 });

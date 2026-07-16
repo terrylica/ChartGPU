@@ -3,7 +3,6 @@ import type { ResolvedBarSeriesConfig } from '../config/OptionResolver';
 import type { LinearScale } from '../utils/scales';
 import type { GridArea } from './createGridRenderer';
 import { parseCssColorToRgba01 } from '../utils/colors';
-import type { DataStore } from '../data/createDataStore';
 import { createRenderPipeline, createUniformBuffer, writeUniformBuffer } from './rendererUtils';
 import { getPointCount, getX, getY } from '../data/cartesianData';
 import { bucketStackedXKey } from '../utils/barStackKey';
@@ -12,7 +11,6 @@ import type { PipelineCache } from '../core/PipelineCache';
 export interface BarRenderer {
   prepare(
     seriesConfigs: ReadonlyArray<ResolvedBarSeriesConfig>,
-    dataStore: DataStore,
     xScale: LinearScale,
     yScale: LinearScale,
     gridArea: GridArea
@@ -522,7 +520,7 @@ export function createBarRenderer(device: GPUDevice, options?: BarRendererOption
     return true;
   };
 
-  const prepare: BarRenderer['prepare'] = (seriesConfigs, _dataStore, xScale, yScale, gridArea) => {
+  const prepare: BarRenderer['prepare'] = (seriesConfigs, xScale, yScale, gridArea) => {
     assertNotDisposed();
     // dataStore reserved for future shared residency; bars pack privately today.
 

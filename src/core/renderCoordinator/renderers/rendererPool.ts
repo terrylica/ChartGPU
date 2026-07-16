@@ -23,7 +23,7 @@ import { GPU_DECIMATION_SAMPLING_MODES } from '../../../data/gpuDecimationEligib
 /**
  * Configuration for renderer pool creation.
  */
-export interface RendererPoolConfig {
+interface RendererPoolConfig {
   readonly device: GPUDevice;
   readonly targetFormat: GPUTextureFormat;
   readonly pipelineCache?: PipelineCache;
@@ -39,7 +39,7 @@ export interface RendererPoolConfig {
 /**
  * Renderer pool state exposed to the render coordinator.
  */
-export interface RendererPoolState {
+interface RendererPoolState {
   readonly areaRenderers: ReadonlyArray<ReturnType<typeof createAreaRenderer>>;
   readonly lineRenderers: ReadonlyArray<ReturnType<typeof createLineRenderer>>;
   readonly scatterRenderers: ReadonlyArray<ReturnType<typeof createScatterRenderer>>;
@@ -57,7 +57,7 @@ export interface RendererPoolState {
 /**
  * Renderer pool interface returned by factory function.
  */
-export interface RendererPool {
+interface RendererPool {
   /**
    * Ensures area renderer count matches the given count.
    * Grows or shrinks the pool as needed, disposing excess renderers.
@@ -137,7 +137,7 @@ export interface RendererPool {
  * size **0** — critical for group 1 pure multi-line (avoids allocating
  * area/scatter/pie/candle/decimation × N at create time).
  */
-export type RendererPoolNeeds = Readonly<{
+type RendererPoolNeeds = Readonly<{
   readonly seriesCount: number;
   readonly area: number;
   readonly line: number;
@@ -155,7 +155,7 @@ export type RendererPoolNeeds = Readonly<{
  * - Decimation pool only when any line uses a GPU-decimation sampling mode
  *   (`lttb`/`min`/`max`). `sampling: 'none'` charts (group 1) get **0**.
  */
-export function computeRendererPoolNeeds(
+function computeRendererPoolNeeds(
   series: ReadonlyArray<ResolvedSeriesConfig>
 ): RendererPoolNeeds {
   const n = series.length;

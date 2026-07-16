@@ -9,7 +9,7 @@ import {
   shouldUpdateTooltip,
   updateTooltipCache,
   clearTooltipCache,
-  computeCandlestickTooltipAnchor,
+  computeCandlestickTooltipAnchorFromMatch,
   isOHLCDataPoint,
 } from '../tooltipLegendHelpers';
 import { createLinearScale } from '../../../../utils/scales';
@@ -141,101 +141,68 @@ describe('clearTooltipCache', () => {
   });
 });
 
-describe('computeCandlestickTooltipAnchor', () => {
-  const xScale = createLinearScale().domain(0, 100).range(-1, 1);
-  const yScale = createLinearScale().domain(0, 100).range(1, -1);
-  const canvasCssWidth = 800;
-  const canvasCssHeight = 600;
+describe('computeCandlestickTooltipAnchorFromMatch', () => {
+  // Production path: scales map domain → grid-local CSS pixels (not clip space).
+  const xScale = createLinearScale().domain(0, 100).range(0, 400);
+  const yScale = createLinearScale().domain(0, 100).range(300, 0);
+  const yScales = new Map([['default', yScale]]);
+  const gridArea = {
+    left: 40,
+    top: 20,
+    width: 400,
+    height: 300,
+    right: 440,
+    bottom: 320,
+    canvasWidth: 480,
+    canvasHeight: 360,
+    devicePixelRatio: 1,
+  };
+  const canvas = { offsetLeft: 10, offsetTop: 5 } as HTMLCanvasElement;
 
   it('computes anchor for tuple OHLC data point', () => {
     const point: [number, number, number, number, number] = [50, 80, 90, 70, 95];
-    const anchor = computeCandlestickTooltipAnchor(point, xScale, yScale, canvasCssWidth, canvasCssHeight);
+    const anchor = computeCandlestickTooltipAnchorFromMatch({ point }, xScale, yScales, gridArea as any, canvas);
 
     expect(anchor).not.toBe(null);
     expect(anchor!.x).toBeGreaterThan(0);
     expect(anchor!.y).toBeGreaterThan(0);
   });
 
-  it('computes anchor at body center Y', () => {
+  it('computes anchor at body center with grid + canvas offsets', () => {
     const point: [number, number, number, number, number] = [50, 80, 90, 70, 95];
-    // Body center Y = (open + close) / 2 = (80 + 90) / 2 = 85
-    const anchor = computeCandlestickTooltipAnchor(point, xScale, yScale, canvasCssWidth, canvasCssHeight);
+    // body mid Y = 85 → yScale(85) ≈ 45; x = 50 → 200
+    const anchor = computeCandlestickTooltipAnchorFromMatch({ point }, xScale, yScales, gridArea as any, canvas);
 
     expect(anchor).not.toBe(null);
-    // X should be at 50% of canvas width (x=50 in domain [0,100])
-    expect(anchor!.x).toBeCloseTo(canvasCssWidth / 2, 0);
-    // Y coordinate depends on scale transformation
-    expect(anchor!.y).toBeGreaterThan(0);
-    expect(anchor!.y).toBeLessThan(canvasCssHeight);
+    expect(anchor!.x).toBeCloseTo(10 + 40 + 200, 0);
+    expect(anchor!.y).toBeCloseTo(5 + 20 + 45, 0);
   });
 
   it('computes anchor for object OHLC data point', () => {
     const point = { timestamp: 50, open: 80, close: 90, low: 70, high: 95 };
-    const anchor = computeCandlestickTooltipAnchor(point, xScale, yScale, canvasCssWidth, canvasCssHeight);
+    const anchor = computeCandlestickTooltipAnchorFromMatch({ point }, xScale, yScales, gridArea as any, canvas);
 
     expect(anchor).not.toBe(null);
     expect(anchor!.x).toBeGreaterThan(0);
     expect(anchor!.y).toBeGreaterThan(0);
   });
 
-  it('applies container offset', () => {
-    const point: [number, number, number, number, number] = [50, 80, 90, 70, 95];
-    const offsetX = 100;
-    const offsetY = 50;
-    const anchor = computeCandlestickTooltipAnchor(
-      point,
-      xScale,
-      yScale,
-      canvasCssWidth,
-      canvasCssHeight,
-      offsetX,
-      offsetY
-    );
-
-    expect(anchor).not.toBe(null);
-    expect(anchor!.x).toBeGreaterThan(offsetX);
-    expect(anchor!.y).toBeGreaterThan(offsetY);
-  });
-
-  it('returns null for non-finite X', () => {
+  it('returns null for non-finite timestamp', () => {
     const point: [number, number, number, number, number] = [NaN, 80, 90, 70, 95];
-    const anchor = computeCandlestickTooltipAnchor(point, xScale, yScale, canvasCssWidth, canvasCssHeight);
-
+    const anchor = computeCandlestickTooltipAnchorFromMatch({ point }, xScale, yScales, gridArea as any, canvas);
     expect(anchor).toBe(null);
   });
 
   it('returns null for non-finite open', () => {
     const point: [number, number, number, number, number] = [50, NaN, 90, 70, 95];
-    const anchor = computeCandlestickTooltipAnchor(point, xScale, yScale, canvasCssWidth, canvasCssHeight);
-
+    const anchor = computeCandlestickTooltipAnchorFromMatch({ point }, xScale, yScales, gridArea as any, canvas);
     expect(anchor).toBe(null);
   });
 
   it('returns null for non-finite close', () => {
     const point: [number, number, number, number, number] = [50, 80, Infinity, 70, 95];
-    const anchor = computeCandlestickTooltipAnchor(point, xScale, yScale, canvasCssWidth, canvasCssHeight);
-
+    const anchor = computeCandlestickTooltipAnchorFromMatch({ point }, xScale, yScales, gridArea as any, canvas);
     expect(anchor).toBe(null);
-  });
-
-  it('handles zero container offset', () => {
-    const point: [number, number, number, number, number] = [50, 80, 90, 70, 95];
-    const anchor = computeCandlestickTooltipAnchor(point, xScale, yScale, canvasCssWidth, canvasCssHeight, 0, 0);
-
-    expect(anchor).not.toBe(null);
-    expect(anchor!.x).toBeGreaterThan(0);
-    expect(anchor!.y).toBeGreaterThan(0);
-  });
-
-  it('handles different scales', () => {
-    const customXScale = createLinearScale().domain(0, 1000).range(-1, 1);
-    const customYScale = createLinearScale().domain(0, 200).range(1, -1);
-    const point: [number, number, number, number, number] = [500, 100, 120, 90, 130];
-
-    const anchor = computeCandlestickTooltipAnchor(point, customXScale, customYScale, canvasCssWidth, canvasCssHeight);
-
-    expect(anchor).not.toBe(null);
-    expect(anchor!.x).toBeCloseTo(canvasCssWidth / 2, 0);
   });
 });
 

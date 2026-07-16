@@ -21,7 +21,7 @@ import { assertUnreachable } from '../utils/dataPointUtils';
 /**
  * Internal type for annotation label data (DOM overlay).
  */
-export interface AnnotationLabelData {
+interface AnnotationLabelData {
   readonly text: string;
   readonly x: number;
   readonly y: number;
@@ -38,7 +38,7 @@ export interface AnnotationLabelData {
 /**
  * Plot bounds in CSS pixels.
  */
-export interface PlotBounds {
+interface PlotBounds {
   readonly leftCss: number;
   readonly rightCss: number;
   readonly topCss: number;
@@ -50,7 +50,7 @@ export interface PlotBounds {
 /**
  * Context for annotation processing.
  */
-export interface AnnotationContext {
+interface AnnotationContext {
   readonly annotations: ReadonlyArray<AnnotationConfig>;
   readonly xScale: LinearScale;
   readonly yScales: Map<string, LinearScale>;
@@ -65,7 +65,7 @@ export interface AnnotationContext {
 /**
  * Result of annotation processing.
  */
-export interface AnnotationResult {
+interface AnnotationResult {
   readonly linesBelow: ReferenceLineInstance[];
   readonly linesAbove: ReferenceLineInstance[];
   readonly markersBelow: AnnotationMarkerInstance[];

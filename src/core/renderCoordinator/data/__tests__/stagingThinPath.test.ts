@@ -1,29 +1,11 @@
 /**
- * Unit tests for staging thin-path eligibility and rebind-failure demote.
+ * Unit tests for staging thin-path rebind-failure demote.
+ * Thin-path eligibility is the append fast path (canRangedAppendLine / canUseFastPath).
  */
 
 import { describe, it, expect } from 'vitest';
-import { demoteStagingViewAfterRebindFailure, isStagingThinPathEligible } from '../stagingThinPath';
+import { demoteStagingViewAfterRebindFailure } from '../stagingThinPath';
 import { createStagingRingView, createRingXYColumns } from '../../../../data/cartesianData';
-
-describe('isStagingThinPathEligible', () => {
-  it('is true for GPU fast path with maxPoints (FIFO, tooltip-independent)', () => {
-    expect(isStagingThinPathEligible(true, true, false)).toBe(true);
-    expect(isStagingThinPathEligible(true, true, true)).toBe(true);
-    expect(isStagingThinPathEligible(true, true, undefined)).toBe(true);
-  });
-
-  it('is true for GPU fast path without maxPoints (unbounded compression / LTTB)', () => {
-    // Multi-chart line slots + series compression: dual number[] growth was the tax.
-    expect(isStagingThinPathEligible(true, false, false)).toBe(true);
-    expect(isStagingThinPathEligible(true, false, true)).toBe(true);
-  });
-
-  it('is false without GPU append fast path', () => {
-    expect(isStagingThinPathEligible(false, true, false)).toBe(false);
-    expect(isStagingThinPathEligible(false, false, false)).toBe(false);
-  });
-});
 
 describe('demoteStagingViewAfterRebindFailure', () => {
   it('nulls a live StagingRingView so fallthrough can dual-pack', () => {

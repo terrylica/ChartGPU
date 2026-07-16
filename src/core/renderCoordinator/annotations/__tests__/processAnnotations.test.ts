@@ -6,10 +6,11 @@
 
 import { describe, it, expect } from 'vitest';
 import { processAnnotations } from '../processAnnotations';
-import type { AnnotationContext } from '../processAnnotations';
 import type { AnnotationConfig } from '../../../../config/types';
 import { createLinearScale } from '../../../../utils/scales';
 import type { ThemeConfig } from '../../../../themes/types';
+
+type AnnotationContext = Parameters<typeof processAnnotations>[0];
 
 // Mock theme
 const mockTheme: ThemeConfig = {

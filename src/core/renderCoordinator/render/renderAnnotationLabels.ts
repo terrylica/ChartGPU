@@ -15,7 +15,7 @@ import { parseCssColorToRgba01 } from '../../../utils/colors';
 import { clamp01 } from '../utils/axisUtils';
 import { assertUnreachable } from '../utils/dataPointUtils';
 
-export interface AnnotationLabelRenderContext {
+interface AnnotationLabelRenderContext {
   currentOptions: ResolvedChartGPUOptions;
   xScale: LinearScale;
   yScales: Map<string, LinearScale>;

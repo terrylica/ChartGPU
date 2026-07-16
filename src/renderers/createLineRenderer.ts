@@ -161,28 +161,10 @@ function getLineBindGroupLayout(device: GPUDevice): GPUBindGroupLayout {
 }
 
 /**
- * Frame epoch for line prepare (group 1 multi-series bookkeeping).
- *
- * Historically a single **device-global shared VS uniform buffer** was claimed by
- * the first series each frame so equal-N multi-series could skip N−1 writeBuffers.
- * Multi-chart harnesses share one GPUDevice and defer `queue.submit` via
- * {@link enqueueDeviceSubmit}: chart B's prepare overwrote the shared buffer
- * while chart A's encoded CB still bound it → wrong/off-screen/faint strokes.
- *
- * Line renderers now always use their **private** VS buffer with dirty-skip
- * (issue 2.5). {@link beginLineSharedVsFrame} remains as a no-op epoch bump for
- * call-site compatibility and future per-command-buffer sharing if needed.
+ * Line renderers use a **private** VS uniform buffer with dirty-skip.
+ * Device-global shared VS was removed: multi-chart deferred submit made shared
+ * buffers unsafe across charts on one GPUDevice.
  */
-let lineSharedVsFrameId = 0;
-
-/**
- * Call once before preparing any line series in a frame.
- * Retained for API/call-site compatibility; VS sharing is disabled (see above).
- */
-export function beginLineSharedVsFrame(_shareKey?: number): void {
-  lineSharedVsFrameId++;
-  void lineSharedVsFrameId;
-}
 
 export function createLineRenderer(device: GPUDevice, options?: LineRendererOptions): LineRenderer {
   let disposed = false;

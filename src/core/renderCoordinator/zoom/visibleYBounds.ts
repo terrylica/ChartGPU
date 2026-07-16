@@ -18,8 +18,6 @@ import type { CartesianSeriesData } from '../../../config/types';
 import { getPointCount, getX, getY } from '../../../data/cartesianData';
 import { isFullSpanZoom } from './zoomHelpers';
 
-export type ZoomRangeLike = { readonly start: number; readonly end: number } | null | undefined;
-
 /** @see isFullSpanZoom — single source of truth (0.5% tolerance). */
 export const isFullSpanZoomRange = isFullSpanZoom;
 

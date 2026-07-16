@@ -11,7 +11,6 @@ import { createLinearScale } from '../../utils/scales';
 import type { ResolvedBarSeriesConfig } from '../../config/OptionResolver';
 import type { DataPoint } from '../../config/types';
 import type { GridArea } from '../createGridRenderer';
-import type { DataStore } from '../../data/createDataStore';
 
 beforeAll(() => {
   // @ts-ignore
@@ -129,7 +128,6 @@ function lastInstanceFloats(writeBuffer: ReturnType<typeof vi.fn>): Float32Array
   return new Float32Array(staging, byteOffset, byteLength / 4);
 }
 
-const emptyDataStore = {} as DataStore;
 const INSTANCE_STRIDE_BYTES = 32;
 
 beforeEach(() => {
@@ -152,17 +150,17 @@ describe('createBarRenderer uniform dirty-skip (issue 2.5)', () => {
     const yScale = createLinearScale().domain(0, 2).range(clip.bottom, clip.top);
     const cfg = barConfig(data);
 
-    renderer.prepare([cfg], emptyDataStore, xScale, yScale, ga);
+    renderer.prepare([cfg], xScale, yScale, ga);
     const afterFirst = writeUniformBufferMock.mock.calls.length;
     expect(afterFirst).toBeGreaterThan(0);
 
     writeUniformBufferMock.mockClear();
-    renderer.prepare([cfg], emptyDataStore, xScale, yScale, ga);
+    renderer.prepare([cfg], xScale, yScale, ga);
     expect(writeUniformBufferMock).not.toHaveBeenCalled();
 
     writeUniformBufferMock.mockClear();
     const y2 = createLinearScale().domain(-1, 3).range(clip.bottom, clip.top);
-    renderer.prepare([cfg], emptyDataStore, xScale, y2, ga);
+    renderer.prepare([cfg], xScale, y2, ga);
     expect(writeUniformBufferMock.mock.calls.length).toBeGreaterThan(0);
     renderer.dispose();
   });
@@ -186,7 +184,7 @@ describe('createBarRenderer geometry cache', () => {
     const yScaleB = createLinearScale().domain(-1, 3).range(clip.bottom, clip.top);
     const cfg = barConfig(data);
 
-    renderer.prepare([cfg], emptyDataStore, xScale, yScaleA, ga);
+    renderer.prepare([cfg], xScale, yScaleA, ga);
     // Uniforms go through mocked writeUniformBuffer; queue.writeBuffer is instance-only.
     expect(writeBuffer).toHaveBeenCalledTimes(1);
     expect(writeBuffer.mock.calls[0][4]).toBe(3 * INSTANCE_STRIDE_BYTES);
@@ -194,7 +192,7 @@ describe('createBarRenderer geometry cache', () => {
     expect(uniformsAfterFirst).toBeGreaterThanOrEqual(1);
 
     // Axes-only: new y scale (still includes 0 → same baselineDomain), same data identity.
-    renderer.prepare([cfg], emptyDataStore, xScale, yScaleB, ga);
+    renderer.prepare([cfg], xScale, yScaleB, ga);
     expect(writeBuffer).toHaveBeenCalledTimes(1);
     // Uniforms must still refresh on the cache hit.
     expect(writeUniformBufferMock.mock.calls.length).toBeGreaterThan(uniformsAfterFirst);
@@ -221,8 +219,8 @@ describe('createBarRenderer geometry cache', () => {
     const xScale = createLinearScale().domain(0, 2).range(clip.left, clip.right);
     const yScale = createLinearScale().domain(0, 10).range(clip.bottom, clip.top);
 
-    renderer.prepare([barConfig(data1)], emptyDataStore, xScale, yScale, ga);
-    renderer.prepare([barConfig(data2)], emptyDataStore, xScale, yScale, ga);
+    renderer.prepare([barConfig(data1)], xScale, yScale, ga);
+    renderer.prepare([barConfig(data2)], xScale, yScale, ga);
     expect(writeBuffer).toHaveBeenCalledTimes(2);
     expect(writeBuffer.mock.calls[1][4]).toBe(3 * INSTANCE_STRIDE_BYTES);
     renderer.dispose();
@@ -243,11 +241,11 @@ describe('createBarRenderer geometry cache', () => {
     const yScale = createLinearScale().domain(0, 3).range(clip.bottom, clip.top);
     const cfg = barConfig(data);
 
-    renderer.prepare([cfg], emptyDataStore, xScale, yScale, ga);
+    renderer.prepare([cfg], xScale, yScale, ga);
     // Mutate under stable ref (interpolation contract).
     (data[1] as [number, number])[1] = 99;
     renderer.invalidateGeometry();
-    renderer.prepare([cfg], emptyDataStore, xScale, yScale, ga);
+    renderer.prepare([cfg], xScale, yScale, ga);
     expect(writeBuffer).toHaveBeenCalledTimes(2);
     renderer.dispose();
   });
@@ -269,9 +267,9 @@ describe('createBarRenderer geometry cache', () => {
     const yScaleAboveZero = createLinearScale().domain(1, 5).range(clip.bottom, clip.top);
     const cfg = barConfig(data);
 
-    renderer.prepare([cfg], emptyDataStore, xScale, yScaleWithZero, ga);
+    renderer.prepare([cfg], xScale, yScaleWithZero, ga);
     expect(writeBuffer).toHaveBeenCalledTimes(1);
-    renderer.prepare([cfg], emptyDataStore, xScale, yScaleAboveZero, ga);
+    renderer.prepare([cfg], xScale, yScaleAboveZero, ga);
     expect(writeBuffer).toHaveBeenCalledTimes(2);
     renderer.dispose();
   });
@@ -293,15 +291,15 @@ describe('createBarRenderer geometry cache', () => {
     const yScaleB = createLinearScale().domain(-1, 6).range(clip.bottom, clip.top);
     const cfg = barConfig(data, { barWidth: 20 });
 
-    renderer.prepare([cfg], emptyDataStore, xScaleA, yScaleA, ga);
+    renderer.prepare([cfg], xScaleA, yScaleA, ga);
     expect(writeBuffer).toHaveBeenCalledTimes(1);
 
     // Pure y change: px domain width independent of y → skip.
-    renderer.prepare([cfg], emptyDataStore, xScaleA, yScaleB, ga);
+    renderer.prepare([cfg], xScaleA, yScaleB, ga);
     expect(writeBuffer).toHaveBeenCalledTimes(1);
 
     // X domain change: px→domain conversion depends on ax → re-upload.
-    renderer.prepare([cfg], emptyDataStore, xScaleB, yScaleB, ga);
+    renderer.prepare([cfg], xScaleB, yScaleB, ga);
     expect(writeBuffer).toHaveBeenCalledTimes(2);
     renderer.dispose();
   });
@@ -322,15 +320,15 @@ describe('createBarRenderer geometry cache', () => {
     const yScale = createLinearScale().domain(0, 3).range(clip.bottom, clip.top);
 
     const autoCfg = barConfig(data);
-    renderer.prepare([autoCfg], emptyDataStore, xScaleA, yScale, ga);
-    renderer.prepare([autoCfg], emptyDataStore, xScaleB, yScale, ga);
+    renderer.prepare([autoCfg], xScaleA, yScale, ga);
+    renderer.prepare([autoCfg], xScaleB, yScale, ga);
     expect(writeBuffer).toHaveBeenCalledTimes(1);
 
     writeBuffer.mockClear();
     renderer.invalidateGeometry();
     const pctCfg = barConfig(data, { barWidth: '50%' });
-    renderer.prepare([pctCfg], emptyDataStore, xScaleA, yScale, ga);
-    renderer.prepare([pctCfg], emptyDataStore, xScaleB, yScale, ga);
+    renderer.prepare([pctCfg], xScaleA, yScale, ga);
+    renderer.prepare([pctCfg], xScaleB, yScale, ga);
     expect(writeBuffer).toHaveBeenCalledTimes(1);
     renderer.dispose();
   });
@@ -354,7 +352,7 @@ describe('createBarRenderer geometry cache', () => {
     const yScaleB = createLinearScale().domain(-1, 6).range(clip.bottom, clip.top);
     const series = [barConfig(dataA, { color: '#f00' }), barConfig(dataB, { color: '#0f0' })];
 
-    renderer.prepare(series, emptyDataStore, xScale, yScaleA, ga);
+    renderer.prepare(series, xScale, yScaleA, ga);
     expect(writeBuffer).toHaveBeenCalledTimes(1);
     expect(writeBuffer.mock.calls[0][4]).toBe(4 * INSTANCE_STRIDE_BYTES);
 
@@ -364,7 +362,7 @@ describe('createBarRenderer geometry cache', () => {
     const leftB0 = f32[2 * 8]; // third instance = series B first point
     expect(leftA0).not.toBe(leftB0);
 
-    renderer.prepare(series, emptyDataStore, xScale, yScaleB, ga);
+    renderer.prepare(series, xScale, yScaleB, ga);
     expect(writeBuffer).toHaveBeenCalledTimes(1);
     renderer.dispose();
   });
@@ -388,7 +386,7 @@ describe('createBarRenderer geometry cache', () => {
     const yScaleB = createLinearScale().domain(-2, 8).range(clip.bottom, clip.top);
     const series = [barConfig(dataA, { stack: 's1', color: '#f00' }), barConfig(dataB, { stack: 's1', color: '#0f0' })];
 
-    renderer.prepare(series, emptyDataStore, xScale, yScaleA, ga);
+    renderer.prepare(series, xScale, yScaleA, ga);
     expect(writeBuffer).toHaveBeenCalledTimes(1);
     expect(writeBuffer.mock.calls[0][4]).toBe(4 * INSTANCE_STRIDE_BYTES);
 
@@ -407,7 +405,7 @@ describe('createBarRenderer geometry cache', () => {
     expect(f32[24 + 1]).toBe(2);
     expect(f32[24 + 3]).toBe(1);
 
-    renderer.prepare(series, emptyDataStore, xScale, yScaleB, ga);
+    renderer.prepare(series, xScale, yScaleB, ga);
     expect(writeBuffer).toHaveBeenCalledTimes(1);
     renderer.dispose();
   });
@@ -428,7 +426,7 @@ describe('createBarRenderer geometry cache', () => {
     const yScale = createLinearScale().domain(0, 5).range(clip.bottom, clip.top);
     const cfg = barConfig(data);
 
-    renderer.prepare([cfg], emptyDataStore, xScale, yScale, ga);
+    renderer.prepare([cfg], xScale, yScale, ga);
     expect(writeBuffer).toHaveBeenCalledTimes(1);
     const f32 = lastInstanceFloats(writeBuffer);
     // Each instance: left + width/2 === domain x (center, independent of ax).
@@ -453,7 +451,7 @@ describe('createBarRenderer geometry cache', () => {
     const yScale = createLinearScale().domain(0, 5).range(clip.bottom, clip.top);
     const series = [barConfig(dataA, { color: '#f00' }), barConfig(dataB, { color: '#0f0' })];
 
-    renderer.prepare(series, emptyDataStore, xScale, yScale, ga);
+    renderer.prepare(series, xScale, yScale, ga);
     const f32 = lastInstanceFloats(writeBuffer);
     // Two instances at same category x=1: series A then B.
     const leftA = f32[0];
@@ -474,7 +472,7 @@ describe('createBarRenderer geometry cache', () => {
     writeBuffer.mockClear();
     renderer.invalidateGeometry();
     const xForward = createLinearScale().domain(0, 2).range(clip.left, clip.right);
-    renderer.prepare(series, emptyDataStore, xForward, yScale, ga);
+    renderer.prepare(series, xForward, yScale, ga);
     const f32fwd = lastInstanceFloats(writeBuffer);
     const centerAf = f32fwd[0] + f32fwd[2] / 2;
     const centerBf = f32fwd[8] + f32fwd[10] / 2;
@@ -501,7 +499,7 @@ describe('createBarRenderer geometry cache', () => {
     const xScale = createLinearScale().domain(0, n - 1).range(clip.left, clip.right);
     const yScale = createLinearScale().domain(0, 10).range(clip.bottom, clip.top);
 
-    renderer.prepare([barConfig(data)], emptyDataStore, xScale, yScale, ga);
+    renderer.prepare([barConfig(data)], xScale, yScale, ga);
 
     expect(createBuffer).toHaveBeenCalled();
     for (const call of createBuffer.mock.calls) {
@@ -556,7 +554,6 @@ describe('createBarRenderer geometry cache', () => {
     const colorB = '#0000ff';
     renderer.prepare(
       [barConfig(dataA, { color: colorA }), barConfig(dataB, { color: colorB })],
-      emptyDataStore,
       xScale,
       yScale,
       ga

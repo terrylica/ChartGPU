@@ -79,7 +79,7 @@ export function didSeriesDataLikelyChange(
  * True when line series has a truthy `areaStyle` (forces CPU sampling path;
  * see `isGpuDecimationEligible`).
  */
-export function lineHasAreaStyle(series: unknown): boolean {
+function lineHasAreaStyle(series: unknown): boolean {
   if (!series || typeof series !== 'object') return false;
   const s = series as { readonly type?: string; readonly areaStyle?: unknown };
   return s.type === 'line' && s.areaStyle != null;
@@ -90,7 +90,7 @@ export function lineHasAreaStyle(series: unknown): boolean {
  * inputs (line `areaStyle` presence) changed for any series.
  * These force baseline re-sample even when the raw data reference is stable.
  */
-export function didSamplingConfigChange(
+function didSamplingConfigChange(
   prev: ResolvedChartGPUOptions['series'],
   next: ResolvedChartGPUOptions['series']
 ): boolean {

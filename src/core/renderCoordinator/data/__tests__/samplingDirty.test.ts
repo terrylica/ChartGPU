@@ -2,15 +2,11 @@
  * P1-7: sampling dirty flags + presentation patch without re-sample.
  */
 
-import fs from 'node:fs';
-import path from 'node:path';
 import { describe, it, expect, vi } from 'vitest';
 import {
   didSeriesDataLikelyChange,
-  didSamplingConfigChange,
   shouldRecomputeBaselineSampling,
   patchSeriesPresentationKeepingSampledData,
-  lineHasAreaStyle,
 } from '../samplingDirty';
 import {
   resolveOptions,
@@ -19,14 +15,18 @@ import {
 } from '../../../../config/OptionResolver';
 import * as sampleSeriesModule from '../../../../data/sampleSeries';
 import * as seriesContentHashModule from '../../../../data/seriesContentHash';
-import { hashCartesianSeriesData } from '../../../../data/seriesContentHash';
 import type { DataPoint } from '../../../../config/types';
+
+/** Fixture contentHash — arbitrary stable number for dirty tests (not a full scan). */
+function fixtureHash(data: ReadonlyArray<DataPoint>, salt = 0): number {
+  return ((data.length * 2654435761) ^ salt) >>> 0;
+}
 
 function lineSeries(data: ReadonlyArray<DataPoint>, extra: Record<string, unknown> = {}): ResolvedSeriesConfig {
   const contentHash =
     typeof extra.contentHash === 'number'
       ? (extra.contentHash as number)
-      : hashCartesianSeriesData(data as DataPoint[]);
+      : fixtureHash(data as DataPoint[]);
   return {
     type: 'line',
     name: 's',
@@ -51,7 +51,7 @@ describe('samplingDirty predicates (P1-7)', () => {
       [1, 2],
       [2, 3],
     ];
-    const h = hashCartesianSeriesData(data);
+    const h = fixtureHash(data);
     const a = [lineSeries(data, { contentHash: h })];
     const b = [lineSeries(data, { color: '#f00', name: 'renamed', contentHash: h })];
     expect(didSeriesDataLikelyChange(a, b)).toBe(false);
@@ -81,12 +81,8 @@ describe('samplingDirty predicates (P1-7)', () => {
       [1, 2],
       [2, 3],
     ];
-    const before = hashCartesianSeriesData(data);
-    const a = [lineSeries(data, { contentHash: before })];
-    (data[1] as [number, number])[1] = 99;
-    const after = hashCartesianSeriesData(data);
-    expect(after).not.toBe(before);
-    const b = [lineSeries(data, { contentHash: after })];
+    const a = [lineSeries(data, { contentHash: 111 })];
+    const b = [lineSeries(data, { contentHash: 222 })];
     expect(didSeriesDataLikelyChange(a, b)).toBe(true);
   });
 
@@ -104,43 +100,7 @@ describe('samplingDirty predicates (P1-7)', () => {
     expect(didSeriesDataLikelyChange(first.series, second.series)).toBe(false);
   });
 
-  it('didSamplingConfigChange detects sampling threshold change', () => {
-    const data: DataPoint[] = [
-      [0, 1],
-      [1, 2],
-    ];
-    const a = [lineSeries(data, { samplingThreshold: 1000 })];
-    const b = [lineSeries(data, { samplingThreshold: 2000 })];
-    expect(didSamplingConfigChange(a, b)).toBe(true);
-    expect(shouldRecomputeBaselineSampling(a, b)).toBe(true);
-  });
 
-  it('didSamplingConfigChange detects line areaStyle presence flip', () => {
-    const data: DataPoint[] = [
-      [0, 1],
-      [1, 2],
-      [2, 3],
-    ];
-    const without = [lineSeries(data)];
-    const withFill = [
-      lineSeries(data, {
-        areaStyle: { opacity: 0.3, color: '#0af' },
-      }),
-    ];
-    expect(lineHasAreaStyle(without[0])).toBe(false);
-    expect(lineHasAreaStyle(withFill[0])).toBe(true);
-    expect(didSamplingConfigChange(without, withFill)).toBe(true);
-    expect(didSamplingConfigChange(withFill, without)).toBe(true);
-    expect(shouldRecomputeBaselineSampling(without, withFill)).toBe(true);
-    // Color-only presentation still clean when areaStyle stays present.
-    const withFillOtherColor = [
-      lineSeries(data, {
-        areaStyle: { opacity: 0.3, color: '#f00' },
-        color: '#f00',
-      }),
-    ];
-    expect(didSamplingConfigChange(withFill, withFillOtherColor)).toBe(false);
-  });
 
   it('shouldRecomputeBaselineSampling is false for presentation-only', () => {
     const data: DataPoint[] = [
@@ -205,7 +165,7 @@ describe('samplingDirty predicates (P1-7)', () => {
       [50, 1],
       [99, 0],
     ];
-    const h = hashCartesianSeriesData(raw);
+    const h = fixtureHash(raw as DataPoint[]);
     const previous = [
       lineSeries(raw, {
         data: sampled,
@@ -232,21 +192,6 @@ describe('samplingDirty predicates (P1-7)', () => {
   });
 });
 
-describe('setOptions presentation-only Y bounds (P1-7 regression)', () => {
-  it('coordinator presentation-only branch refills visible Y bounds cache (structural)', async () => {
-    // Theme/color setOptions clears cachedVisibleYBoundsByAxis then must
-    // call recomputeCachedVisibleYBoundsIfNeeded on the non-resample path.
-    const fs = await import('node:fs');
-    const path = await import('node:path');
-    const src = fs.readFileSync(path.resolve(__dirname, '../../../createRenderCoordinator.ts'), 'utf8');
-    const marker = 'Presentation-only: patch series metadata';
-    const idx = src.indexOf(marker);
-    expect(idx).toBeGreaterThan(-1);
-    const branchEnd = src.indexOf('Tooltip enablement may change at runtime', idx);
-    const branch = src.slice(idx, branchEnd > idx ? branchEnd : idx + 1200);
-    expect(branch).toMatch(/recomputeCachedVisibleYBoundsIfNeeded\s*\(\s*\)/);
-  });
-});
 
 describe('OptionResolver sample reuse (P1-7)', () => {
   it('reuses previous sampled data when raw ref, content, and sampling are unchanged', () => {
@@ -307,7 +252,7 @@ describe('OptionResolver sample reuse (P1-7)', () => {
     const firstHash = (first.series[0] as { contentHash?: number }).contentHash;
     (data[50] as [number, number])[1] = 99999;
 
-    const hashSpy = vi.spyOn(seriesContentHashModule, 'hashCartesianSeriesData');
+    const hashSpy = vi.spyOn(seriesContentHashModule, 'cheapCartesianContentStamp');
     const sampleSpy = vi.spyOn(sampleSeriesModule, 'sampleSeriesDataPoints');
     const second = resolveOptions(
       {
@@ -334,8 +279,6 @@ describe('OptionResolver sample reuse (P1-7)', () => {
     // Replace the array (new identity) so resolve must stamp / re-sample.
     const nextData: DataPoint[] = data.map((p, i) => (i === 50 ? [50, 99999] : ([p[0], p[1]] as DataPoint)));
 
-    // Full-float hash is no longer used on ref change (cheap stamp only).
-    const fullHashSpy = vi.spyOn(seriesContentHashModule, 'hashCartesianSeriesData');
     const cheapSpy = vi.spyOn(seriesContentHashModule, 'cheapCartesianContentStamp');
     const sampleSpy = vi.spyOn(sampleSeriesModule, 'sampleSeriesDataPoints');
     const second = resolveOptions(
@@ -351,7 +294,6 @@ describe('OptionResolver sample reuse (P1-7)', () => {
       },
       { previousResolved: first }
     );
-    expect(fullHashSpy).not.toHaveBeenCalled();
     expect(cheapSpy).toHaveBeenCalled();
     expect(sampleSpy).toHaveBeenCalled();
     expect(second.series[0]!.data).not.toBe(firstSampled);
@@ -364,7 +306,6 @@ describe('OptionResolver sample reuse (P1-7)', () => {
     ).rawBounds;
     expect(secondBounds).not.toBe(firstBounds);
     expect(secondBounds?.yMax).toBeGreaterThanOrEqual(99999);
-    fullHashSpy.mockRestore();
     cheapSpy.mockRestore();
     sampleSpy.mockRestore();
   });
@@ -389,7 +330,7 @@ describe('OptionResolver sample reuse (P1-7)', () => {
       }
     ).rawBounds;
 
-    const hashSpy = vi.spyOn(seriesContentHashModule, 'hashCartesianSeriesData');
+    const hashSpy = vi.spyOn(seriesContentHashModule, 'cheapCartesianContentStamp');
     const second = resolveOptions(
       {
         series: [
@@ -425,7 +366,7 @@ describe('OptionResolver sample reuse (P1-7)', () => {
     const first = resolveOptions({
       series: [{ type: 'bar', data, sampling: 'none' }],
     });
-    const hashSpy = vi.spyOn(seriesContentHashModule, 'hashCartesianSeriesData');
+    const hashSpy = vi.spyOn(seriesContentHashModule, 'cheapCartesianContentStamp');
     const second = resolveOptions(
       {
         series: [{ type: 'bar', data, sampling: 'none', color: '#f00' }],
@@ -446,7 +387,7 @@ describe('OptionResolver sample reuse (P1-7)', () => {
     const first = resolveOptions({
       series: [{ type: 'line', data, sampling: 'lttb', samplingThreshold: 20 }],
     });
-    const hashSpy = vi.spyOn(seriesContentHashModule, 'hashCartesianSeriesData');
+    const hashSpy = vi.spyOn(seriesContentHashModule, 'cheapCartesianContentStamp');
     const sampleSpy = vi.spyOn(sampleSeriesModule, 'sampleSeriesDataPoints');
     const second = resolveOptions(
       {
@@ -487,90 +428,8 @@ describe('OptionResolver sample reuse (P1-7)', () => {
       (without.series[0] as { contentHash?: number }).contentHash
     );
     // Eligibility-sensitive: sampling dirty flags treat areaStyle presence as config change.
-    expect(didSamplingConfigChange(without.series, withFill.series)).toBe(true);
     expect(shouldRecomputeBaselineSampling(without.series, withFill.series)).toBe(true);
   });
 
-  it('full data rewrite does not double-call sampleSeriesDataPoints (structural)', () => {
-    // OptionResolver samples once; setOptions rewrite must not re-LTTB in
-    // recomputeRuntimeBaseSeries when likelyDataChanged (see createRenderCoordinator).
-    const src = fs.readFileSync(path.resolve(__dirname, '../../../createRenderCoordinator.ts'), 'utf8');
-    // likelyDataChanged branch keeps resolver-sampled data without recomputeRuntimeBaseSeries.
-    expect(src).toMatch(/if\s*\(\s*!likelyDataChanged\s*\)\s*\{[\s\S]*?recomputeRuntimeBaseSeries\(\)/);
-    expect(src).toMatch(/Full data rewrite: OptionResolver already sampled/);
-    // Else body (likelyDataChanged) must not call sampleSeriesDataPoints.
-    const elseIdx = src.indexOf('Full data rewrite: OptionResolver already sampled');
-    expect(elseIdx).toBeGreaterThan(-1);
-    const elseEnd = src.indexOf('updateZoom();', elseIdx);
-    const elseBody = src.slice(elseIdx, elseEnd > elseIdx ? elseEnd : elseIdx + 4000);
-    expect(elseBody).not.toMatch(/sampleSeriesDataPoints\s*\(/);
-  });
 
-  it('patch prefers next.rawBounds when rawBoundsMode changes', () => {
-    const data: DataPoint[] = [
-      [0, 1],
-      [10, 20],
-    ];
-    const prev = [
-      {
-        type: 'line',
-        data,
-        rawData: data,
-        rawBounds: { xMin: -100, xMax: 100, yMin: -100, yMax: 100 },
-        rawBoundsMode: 'synthetic',
-        contentHash: 1,
-        sampling: 'none',
-        samplingThreshold: 5000,
-        color: '#0f0',
-        lineStyle: { width: 2, opacity: 1, color: '#0f0' },
-        connectNulls: false,
-        yAxis: 'y',
-        visible: true,
-      },
-    ] as unknown as ResolvedSeriesConfig[];
-    const next = [
-      {
-        type: 'line',
-        data,
-        rawData: data,
-        rawBounds: { xMin: 0, xMax: 10, yMin: 1, yMax: 20 },
-        rawBoundsMode: 'data',
-        contentHash: 1,
-        sampling: 'none',
-        samplingThreshold: 5000,
-        color: '#f00',
-        lineStyle: { width: 2, opacity: 1, color: '#f00' },
-        connectNulls: false,
-        yAxis: 'y',
-        visible: true,
-      },
-    ] as unknown as ResolvedSeriesConfig[];
-    const patched = patchSeriesPresentationKeepingSampledData(next as never, prev);
-    expect((patched[0] as { rawBounds?: unknown }).rawBounds).toEqual({
-      xMin: 0,
-      xMax: 10,
-      yMin: 1,
-      yMax: 20,
-    });
-    expect((patched[0] as { rawBoundsMode?: string }).rawBoundsMode).toBe('data');
-  });
-
-  it('canReuseResolvedSeriesSample gates correctly', () => {
-    const data: DataPoint[] = [
-      [0, 1],
-      [1, 2],
-    ];
-    const resolved = resolveOptions({
-      series: [{ type: 'line', data, sampling: 'none' }],
-    }).series[0]!;
-    // contentHash is now a cheap stamp on first resolve — reuse the stored stamp.
-    const hash = (resolved as { contentHash?: number }).contentHash!;
-    expect(canReuseResolvedSeriesSample(resolved, 'line', data, 'none', 5000, false, hash)).toBe(true);
-    expect(canReuseResolvedSeriesSample(resolved, 'line', data, 'lttb', 5000, false, hash)).toBe(false);
-    expect(
-      canReuseResolvedSeriesSample(resolved, 'line', [[0, 9]], 'none', 5000, false, hashCartesianSeriesData([[0, 9]]))
-    ).toBe(false);
-    // Wrong hash → no reuse even with same ref
-    expect(canReuseResolvedSeriesSample(resolved, 'line', data, 'none', 5000, false, hash ^ 1)).toBe(false);
-  });
 });

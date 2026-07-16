@@ -65,7 +65,7 @@ fn fsMain(@builtin(position) pos: vec4f) -> @location(0) vec4f {
 /**
  * Texture manager state exposed to the render coordinator.
  */
-export interface TextureManagerState {
+interface TextureManagerState {
   readonly mainColorView: GPUTextureView | null;
   /** Single-sample resolve target for the MSAA main pass. Used by the overlay blit. */
   readonly mainResolveView: GPUTextureView | null;
@@ -97,7 +97,7 @@ interface InternalState {
 /**
  * Configuration for texture manager creation.
  */
-export interface TextureManagerConfig {
+interface TextureManagerConfig {
   readonly device: GPUDevice;
   readonly targetFormat: GPUTextureFormat;
   readonly pipelineCache?: PipelineCache;
@@ -112,7 +112,7 @@ export interface TextureManagerConfig {
 /**
  * Texture manager interface returned by factory function.
  */
-export interface TextureManager {
+interface TextureManager {
   /**
    * Ensures textures are allocated for the given dimensions.
    * Reallocates if size or format changes.

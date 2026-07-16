@@ -8,9 +8,7 @@ import {
   createPointerState,
   updatePointerFromMouse,
   clearPointer,
-  domainToGridX,
   gridToDomainX,
-  computeSyncPointer,
   computeEffectivePointer,
   normalizeInteractionX,
   createInteractionXListeners,
@@ -68,29 +66,6 @@ describe('clearPointer', () => {
   });
 });
 
-describe('domainToGridX', () => {
-  const xScale = createLinearScale().domain(0, 100).range(0, 800);
-
-  it('converts domain X to grid CSS pixels', () => {
-    const gridX = domainToGridX(50, xScale);
-    expect(gridX).toBe(400);
-  });
-
-  it('handles domain bounds', () => {
-    expect(domainToGridX(0, xScale)).toBe(0);
-    expect(domainToGridX(100, xScale)).toBe(800);
-  });
-
-  it('extrapolates beyond domain', () => {
-    const gridX = domainToGridX(150, xScale);
-    expect(gridX).toBe(1200);
-  });
-
-  it('returns null for non-finite values', () => {
-    expect(domainToGridX(NaN, xScale)).toBe(null);
-    expect(domainToGridX(Infinity, xScale)).toBe(null);
-  });
-});
 
 describe('gridToDomainX', () => {
   const xScale = createLinearScale().domain(0, 100).range(0, 800);
@@ -115,60 +90,14 @@ describe('gridToDomainX', () => {
     expect(gridToDomainX(Infinity, xScale)).toBe(null);
   });
 
-  it('is inverse of domainToGridX', () => {
+  it('inverts scale.scale for domain recovery', () => {
     const originalDomain = 75;
-    const gridX = domainToGridX(originalDomain, xScale);
-    const recoveredDomain = gridToDomainX(gridX!, xScale);
+    const gridX = xScale.scale(originalDomain);
+    const recoveredDomain = gridToDomainX(gridX, xScale);
     expect(recoveredDomain).toBeCloseTo(originalDomain, 10);
   });
 });
 
-describe('computeSyncPointer', () => {
-  const xScale = createLinearScale().domain(0, 100).range(0, 800);
-  const yScale = createLinearScale().domain(0, 100).range(600, 0);
-  const scales = { xScale, yScale, plotWidthCss: 800, plotHeightCss: 600 };
-  const gridArea = { left: 60, top: 40, width: 800, height: 600 };
-
-  it('computes sync pointer from domain X', () => {
-    const pointer = computeSyncPointer(50, scales, gridArea);
-
-    expect(pointer).not.toBe(null);
-    expect(pointer!.source).toBe('sync');
-    expect(pointer!.gridX).toBe(400); // 50% of 800
-    expect(pointer!.gridY).toBe(300); // Midpoint of 600
-    expect(pointer!.x).toBe(460); // gridArea.left + gridX
-    expect(pointer!.y).toBe(340); // gridArea.top + gridY
-    expect(pointer!.isInGrid).toBe(true);
-    expect(pointer!.hasPointer).toBe(true);
-  });
-
-  it('returns null when interactionX is null', () => {
-    const pointer = computeSyncPointer(null, scales, gridArea);
-    expect(pointer).toBe(null);
-  });
-
-  it('returns null for non-finite domain X', () => {
-    expect(computeSyncPointer(NaN, scales, gridArea)).toBe(null);
-    expect(computeSyncPointer(Infinity, scales, gridArea)).toBe(null);
-  });
-
-  it('marks pointer as outside grid when gridX exceeds bounds', () => {
-    const pointer = computeSyncPointer(150, scales, gridArea); // Beyond domain
-
-    expect(pointer).not.toBe(null);
-    expect(pointer!.gridX).toBe(1200); // Extrapolated
-    expect(pointer!.isInGrid).toBe(false); // Outside grid bounds
-    expect(pointer!.hasPointer).toBe(false); // Not active when outside
-  });
-
-  it('places Y at midpoint regardless of domain', () => {
-    const pointer1 = computeSyncPointer(25, scales, gridArea);
-    const pointer2 = computeSyncPointer(75, scales, gridArea);
-
-    expect(pointer1!.gridY).toBe(300); // Always midpoint
-    expect(pointer2!.gridY).toBe(300); // Always midpoint
-  });
-});
 
 describe('computeEffectivePointer', () => {
   const xScale = createLinearScale().domain(0, 100).range(0, 800);
@@ -333,17 +262,6 @@ describe('shouldUpdateInteractionX', () => {
   });
 });
 
-describe('integration: coordinate round-trip', () => {
-  it('domain -> grid -> domain preserves value', () => {
-    const xScale = createLinearScale().domain(-100, 100).range(0, 1000);
-    const originalDomain = 42;
-
-    const gridX = domainToGridX(originalDomain, xScale);
-    const recoveredDomain = gridToDomainX(gridX!, xScale);
-
-    expect(recoveredDomain).toBeCloseTo(originalDomain, 10);
-  });
-});
 
 describe('integration: sync pointer workflow', () => {
   it('supports typical sync interaction cycle', () => {
@@ -378,3 +296,5 @@ describe('integration: sync pointer workflow', () => {
     expect(cleared.hasPointer).toBe(false);
   });
 });
+
+

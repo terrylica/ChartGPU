@@ -6,7 +6,6 @@
 import { describe, it, expect } from 'vitest';
 import {
   generateLinearTicks,
-  computeMaxFractionDigitsFromStep,
   createTickFormatter,
   formatTickValue,
 } from '../computeAxisTicks';
@@ -68,58 +67,23 @@ describe('generateLinearTicks', () => {
   });
 });
 
-describe('computeMaxFractionDigitsFromStep', () => {
-  it('returns 0 for integer steps', () => {
-    expect(computeMaxFractionDigitsFromStep(1)).toBe(0);
-    expect(computeMaxFractionDigitsFromStep(10)).toBe(0);
-    expect(computeMaxFractionDigitsFromStep(100)).toBe(0);
+describe('createTickFormatter (covers fraction-digit policy)', () => {
+  it('uses integer formatting for integer steps', () => {
+    expect(createTickFormatter(1).format(1.0)).toBe('1');
+    expect(createTickFormatter(10).format(20)).toBe('20');
   });
 
-  it('returns 1 for clean decimal like 0.5', () => {
-    expect(computeMaxFractionDigitsFromStep(0.5)).toBe(1);
-    expect(computeMaxFractionDigitsFromStep(2.5)).toBe(1);
+  it('preserves one decimal for 0.5 steps', () => {
+    expect(createTickFormatter(0.5).format(1.5)).toBe('1.5');
   });
 
-  it('returns 2 for clean decimal like 0.25', () => {
-    expect(computeMaxFractionDigitsFromStep(0.25)).toBe(2);
-    expect(computeMaxFractionDigitsFromStep(1.25)).toBe(2);
+  it('preserves two decimals for 0.25 steps', () => {
+    expect(createTickFormatter(0.25).format(1.25)).toBe('1.25');
   });
 
-  it('returns 3 for clean decimal like 0.125', () => {
-    expect(computeMaxFractionDigitsFromStep(0.125)).toBe(3);
-  });
-
-  it('handles negative steps', () => {
-    expect(computeMaxFractionDigitsFromStep(-0.5)).toBe(1);
-    expect(computeMaxFractionDigitsFromStep(-2.5)).toBe(1);
-  });
-
-  it('returns 0 for zero step', () => {
-    expect(computeMaxFractionDigitsFromStep(0)).toBe(0);
-  });
-
-  it('returns 0 for non-finite steps', () => {
-    expect(computeMaxFractionDigitsFromStep(NaN)).toBe(0);
-    expect(computeMaxFractionDigitsFromStep(Infinity)).toBe(0);
-    expect(computeMaxFractionDigitsFromStep(-Infinity)).toBe(0);
-  });
-
-  it('respects custom cap', () => {
-    const result = computeMaxFractionDigitsFromStep(0.001, 2);
-    expect(result).toBeLessThanOrEqual(2);
-  });
-
-  it('handles very small steps', () => {
-    const result = computeMaxFractionDigitsFromStep(0.0001);
-    expect(result).toBeGreaterThan(0);
-    expect(result).toBeLessThanOrEqual(8);
-  });
-
-  it('handles repeating decimals with fallback logic', () => {
-    // 1/3 = 0.333... should get reasonable precision
-    const result = computeMaxFractionDigitsFromStep(1 / 3);
-    expect(result).toBeGreaterThan(0);
-    expect(result).toBeLessThanOrEqual(8);
+  it('handles zero/non-finite steps without throwing', () => {
+    expect(createTickFormatter(0).format(1)).toBe('1');
+    expect(createTickFormatter(NaN).format(1)).toBe('1');
   });
 });
 

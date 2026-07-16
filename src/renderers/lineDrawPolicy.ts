@@ -64,11 +64,6 @@ export const DENSE_HAIRLINE_POINT_THRESHOLD = 25_000;
  */
 export const MULTI_SERIES_HAIRLINE_SEGMENT_BUDGET = 500_000;
 
-/**
- * @deprecated Prefer {@link DENSE_HAIRLINE_POINT_THRESHOLD}. Alias retained for
- * residual tests / call sites that still name the older soft-thin threshold.
- */
-export const DENSE_LINE_POINT_THRESHOLD = DENSE_HAIRLINE_POINT_THRESHOLD;
 
 /** Floor width reported for hairline bookkeeping (CSS px). Native stroke is 1 device px. */
 export const DENSE_LINE_MIN_WIDTH_CSS = 1;

@@ -2,7 +2,6 @@ import { describe, it, expect } from 'vitest';
 import {
   resolveLineDrawPolicy,
   DENSE_HAIRLINE_POINT_THRESHOLD,
-  DENSE_LINE_POINT_THRESHOLD,
   DENSE_LINE_MIN_WIDTH_CSS,
   MULTI_SERIES_HAIRLINE_SEGMENT_BUDGET,
 } from '../lineDrawPolicy';
@@ -78,9 +77,6 @@ describe('resolveLineDrawPolicy', () => {
     expect(r.effectiveLineWidthCssPx).toBeLessThan(DENSE_LINE_MIN_WIDTH_CSS);
   });
 
-  it('DENSE_LINE_POINT_THRESHOLD aliases hairline threshold', () => {
-    expect(DENSE_LINE_POINT_THRESHOLD).toBe(DENSE_HAIRLINE_POINT_THRESHOLD);
-  });
 
   it('never returns denseThin (removed dead policy)', () => {
     for (const n of [1, 10_000, 24_999, 25_000, 50_000, 1_000_000]) {

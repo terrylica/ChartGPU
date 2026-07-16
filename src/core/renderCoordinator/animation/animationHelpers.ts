@@ -11,17 +11,19 @@
 import type { AnimationConfig, DataPoint } from '../../../config/types';
 import type { ResolvedPieSeriesConfig } from '../../../config/OptionResolver';
 import type { EasingFunction } from '../../../utils/easing';
-import { getPointXY, isTupleDataPoint } from '../utils/dataPointUtils';
+import { isTupleDataPoint } from '../utils/dataPointUtils';
+import { getPointCount, getX, getY } from '../../../data/cartesianData';
+import type { CartesianSeriesData } from '../../../config/types';
 
 /**
  * Intro animation phase state machine.
  */
-export type IntroPhase = 'pending' | 'running' | 'done';
+type IntroPhase = 'pending' | 'running' | 'done';
 
 /**
  * Domain boundaries with min and max values.
  */
-export interface DomainBounds {
+interface DomainBounds {
   readonly min: number;
   readonly max: number;
 }
@@ -29,7 +31,7 @@ export interface DomainBounds {
 /**
  * Resolved animation configuration with timing and easing.
  */
-export interface ResolvedAnimationConfig {
+interface ResolvedAnimationConfig {
   readonly delayMs: number;
   readonly durationMs: number;
   readonly easing: EasingFunction;
@@ -134,7 +136,7 @@ export function createEasingWithDelay(delayMs: number, durationMs: number, easin
  * @param series - Series configuration to check
  * @returns True if series has drawable content
  */
-export function hasDrawableMarks(series: AnySeriesConfig): boolean {
+function hasDrawableMarks(series: AnySeriesConfig): boolean {
   switch (series.type) {
     case 'pie': {
       return series.data.some((it: any) => typeof it?.value === 'number' && Number.isFinite(it.value) && it.value > 0);
@@ -142,9 +144,11 @@ export function hasDrawableMarks(series: AnySeriesConfig): boolean {
     case 'line':
     case 'area':
     case 'bar':
-    case 'scatter':
+    case 'scatter': {
+      return getPointCount(series.data as CartesianSeriesData) > 0;
+    }
     case 'candlestick': {
-      return series.data.length > 0;
+      return Array.isArray(series.data) ? series.data.length > 0 : getPointCount(series.data as CartesianSeriesData) > 0;
     }
     default: {
       return false;
@@ -191,7 +195,7 @@ export function lerpDomain(from: DomainBounds, to: DomainBounds, t: number): Dom
  * @param t - Interpolation progress [0, 1]
  * @returns Interpolated value
  */
-export function lerp(from: number, to: number, t: number): number {
+function lerp(from: number, to: number, t: number): number {
   return from + (to - from) * clamp01(t);
 }
 
@@ -208,39 +212,43 @@ export function lerp(from: number, to: number, t: number): number {
  * @returns Interpolated data points or null if lengths mismatch
  */
 export function interpolateCartesianData(
-  fromData: ReadonlyArray<DataPoint>,
-  toData: ReadonlyArray<DataPoint>,
+  fromData: CartesianSeriesData | ReadonlyArray<DataPoint>,
+  toData: CartesianSeriesData | ReadonlyArray<DataPoint>,
   t: number,
   cache: DataPoint[] | null
 ): DataPoint[] | null {
-  if (fromData.length !== toData.length) return null;
-
-  const n = toData.length;
+  const n = getPointCount(toData as CartesianSeriesData);
+  if (getPointCount(fromData as CartesianSeriesData) !== n) return null;
   if (n === 0) return cache ?? [];
 
-  const out = cache && cache.length === n ? cache : new Array<DataPoint>(n);
+  const out =
+    cache && cache.length === n
+      ? cache
+      : (() => {
+          const created: DataPoint[] = new Array(n);
+          for (let i = 0; i < n; i++) {
+            created[i] = [getX(toData as CartesianSeriesData, i), 0] as DataPoint;
+          }
+          return created;
+        })();
+
   const t01 = clamp01(t);
-
-  // Determine format from first element
-  const isTuple = isTupleDataPoint(toData[0]!);
-
   for (let i = 0; i < n; i++) {
-    const fromPt = fromData[i]!;
-    const toPt = toData[i]!;
-
-    const fromXY = getPointXY(fromPt);
-    const toXY = getPointXY(toPt);
-
-    const x = lerp(fromXY.x, toXY.x, t01);
-    const y = lerp(fromXY.y, toXY.y, t01);
-
-    if (isTuple) {
-      out[i] = [x, y] as DataPoint;
+    const xFrom = getX(fromData as CartesianSeriesData, i);
+    const xTo = getX(toData as CartesianSeriesData, i);
+    const yFrom = getY(fromData as CartesianSeriesData, i);
+    const yTo = getY(toData as CartesianSeriesData, i);
+    const x = Number.isFinite(xFrom) && Number.isFinite(xTo) ? lerp(xFrom, xTo, t01) : xTo;
+    const y = Number.isFinite(yFrom) && Number.isFinite(yTo) ? lerp(yFrom, yTo, t01) : yTo;
+    const p = out[i]!;
+    if (isTupleDataPoint(p)) {
+      (p as unknown as number[])[0] = x;
+      (p as unknown as number[])[1] = y;
     } else {
-      out[i] = { x, y } as DataPoint;
+      (p as { x: number; y: number }).x = x;
+      (p as { y: number }).y = y;
     }
   }
-
   return out;
 }
 

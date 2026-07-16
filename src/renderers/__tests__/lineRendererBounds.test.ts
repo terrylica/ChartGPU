@@ -29,7 +29,7 @@ beforeAll(() => {
   };
 });
 
-import { createLineRenderer, beginLineSharedVsFrame } from '../createLineRenderer';
+import { createLineRenderer } from '../createLineRenderer';
 
 function createMockDevice() {
   return {
@@ -319,7 +319,6 @@ describe('createLineRenderer bounds (P2-5)', () => {
     const device = createMockDevice();
     const writeUniform = writeUniformBuffer as ReturnType<typeof vi.fn>;
     writeUniform.mockClear();
-    beginLineSharedVsFrame();
     const a = createLineRenderer(device);
     const b = createLineRenderer(device);
     const data: DataPoint[] = [
@@ -357,7 +356,6 @@ describe('createLineRenderer bounds (P2-5)', () => {
     const device = createMockDevice();
     const writeUniform = writeUniformBuffer as ReturnType<typeof vi.fn>;
     writeUniform.mockClear();
-    beginLineSharedVsFrame();
     const a = createLineRenderer(device);
     const b = createLineRenderer(device);
     const data: DataPoint[] = [

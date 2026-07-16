@@ -29,7 +29,7 @@ const DEFAULT_TICK_COUNT = 5;
 const DEFAULT_CROSSHAIR_LINE_WIDTH_CSS_PX = 1;
 const DEFAULT_HIGHLIGHT_SIZE_CSS_PX = 4;
 
-export interface OverlayRenderers {
+interface OverlayRenderers {
   gridRenderer: GridRenderer;
   xAxisRenderer: AxisRenderer;
   yAxisRenderers: Map<string, AxisRenderer>;
@@ -41,9 +41,9 @@ export interface OverlayRenderers {
  * Shared nearest-point hit result for tooltip + highlight (P0-5).
  * Computed once per hover frame in the coordinator and reused by both consumers.
  */
-export type SharedNearestMatch = NearestPointMatch | null;
+type SharedNearestMatch = NearestPointMatch | null;
 
-export interface OverlayPrepareContext {
+interface OverlayPrepareContext {
   currentOptions: ResolvedChartGPUOptions;
   xScale: LinearScale;
   yScales: Map<string, LinearScale>;
@@ -77,17 +77,6 @@ export interface OverlayPrepareContext {
    * when the signature matches the previous frame. Caller owns the object.
    */
   overlayPrepareMemo?: OverlayPrepareMemo | undefined;
-}
-
-export interface OverlayRenderContext {
-  mainPass: GPURenderPassEncoder;
-  /**
-   * Pass that receives axes / highlight / crosshair.
-   * After WG-P1-5 this is the annotation overlay MSAA pass (not a third
-   * single-sample top overlay pass).
-   */
-  overlayPass: GPURenderPassEncoder;
-  hasCartesianSeries: boolean;
 }
 
 /**
@@ -294,33 +283,4 @@ export function prepareOverlays(renderers: OverlayRenderers, context: OverlayPre
   } else {
     renderers.highlightRenderer.setVisible(false);
   }
-}
-
-/**
- * Renders all overlay elements to the appropriate render passes.
- *
- * Grid is rendered in the main pass (background).
- * Highlight, axes, and crosshair are rendered in the overlay MSAA pass
- * (foreground, sampleCount 4 — WG-P1-5).
- *
- * @param renderers - Overlay renderer instances
- * @param context - Render pass context
- */
-export function renderOverlays(renderers: OverlayRenderers, context: OverlayRenderContext): void {
-  const { mainPass, overlayPass, hasCartesianSeries } = context;
-
-  // Grid renders in main pass (background)
-  if (renderers.gridRenderer) {
-    renderers.gridRenderer.render(mainPass);
-  }
-
-  // Highlight, axes, crosshair render in overlay MSAA pass (foreground)
-  renderers.highlightRenderer.render(overlayPass);
-  if (hasCartesianSeries) {
-    renderers.xAxisRenderer.render(overlayPass);
-    for (const r of renderers.yAxisRenderers.values()) {
-      r.render(overlayPass);
-    }
-  }
-  renderers.crosshairRenderer.render(overlayPass);
 }

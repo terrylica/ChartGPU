@@ -1,11 +1,10 @@
 /**
- * Series residency + upload policy (issue 3.4).
+ * Series residency + upload policy.
  *
- * Thin shared vocabulary for how series data lives on CPU staging / GPU and
- * which upload action the next prepare should take. Line (DataStore + optional
- * decimation), scatter (private instance + identity skip), and candlestick
- * (domain instances + identity skip) converge on this layer without rewriting
- * shaders or the coordinator options tree.
+ * Shared verb vocabulary for how series data lives on CPU staging / GPU and
+ * which upload action the next prepare should take:
+ * - **Line** (`prepareSeries` setSeriesIfChanged): skip / rangedAppend / fullRewrite
+ * - **Scatter** / **candlestick**: geometry-cache skip + yOnlyRewrite
  *
  * @module seriesResidency
  * @internal
