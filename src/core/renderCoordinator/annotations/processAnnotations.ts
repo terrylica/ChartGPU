@@ -8,19 +8,15 @@
  * @module processAnnotations
  */
 
-import type { AnnotationConfig } from "../../../config/types";
-import type { LinearScale } from "../../../utils/scales";
-import type { ThemeConfig } from "../../../themes/types";
-import type { ReferenceLineInstance } from "../../../renderers/createReferenceLineRenderer";
-import type { AnnotationMarkerInstance } from "../../../renderers/createAnnotationMarkerRenderer";
-import type { TextOverlayAnchor } from "../../../components/createTextOverlay";
-import { parseCssColorToRgba01 } from "../../../utils/colors";
-import {
-  clipXToCanvasCssPx,
-  clipYToCanvasCssPx,
-  clamp01,
-} from "../utils/axisUtils";
-import { assertUnreachable } from "../utils/dataPointUtils";
+import type { AnnotationConfig } from '../../../config/types';
+import type { LinearScale } from '../../../utils/scales';
+import type { ThemeConfig } from '../../../themes/types';
+import type { ReferenceLineInstance } from '../../../renderers/createReferenceLineRenderer';
+import type { AnnotationMarkerInstance } from '../../../renderers/createAnnotationMarkerRenderer';
+import type { TextOverlayAnchor } from '../../../components/createTextOverlay';
+import { parseCssColorToRgba01 } from '../../../utils/colors';
+import { clipXToCanvasCssPx, clipYToCanvasCssPx, clamp01 } from '../utils/axisUtils';
+import { assertUnreachable } from '../utils/dataPointUtils';
 
 /**
  * Internal type for annotation label data (DOM overlay).
@@ -29,7 +25,7 @@ export interface AnnotationLabelData {
   readonly text: string;
   readonly x: number;
   readonly y: number;
-  readonly anchor?: "start" | "middle" | "end";
+  readonly anchor?: 'start' | 'middle' | 'end';
   readonly color?: string;
   readonly fontSize?: number;
   readonly background?: Readonly<{
@@ -88,19 +84,12 @@ export interface AnnotationResult {
 function resolveAnnotationRgba(
   color: string | undefined,
   opacity: number | undefined,
-  defaultColor: string,
+  defaultColor: string
 ): readonly [number, number, number, number] {
   const base =
-    parseCssColorToRgba01(color ?? defaultColor) ??
-    parseCssColorToRgba01(defaultColor) ??
-    ([1, 1, 1, 1] as const);
+    parseCssColorToRgba01(color ?? defaultColor) ?? parseCssColorToRgba01(defaultColor) ?? ([1, 1, 1, 1] as const);
   const o = opacity == null ? 1 : clamp01(opacity);
-  return [
-    clamp01(base[0]),
-    clamp01(base[1]),
-    clamp01(base[2]),
-    clamp01(base[3] * o),
-  ] as const;
+  return [clamp01(base[0]), clamp01(base[1]), clamp01(base[2]), clamp01(base[3] * o)] as const;
 }
 
 /**
@@ -127,7 +116,7 @@ function toCssRgba(color: string, opacity01: number): string {
  * @returns Formatted string
  */
 function formatNumber(n: number, decimals?: number): string {
-  if (!Number.isFinite(n)) return "";
+  if (!Number.isFinite(n)) return '';
   if (decimals == null) return String(n);
   const d = Math.min(20, Math.max(0, Math.floor(decimals)));
   return n.toFixed(d);
@@ -145,14 +134,14 @@ function formatNumber(n: number, decimals?: number): string {
 function renderTemplate(
   template: string,
   values: Readonly<{ x?: number; y?: number; value?: number; name?: string }>,
-  decimals?: number,
+  decimals?: number
 ): string {
   // PERFORMANCE: Create regex per call (cached by engine in hot path)
   const templateRegex = /\{(x|y|value|name)\}/g;
   return template.replace(templateRegex, (_m, key) => {
-    if (key === "name") return values.name ?? "";
+    if (key === 'name') return values.name ?? '';
     const v = (values as any)[key] as number | undefined;
-    return v == null ? "" : formatNumber(v, decimals);
+    return v == null ? '' : formatNumber(v, decimals);
   });
 }
 
@@ -162,17 +151,15 @@ function renderTemplate(
  * @param anchor - Annotation anchor or undefined
  * @returns Text overlay anchor
  */
-function mapAnchor(
-  anchor: "start" | "center" | "end" | undefined,
-): TextOverlayAnchor {
+function mapAnchor(anchor: 'start' | 'center' | 'end' | undefined): TextOverlayAnchor {
   switch (anchor) {
-    case "center":
-      return "middle";
-    case "end":
-      return "end";
-    case "start":
+    case 'center':
+      return 'middle';
+    case 'end':
+      return 'end';
+    case 'start':
     default:
-      return "start";
+      return 'start';
   }
 }
 
@@ -197,9 +184,7 @@ function mapAnchor(
  * @param context - Annotation processing context
  * @returns Annotation result with lines, markers, and labels
  */
-export function processAnnotations(
-  context: AnnotationContext,
-): AnnotationResult {
+export function processAnnotations(context: AnnotationContext): AnnotationResult {
   const {
     annotations,
     xScale,
@@ -216,12 +201,7 @@ export function processAnnotations(
   // Future work: support per-annotation yAxis binding.
   const yScale = yScales.values().next().value ?? xScale;
 
-  const {
-    leftCss: plotLeftCss,
-    topCss: plotTopCss,
-    widthCss: plotWidthCss,
-    heightCss: plotHeightCss,
-  } = plotBounds;
+  const { leftCss: plotLeftCss, topCss: plotTopCss, widthCss: plotWidthCss, heightCss: plotHeightCss } = plotBounds;
 
   // Output arrays (reused across calls for performance)
   const linesBelow: ReferenceLineInstance[] = [];
@@ -244,33 +224,26 @@ export function processAnnotations(
   // Process each annotation
   for (let i = 0; i < annotations.length; i++) {
     const a = annotations[i]!;
-    const layer = a.layer ?? "aboveSeries";
-    const targetLines = layer === "belowSeries" ? linesBelow : linesAbove;
-    const targetMarkers = layer === "belowSeries" ? markersBelow : markersAbove;
+    const layer = a.layer ?? 'aboveSeries';
+    const targetLines = layer === 'belowSeries' ? linesBelow : linesAbove;
+    const targetMarkers = layer === 'belowSeries' ? markersBelow : markersAbove;
 
     // Resolve annotation styling
     const styleColor = a.style?.color;
     const styleOpacity = a.style?.opacity;
     const lineWidth =
-      typeof a.style?.lineWidth === "number" &&
-      Number.isFinite(a.style.lineWidth)
-        ? Math.max(0, a.style.lineWidth)
-        : 1;
+      typeof a.style?.lineWidth === 'number' && Number.isFinite(a.style.lineWidth) ? Math.max(0, a.style.lineWidth) : 1;
     const lineDash = a.style?.lineDash;
-    const rgba = resolveAnnotationRgba(
-      styleColor,
-      styleOpacity,
-      theme.textColor,
-    );
+    const rgba = resolveAnnotationRgba(styleColor, styleOpacity, theme.textColor);
 
     // Process annotation by type (GPU rendering)
     switch (a.type) {
-      case "lineX": {
+      case 'lineX': {
         const xClip = xScale.scale(a.x);
         const xCss = clipXToCanvasCssPx(xClip, canvasCssWidth);
         if (!Number.isFinite(xCss)) break;
         targetLines.push({
-          axis: "vertical",
+          axis: 'vertical',
           positionCssPx: xCss,
           lineWidth,
           lineDash,
@@ -278,12 +251,12 @@ export function processAnnotations(
         });
         break;
       }
-      case "lineY": {
+      case 'lineY': {
         const yClip = yScale.scale(a.y);
         const yCss = clipYToCanvasCssPx(yClip, canvasCssHeight);
         if (!Number.isFinite(yCss)) break;
         targetLines.push({
-          axis: "horizontal",
+          axis: 'horizontal',
           positionCssPx: yCss,
           lineWidth,
           lineDash,
@@ -291,7 +264,7 @@ export function processAnnotations(
         });
         break;
       }
-      case "point": {
+      case 'point': {
         const xClip = xScale.scale(a.x);
         const yClip = yScale.scale(a.y);
         const xCss = clipXToCanvasCssPx(xClip, canvasCssWidth);
@@ -299,16 +272,10 @@ export function processAnnotations(
         if (!Number.isFinite(xCss) || !Number.isFinite(yCss)) break;
 
         const markerSize =
-          typeof a.marker?.size === "number" && Number.isFinite(a.marker.size)
-            ? Math.max(1, a.marker.size)
-            : 6;
+          typeof a.marker?.size === 'number' && Number.isFinite(a.marker.size) ? Math.max(1, a.marker.size) : 6;
         const markerColor = a.marker?.style?.color ?? a.style?.color;
         const markerOpacity = a.marker?.style?.opacity ?? a.style?.opacity;
-        const fillRgba = resolveAnnotationRgba(
-          markerColor,
-          markerOpacity,
-          theme.textColor,
-        );
+        const fillRgba = resolveAnnotationRgba(markerColor, markerOpacity, theme.textColor);
 
         targetMarkers.push({
           xCssPx: xCss,
@@ -318,11 +285,11 @@ export function processAnnotations(
         });
         break;
       }
-      case "text": {
+      case 'text': {
         // Text annotations are handled via DOM overlays (labels), not GPU
         break;
       }
-      case "bandX": {
+      case 'bandX': {
         // Filled full-height vertical region between two x-domain values, drawn
         // by reusing the vertical reference-line quad: center it and set its
         // width to the pixel span. Meant for `belowSeries` regime highlights.
@@ -332,7 +299,7 @@ export function processAnnotations(
         const width = Math.abs(x1 - x0);
         if (!(width > 0)) break;
         targetLines.push({
-          axis: "vertical",
+          axis: 'vertical',
           positionCssPx: (x0 + x1) / 2,
           lineWidth: width,
           lineDash: undefined,
@@ -345,22 +312,22 @@ export function processAnnotations(
     }
 
     // bandX carries no label and isn't part of the label switch below.
-    if (a.type === "bandX") continue;
+    if (a.type === 'bandX') continue;
 
     // Process annotation label (DOM overlay)
     const labelCfg = a.label;
-    const wantsLabel = labelCfg != null || a.type === "text";
+    const wantsLabel = labelCfg != null || a.type === 'text';
     if (!wantsLabel) continue;
 
     // Compute anchor point (canvas-local CSS px)
     let anchorXCss: number | null = null;
     let anchorYCss: number | null = null;
     let values: { x?: number; y?: number; value?: number; name?: string } = {
-      name: a.id ?? "",
+      name: a.id ?? '',
     };
 
     switch (a.type) {
-      case "lineX": {
+      case 'lineX': {
         const xClip = xScale.scale(a.x);
         const xCss = clipXToCanvasCssPx(xClip, canvasCssWidth);
         anchorXCss = xCss;
@@ -368,7 +335,7 @@ export function processAnnotations(
         values = { ...values, x: a.x, value: a.x };
         break;
       }
-      case "lineY": {
+      case 'lineY': {
         const yClip = yScale.scale(a.y);
         const yCss = clipYToCanvasCssPx(yClip, canvasCssHeight);
         anchorXCss = plotLeftCss;
@@ -377,7 +344,7 @@ export function processAnnotations(
         values = { ...values, y: a.y, value: a.y };
         break;
       }
-      case "point": {
+      case 'point': {
         const xClip = xScale.scale(a.x);
         const yClip = yScale.scale(a.y);
         const xCss = clipXToCanvasCssPx(xClip, canvasCssWidth);
@@ -387,8 +354,8 @@ export function processAnnotations(
         values = { ...values, x: a.x, y: a.y, value: a.y };
         break;
       }
-      case "text": {
-        if (a.position.space === "data") {
+      case 'text': {
+        if (a.position.space === 'data') {
           const xClip = xScale.scale(a.position.x);
           const yClip = yScale.scale(a.position.y);
           const xCss = clipXToCanvasCssPx(xClip, canvasCssWidth);
@@ -419,12 +386,7 @@ export function processAnnotations(
         assertUnreachable(a);
     }
 
-    if (
-      anchorXCss == null ||
-      anchorYCss == null ||
-      !Number.isFinite(anchorXCss) ||
-      !Number.isFinite(anchorYCss)
-    ) {
+    if (anchorXCss == null || anchorYCss == null || !Number.isFinite(anchorXCss) || !Number.isFinite(anchorYCss)) {
       continue;
     }
 
@@ -453,24 +415,24 @@ export function processAnnotations(
         : labelCfg
           ? (() => {
               const defaultTemplate =
-                a.type === "lineX"
-                  ? "x={x}"
-                  : a.type === "lineY"
-                    ? "y={y}"
-                    : a.type === "point"
-                      ? "({x}, {y})"
-                      : a.type === "text"
+                a.type === 'lineX'
+                  ? 'x={x}'
+                  : a.type === 'lineY'
+                    ? 'y={y}'
+                    : a.type === 'point'
+                      ? '({x}, {y})'
+                      : a.type === 'text'
                         ? a.text
-                        : "";
-              return defaultTemplate.includes("{")
+                        : '';
+              return defaultTemplate.includes('{')
                 ? renderTemplate(defaultTemplate, values, labelCfg.decimals)
                 : defaultTemplate;
             })()
-          : a.type === "text"
+          : a.type === 'text'
             ? a.text
-            : "");
+            : '');
 
-    const trimmed = typeof text === "string" ? text.trim() : "";
+    const trimmed = typeof text === 'string' ? text.trim() : '';
     if (trimmed.length === 0) continue;
 
     // Label styling
@@ -480,25 +442,17 @@ export function processAnnotations(
 
     // Background styling
     const bg = labelCfg?.background;
-    const bgColor =
-      bg?.color != null ? toCssRgba(bg.color, bg.opacity ?? 1) : undefined;
+    const bgColor = bg?.color != null ? toCssRgba(bg.color, bg.opacity ?? 1) : undefined;
     const padding = (() => {
       const p = bg?.padding;
-      if (typeof p === "number" && Number.isFinite(p))
-        return [p, p, p, p] as const;
-      if (
-        Array.isArray(p) &&
-        p.length === 4 &&
-        p.every((n) => typeof n === "number" && Number.isFinite(n))
-      ) {
+      if (typeof p === 'number' && Number.isFinite(p)) return [p, p, p, p] as const;
+      if (Array.isArray(p) && p.length === 4 && p.every((n) => typeof n === 'number' && Number.isFinite(n))) {
         return [p[0], p[1], p[2], p[3]] as const;
       }
       return bg ? ([2, 4, 2, 4] as const) : undefined;
     })();
     const borderRadius =
-      typeof bg?.borderRadius === "number" && Number.isFinite(bg.borderRadius)
-        ? bg.borderRadius
-        : undefined;
+      typeof bg?.borderRadius === 'number' && Number.isFinite(bg.borderRadius) ? bg.borderRadius : undefined;
 
     // Create label data
     const labelData: AnnotationLabelData = {

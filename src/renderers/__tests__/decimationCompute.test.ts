@@ -13,15 +13,7 @@
  * live WebGPU device.
  */
 
-import {
-  describe,
-  it,
-  expect,
-  beforeEach,
-  beforeAll,
-  vi,
-  type Mock,
-} from "vitest";
+import { describe, it, expect, beforeEach, beforeAll, vi, type Mock } from 'vitest';
 
 beforeAll(() => {
   // @ts-ignore
@@ -41,7 +33,7 @@ beforeAll(() => {
   };
 });
 
-import { createDecimationCompute } from "../createDecimationCompute";
+import { createDecimationCompute } from '../createDecimationCompute';
 
 type MockBuffer = GPUBuffer & { __destroyed: boolean; __size: number };
 
@@ -49,7 +41,7 @@ function createMockBuffer(desc?: GPUBufferDescriptor): MockBuffer {
   const size = desc?.size ?? 0;
   const buf = {
     size,
-    label: desc?.label ?? "",
+    label: desc?.label ?? '',
     __destroyed: false,
     __size: size,
     destroy: vi.fn(function (this: MockBuffer) {
@@ -70,9 +62,7 @@ interface MockComputePass {
 }
 
 interface MockEncoder {
-  beginComputePass: (
-    desc?: GPUComputePassDescriptor,
-  ) => MockComputePass & GPUComputePassEncoder;
+  beginComputePass: (desc?: GPUComputePassDescriptor) => MockComputePass & GPUComputePassEncoder;
   finish: Mock;
   // for introspection in tests
   __passes: MockComputePass[];
@@ -91,7 +81,7 @@ function createMockEncoder(): MockEncoder {
       };
       passes.push(pass);
       return pass as unknown as MockComputePass & GPUComputePassEncoder;
-    }) as MockEncoder["beginComputePass"],
+    }) as MockEncoder['beginComputePass'],
     finish: vi.fn(() => ({})),
   };
   return encoder;
@@ -105,7 +95,7 @@ function createMockDevice() {
   };
 
   const device = {
-    label: "mockDevice",
+    label: 'mockDevice',
     limits: {
       maxUniformBufferBindingSize: 65536,
       maxStorageBufferBindingSize: 134217728,
@@ -142,7 +132,7 @@ function createMockDevice() {
   return device as GPUDevice & { __created: typeof created };
 }
 
-describe("createDecimationCompute", () => {
+describe('createDecimationCompute', () => {
   let device: ReturnType<typeof createMockDevice>;
 
   beforeEach(() => {
@@ -150,65 +140,58 @@ describe("createDecimationCompute", () => {
     vi.clearAllMocks();
   });
 
-  describe("pipeline creation", () => {
-    it("creates three compute pipelines (min/max + averages + lttb)", () => {
+  describe('pipeline creation', () => {
+    it('creates three compute pipelines (min/max + averages + lttb)', () => {
       createDecimationCompute(device);
 
-      const entryPoints = device.__created.computePipelines.map(
-        (p) => (p.compute as GPUProgrammableStage).entryPoint,
-      );
-      expect(entryPoints).toEqual([
-        "minMaxDecimate",
-        "computeBucketAverages",
-        "parallelLttbDecimate",
-      ]);
+      const entryPoints = device.__created.computePipelines.map((p) => (p.compute as GPUProgrammableStage).entryPoint);
+      expect(entryPoints).toEqual(['minMaxDecimate', 'computeBucketAverages', 'parallelLttbDecimate']);
     });
 
-    it("creates one bind-group layout with 4 entries (uniform + raw + output + averages)", () => {
+    it('creates one bind-group layout with 4 entries (uniform + raw + output + averages)', () => {
       const createBindGroupLayout = device.createBindGroupLayout as Mock;
       createDecimationCompute(device);
 
       expect(createBindGroupLayout).toHaveBeenCalledTimes(1);
-      const desc = createBindGroupLayout.mock
-        .calls[0]![0] as GPUBindGroupLayoutDescriptor;
+      const desc = createBindGroupLayout.mock.calls[0]![0] as GPUBindGroupLayoutDescriptor;
       expect(Array.from(desc.entries)).toHaveLength(4);
     });
   });
 
-  describe("prepare() output sizing + return value", () => {
-    it("returns the target bucket count clamped to a minimum of 2", () => {
+  describe('prepare() output sizing + return value', () => {
+    it('returns the target bucket count clamped to a minimum of 2', () => {
       const d = createDecimationCompute(device);
       const rawBuffer = createMockBuffer({ size: 800000 });
 
       expect(
         d.prepare({
-          algorithm: "lttb",
+          algorithm: 'lttb',
           rawBuffer,
           rawPointCount: 100_000,
           visibleStart: 0,
           visibleEnd: 100_000,
           targetBuckets: 4000,
-        }),
+        })
       ).toBe(4000);
 
       expect(
         d.prepare({
-          algorithm: "min",
+          algorithm: 'min',
           rawBuffer,
           rawPointCount: 10,
           visibleStart: 0,
           visibleEnd: 10,
           targetBuckets: 1, // below minimum
-        }),
+        })
       ).toBe(2);
     });
 
-    it("grows the output buffer geometrically when targetBuckets increases", () => {
+    it('grows the output buffer geometrically when targetBuckets increases', () => {
       const d = createDecimationCompute(device);
       const rawBuffer = createMockBuffer({ size: 8_000_000 });
 
       d.prepare({
-        algorithm: "lttb",
+        algorithm: 'lttb',
         rawBuffer,
         rawPointCount: 1_000_000,
         visibleStart: 0,
@@ -222,7 +205,7 @@ describe("createDecimationCompute", () => {
       // see at most a handful of buffer allocations even across many growths.
       const smallBufferCount = device.__created.buffers.length;
       d.prepare({
-        algorithm: "lttb",
+        algorithm: 'lttb',
         rawBuffer,
         rawPointCount: 1_000_000,
         visibleStart: 0,
@@ -241,7 +224,7 @@ describe("createDecimationCompute", () => {
       // Same target again should NOT reallocate.
       const afterCount = device.__created.buffers.length;
       d.prepare({
-        algorithm: "lttb",
+        algorithm: 'lttb',
         rawBuffer,
         rawPointCount: 1_000_000,
         visibleStart: 0,
@@ -252,13 +235,13 @@ describe("createDecimationCompute", () => {
     });
   });
 
-  describe("encodeCompute() dispatch topology", () => {
-    it("dispatches a single min/max pipeline with `max(buckets - 2, 1)` workgroups", () => {
+  describe('encodeCompute() dispatch topology', () => {
+    it('dispatches a single min/max pipeline with `max(buckets - 2, 1)` workgroups', () => {
       const d = createDecimationCompute(device);
       const rawBuffer = createMockBuffer({ size: 800000 });
 
       d.prepare({
-        algorithm: "min",
+        algorithm: 'min',
         rawBuffer,
         rawPointCount: 100_000,
         visibleStart: 0,
@@ -279,12 +262,12 @@ describe("createDecimationCompute", () => {
       expect(pass.end).toHaveBeenCalledTimes(1);
     });
 
-    it("dispatches two pipelines for LTTB (averages then decimate), each with `targetBuckets` workgroups", () => {
+    it('dispatches two pipelines for LTTB (averages then decimate), each with `targetBuckets` workgroups', () => {
       const d = createDecimationCompute(device);
       const rawBuffer = createMockBuffer({ size: 8_000_000 });
 
       d.prepare({
-        algorithm: "lttb",
+        algorithm: 'lttb',
         rawBuffer,
         rawPointCount: 1_000_000,
         visibleStart: 0,
@@ -304,12 +287,12 @@ describe("createDecimationCompute", () => {
       expect(pass.dispatchWorkgroups).toHaveBeenNthCalledWith(2, 2048);
     });
 
-    it("short-circuits encodeCompute when inputs have not changed (dirty-gating)", () => {
+    it('short-circuits encodeCompute when inputs have not changed (dirty-gating)', () => {
       const d = createDecimationCompute(device);
       const rawBuffer = createMockBuffer({ size: 800000 });
 
       const params = {
-        algorithm: "lttb" as const,
+        algorithm: 'lttb' as const,
         rawBuffer,
         rawPointCount: 100_000,
         visibleStart: 0,
@@ -336,12 +319,36 @@ describe("createDecimationCompute", () => {
       expect(enc3.__passes).toHaveLength(1);
     });
 
-    it("WG-P0-2: same buffer + same N + changed contentVersion re-dispatches compute", () => {
+    it('skips uniform writeBuffer on second prepare when not dirty (issue 2.5)', () => {
+      const d = createDecimationCompute(device);
+      const rawBuffer = createMockBuffer({ size: 800000 });
+      const params = {
+        algorithm: 'lttb' as const,
+        rawBuffer,
+        rawPointCount: 100_000,
+        visibleStart: 0,
+        visibleEnd: 100_000,
+        targetBuckets: 512,
+        contentVersion: 7,
+      };
+      d.prepare(params);
+      const writeBuffer = device.queue.writeBuffer as Mock;
+      writeBuffer.mockClear();
+
+      d.prepare(params);
+      // Uniform path uses writeBuffer; identical prepare must not re-write uniforms.
+      expect(writeBuffer).not.toHaveBeenCalled();
+
+      d.prepare({ ...params, targetBuckets: 256 });
+      expect(writeBuffer).toHaveBeenCalled();
+    });
+
+    it('WG-P0-2: same buffer + same N + changed contentVersion re-dispatches compute', () => {
       const d = createDecimationCompute(device);
       const rawBuffer = createMockBuffer({ size: 800000 });
 
       const base = {
-        algorithm: "lttb" as const,
+        algorithm: 'lttb' as const,
         rawBuffer,
         rawPointCount: 100_000,
         visibleStart: 0,
@@ -368,11 +375,11 @@ describe("createDecimationCompute", () => {
       expect(enc3.__passes).toHaveLength(0);
     });
 
-    it("WG-P0-2: unchanged contentVersion with unchanged window still skips", () => {
+    it('WG-P0-2: unchanged contentVersion with unchanged window still skips', () => {
       const d = createDecimationCompute(device);
       const rawBuffer = createMockBuffer({ size: 800000 });
       const params = {
-        algorithm: "min" as const,
+        algorithm: 'min' as const,
         rawBuffer,
         rawPointCount: 50_000,
         visibleStart: 0,
@@ -389,11 +396,11 @@ describe("createDecimationCompute", () => {
       expect(enc.__passes).toHaveLength(0);
     });
 
-    it("dirties when ringStart/ringCapacity change (modular FIFO wrap)", () => {
+    it('dirties when ringStart/ringCapacity change (modular FIFO wrap)', () => {
       const d = createDecimationCompute(device);
       const rawBuffer = createMockBuffer({ size: 800000 });
       const base = {
-        algorithm: "lttb" as const,
+        algorithm: 'lttb' as const,
         rawBuffer,
         rawPointCount: 100_000,
         visibleStart: 0,
@@ -425,11 +432,11 @@ describe("createDecimationCompute", () => {
       expect(enc3.__passes).toHaveLength(1);
     });
 
-    it("writes ringStart/ringCapacity into uniform slots 5–6", () => {
+    it('writes ringStart/ringCapacity into uniform slots 5–6', () => {
       const d = createDecimationCompute(device);
       const rawBuffer = createMockBuffer({ size: 8000 });
       d.prepare({
-        algorithm: "min",
+        algorithm: 'min',
         rawBuffer,
         rawPointCount: 100,
         visibleStart: 0,
@@ -446,28 +453,24 @@ describe("createDecimationCompute", () => {
       const u32 =
         data instanceof ArrayBuffer
           ? new Uint32Array(data)
-          : new Uint32Array(
-              (data as ArrayBufferView).buffer,
-              (data as ArrayBufferView).byteOffset,
-              8,
-            );
+          : new Uint32Array((data as ArrayBufferView).buffer, (data as ArrayBufferView).byteOffset, 8);
       expect(u32[5]).toBe(7);
       expect(u32[6]).toBe(64);
     });
 
-    it("is a no-op before any prepare() is called", () => {
+    it('is a no-op before any prepare() is called', () => {
       const d = createDecimationCompute(device);
       const encoder = createMockEncoder();
       d.encodeCompute(encoder as unknown as GPUCommandEncoder);
       expect(encoder.__passes).toHaveLength(0);
     });
 
-    it("handles a degenerate visible window without throwing or dispatching", () => {
+    it('handles a degenerate visible window without throwing or dispatching', () => {
       const d = createDecimationCompute(device);
       const rawBuffer = createMockBuffer({ size: 8000 });
 
       d.prepare({
-        algorithm: "lttb",
+        algorithm: 'lttb',
         rawBuffer,
         rawPointCount: 1000,
         visibleStart: 500,
@@ -476,22 +479,20 @@ describe("createDecimationCompute", () => {
       });
 
       const encoder = createMockEncoder();
-      expect(() =>
-        d.encodeCompute(encoder as unknown as GPUCommandEncoder),
-      ).not.toThrow();
+      expect(() => d.encodeCompute(encoder as unknown as GPUCommandEncoder)).not.toThrow();
       // encodeCompute opens a pass then returns without dispatching.
       // (Current implementation exits before beginComputePass when span <= 0.)
       expect(encoder.__passes).toHaveLength(0);
     });
 
-    it("needsEncode is true after prepare when dirty; false after encode and when clean", () => {
+    it('needsEncode is true after prepare when dirty; false after encode and when clean', () => {
       const d = createDecimationCompute(device);
       const rawBuffer = createMockBuffer({ size: 800000 });
 
       expect(d.needsEncode()).toBe(false);
 
       d.prepare({
-        algorithm: "lttb",
+        algorithm: 'lttb',
         rawBuffer,
         rawPointCount: 100_000,
         visibleStart: 0,
@@ -505,7 +506,7 @@ describe("createDecimationCompute", () => {
 
       // Identical prepare clears dirty → still false.
       d.prepare({
-        algorithm: "lttb",
+        algorithm: 'lttb',
         rawBuffer,
         rawPointCount: 100_000,
         visibleStart: 0,
@@ -516,7 +517,7 @@ describe("createDecimationCompute", () => {
 
       // Dirty window change → true again.
       d.prepare({
-        algorithm: "lttb",
+        algorithm: 'lttb',
         rawBuffer,
         rawPointCount: 100_000,
         visibleStart: 10,
@@ -526,11 +527,11 @@ describe("createDecimationCompute", () => {
       expect(d.needsEncode()).toBe(true);
     });
 
-    it("needsEncode is false for empty visible span after prepare", () => {
+    it('needsEncode is false for empty visible span after prepare', () => {
       const d = createDecimationCompute(device);
       const rawBuffer = createMockBuffer({ size: 8000 });
       d.prepare({
-        algorithm: "min",
+        algorithm: 'min',
         rawBuffer,
         rawPointCount: 100,
         visibleStart: 50,
@@ -540,11 +541,11 @@ describe("createDecimationCompute", () => {
       expect(d.needsEncode()).toBe(false);
     });
 
-    it("encodeCompute(encoder, intoPass) dispatches without ending the shared pass", () => {
+    it('encodeCompute(encoder, intoPass) dispatches without ending the shared pass', () => {
       const d = createDecimationCompute(device);
       const rawBuffer = createMockBuffer({ size: 800000 });
       d.prepare({
-        algorithm: "min",
+        algorithm: 'min',
         rawBuffer,
         rawPointCount: 100_000,
         visibleStart: 0,
@@ -559,10 +560,7 @@ describe("createDecimationCompute", () => {
         end: vi.fn(),
       };
       const encoder = createMockEncoder();
-      d.encodeCompute(
-        encoder as unknown as GPUCommandEncoder,
-        sharedPass as unknown as GPUComputePassEncoder,
-      );
+      d.encodeCompute(encoder as unknown as GPUCommandEncoder, sharedPass as unknown as GPUComputePassEncoder);
 
       // Caller-owned pass: no beginComputePass, no end().
       expect(encoder.beginComputePass).not.toHaveBeenCalled();
@@ -573,13 +571,13 @@ describe("createDecimationCompute", () => {
       expect(d.needsEncode()).toBe(false);
     });
 
-    it("batches N dirty series into one shared pass (caller end once)", () => {
+    it('batches N dirty series into one shared pass (caller end once)', () => {
       const a = createDecimationCompute(device);
       const b = createDecimationCompute(device);
       const rawA = createMockBuffer({ size: 800000 });
       const rawB = createMockBuffer({ size: 800000 });
       a.prepare({
-        algorithm: "lttb",
+        algorithm: 'lttb',
         rawBuffer: rawA,
         rawPointCount: 50_000,
         visibleStart: 0,
@@ -587,7 +585,7 @@ describe("createDecimationCompute", () => {
         targetBuckets: 128,
       });
       b.prepare({
-        algorithm: "min",
+        algorithm: 'min',
         rawBuffer: rawB,
         rawPointCount: 40_000,
         visibleStart: 0,
@@ -599,7 +597,7 @@ describe("createDecimationCompute", () => {
 
       const encoder = createMockEncoder();
       const pass = encoder.beginComputePass({
-        label: "decimationCompute/batchPass",
+        label: 'decimationCompute/batchPass',
       });
       a.encodeCompute(encoder as unknown as GPUCommandEncoder, pass);
       b.encodeCompute(encoder as unknown as GPUCommandEncoder, pass);
@@ -615,54 +613,51 @@ describe("createDecimationCompute", () => {
     });
   });
 
-  describe("bind-group caching", () => {
-    it("reuses the bind group across prepare calls with the same raw buffer", () => {
+  describe('bind-group caching', () => {
+    it('reuses the bind group across prepare calls with the same raw buffer', () => {
       const d = createDecimationCompute(device);
       const rawBuffer = createMockBuffer({ size: 800000 });
 
       d.prepare({
-        algorithm: "lttb",
+        algorithm: 'lttb',
         rawBuffer,
         rawPointCount: 100_000,
         visibleStart: 0,
         visibleEnd: 100_000,
         targetBuckets: 256,
       });
-      const callsAfterFirst = (device.createBindGroup as Mock).mock.calls
-        .length;
+      const callsAfterFirst = (device.createBindGroup as Mock).mock.calls.length;
 
       d.prepare({
-        algorithm: "lttb",
+        algorithm: 'lttb',
         rawBuffer,
         rawPointCount: 100_000,
         visibleStart: 100,
         visibleEnd: 90_000,
         targetBuckets: 256,
       });
-      const callsAfterSecond = (device.createBindGroup as Mock).mock.calls
-        .length;
+      const callsAfterSecond = (device.createBindGroup as Mock).mock.calls.length;
 
       expect(callsAfterSecond).toBe(callsAfterFirst);
     });
 
-    it("rebuilds the bind group when the raw buffer identity changes", () => {
+    it('rebuilds the bind group when the raw buffer identity changes', () => {
       const d = createDecimationCompute(device);
       const rawBuffer1 = createMockBuffer({ size: 800000 });
       const rawBuffer2 = createMockBuffer({ size: 800000 });
 
       d.prepare({
-        algorithm: "lttb",
+        algorithm: 'lttb',
         rawBuffer: rawBuffer1,
         rawPointCount: 100_000,
         visibleStart: 0,
         visibleEnd: 100_000,
         targetBuckets: 256,
       });
-      const callsAfterFirst = (device.createBindGroup as Mock).mock.calls
-        .length;
+      const callsAfterFirst = (device.createBindGroup as Mock).mock.calls.length;
 
       d.prepare({
-        algorithm: "lttb",
+        algorithm: 'lttb',
         rawBuffer: rawBuffer2,
         rawPointCount: 100_000,
         visibleStart: 0,
@@ -670,19 +665,17 @@ describe("createDecimationCompute", () => {
         targetBuckets: 256,
       });
 
-      expect((device.createBindGroup as Mock).mock.calls.length).toBe(
-        callsAfterFirst + 1,
-      );
+      expect((device.createBindGroup as Mock).mock.calls.length).toBe(callsAfterFirst + 1);
     });
   });
 
-  describe("disposal", () => {
-    it("destroys owned uniform + output + averages buffers on dispose()", () => {
+  describe('disposal', () => {
+    it('destroys owned uniform + output + averages buffers on dispose()', () => {
       const d = createDecimationCompute(device);
       const rawBuffer = createMockBuffer({ size: 800000 });
 
       d.prepare({
-        algorithm: "lttb",
+        algorithm: 'lttb',
         rawBuffer,
         rawPointCount: 100_000,
         visibleStart: 0,
@@ -691,9 +684,7 @@ describe("createDecimationCompute", () => {
       });
 
       // Own buffers = uniform + output + averages (3 total by this point).
-      const ownedBuffers = device.__created.buffers.filter(
-        (b) => b !== rawBuffer,
-      );
+      const ownedBuffers = device.__created.buffers.filter((b) => b !== rawBuffer);
       expect(ownedBuffers.length).toBeGreaterThanOrEqual(3);
 
       d.dispose();
@@ -704,20 +695,20 @@ describe("createDecimationCompute", () => {
       expect(rawBuffer.__destroyed).toBe(false);
     });
 
-    it("throws after dispose on subsequent prepare calls", () => {
+    it('throws after dispose on subsequent prepare calls', () => {
       const d = createDecimationCompute(device);
       d.dispose();
 
       const rawBuffer = createMockBuffer({ size: 800000 });
       expect(() =>
         d.prepare({
-          algorithm: "lttb",
+          algorithm: 'lttb',
           rawBuffer,
           rawPointCount: 100_000,
           visibleStart: 0,
           visibleEnd: 100_000,
           targetBuckets: 256,
-        }),
+        })
       ).toThrow(/disposed/);
     });
   });

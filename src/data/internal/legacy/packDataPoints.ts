@@ -9,8 +9,8 @@
  * @internal
  */
 
-import type { DataPoint, OHLCDataPoint, DataPointTuple } from "../config/types";
-import type { OHLCDataPointTuple, OHLCDataPointObject } from "../config/types";
+import type { DataPoint, OHLCDataPoint, DataPointTuple } from '../../../config/types';
+import type { OHLCDataPointTuple, OHLCDataPointObject } from '../../../config/types';
 
 /**
  * Type guard to check if a DataPoint is in tuple form.
@@ -52,11 +52,11 @@ function isOHLCTuple(point: OHLCDataPoint): point is OHLCDataPointTuple {
 export function packDataPoints(points: ReadonlyArray<DataPoint>): Float32Array {
   // Input validation
   if (!points) {
-    throw new TypeError("packDataPoints: points parameter is required");
+    throw new TypeError('packDataPoints: points parameter is required');
   }
 
   if (!Array.isArray(points)) {
-    throw new TypeError("packDataPoints: points must be an array");
+    throw new TypeError('packDataPoints: points must be an array');
   }
 
   if (points.length === 0) {
@@ -70,7 +70,7 @@ export function packDataPoints(points: ReadonlyArray<DataPoint>): Float32Array {
   if (points.length > MAX_POINTS) {
     throw new RangeError(
       `packDataPoints: points array too large (${points.length} points). ` +
-        `Maximum supported: ${MAX_POINTS.toLocaleString()} points (2GB buffer limit)`,
+        `Maximum supported: ${MAX_POINTS.toLocaleString()} points (2GB buffer limit)`
     );
   }
 
@@ -84,8 +84,7 @@ export function packDataPoints(points: ReadonlyArray<DataPoint>): Float32Array {
     // Validate point is not null/undefined
     if (point === null || point === undefined) {
       throw new TypeError(
-        `packDataPoints: Invalid point at index ${i}. ` +
-          `Expected DataPoint (tuple or object), got ${point}`,
+        `packDataPoints: Invalid point at index ${i}. ` + `Expected DataPoint (tuple or object), got ${point}`
       );
     }
 
@@ -93,10 +92,10 @@ export function packDataPoints(points: ReadonlyArray<DataPoint>): Float32Array {
     const y = isTupleDataPoint(point) ? point[1] : point.y;
 
     // Validate numeric values (catches NaN, undefined properties)
-    if (typeof x !== "number" || typeof y !== "number") {
+    if (typeof x !== 'number' || typeof y !== 'number') {
       throw new TypeError(
         `packDataPoints: Invalid coordinate values at index ${i}. ` +
-          `Expected numbers, got x=${typeof x}, y=${typeof y}`,
+          `Expected numbers, got x=${typeof x}, y=${typeof y}`
       );
     }
 
@@ -138,16 +137,14 @@ export function packDataPoints(points: ReadonlyArray<DataPoint>): Float32Array {
  * device.queue.writeBuffer(vertexBuffer, 0, packed.buffer);
  * ```
  */
-export function packOHLCDataPoints(
-  points: ReadonlyArray<OHLCDataPoint>,
-): Float32Array {
+export function packOHLCDataPoints(points: ReadonlyArray<OHLCDataPoint>): Float32Array {
   // Input validation
   if (!points) {
-    throw new TypeError("packOHLCDataPoints: points parameter is required");
+    throw new TypeError('packOHLCDataPoints: points parameter is required');
   }
 
   if (!Array.isArray(points)) {
-    throw new TypeError("packOHLCDataPoints: points must be an array");
+    throw new TypeError('packOHLCDataPoints: points must be an array');
   }
 
   if (points.length === 0) {
@@ -161,7 +158,7 @@ export function packOHLCDataPoints(
   if (points.length > MAX_POINTS) {
     throw new RangeError(
       `packOHLCDataPoints: points array too large (${points.length} points). ` +
-        `Maximum supported: ${MAX_POINTS.toLocaleString()} points (2GB buffer limit)`,
+        `Maximum supported: ${MAX_POINTS.toLocaleString()} points (2GB buffer limit)`
     );
   }
 
@@ -175,8 +172,7 @@ export function packOHLCDataPoints(
     // Validate point is not null/undefined
     if (point === null || point === undefined) {
       throw new TypeError(
-        `packOHLCDataPoints: Invalid point at index ${i}. ` +
-          `Expected OHLCDataPoint (tuple or object), got ${point}`,
+        `packOHLCDataPoints: Invalid point at index ${i}. ` + `Expected OHLCDataPoint (tuple or object), got ${point}`
       );
     }
 
@@ -188,7 +184,7 @@ export function packOHLCDataPoints(
       if (point.length !== 5) {
         throw new TypeError(
           `packOHLCDataPoints: Invalid OHLC tuple at index ${i}. ` +
-            `Expected 5 elements [timestamp, open, close, low, high], got ${point.length}`,
+            `Expected 5 elements [timestamp, open, close, low, high], got ${point.length}`
         );
       }
 
@@ -200,15 +196,15 @@ export function packOHLCDataPoints(
 
       // Validate all values are numbers
       if (
-        typeof timestamp !== "number" ||
-        typeof open !== "number" ||
-        typeof close !== "number" ||
-        typeof low !== "number" ||
-        typeof high !== "number"
+        typeof timestamp !== 'number' ||
+        typeof open !== 'number' ||
+        typeof close !== 'number' ||
+        typeof low !== 'number' ||
+        typeof high !== 'number'
       ) {
         throw new TypeError(
           `packOHLCDataPoints: Invalid OHLC values at index ${i}. ` +
-            `All values must be numbers, got [${typeof timestamp}, ${typeof open}, ${typeof close}, ${typeof low}, ${typeof high}]`,
+            `All values must be numbers, got [${typeof timestamp}, ${typeof open}, ${typeof close}, ${typeof low}, ${typeof high}]`
         );
       }
 
@@ -225,16 +221,16 @@ export function packOHLCDataPoints(
 
       // Validate all required properties exist and are numbers
       if (
-        typeof timestamp !== "number" ||
-        typeof open !== "number" ||
-        typeof high !== "number" ||
-        typeof low !== "number" ||
-        typeof close !== "number"
+        typeof timestamp !== 'number' ||
+        typeof open !== 'number' ||
+        typeof high !== 'number' ||
+        typeof low !== 'number' ||
+        typeof close !== 'number'
       ) {
         throw new TypeError(
           `packOHLCDataPoints: Invalid OHLC object at index ${i}. ` +
             `All properties (timestamp, open, high, low, close) must be numbers, got ` +
-            `{timestamp: ${typeof timestamp}, open: ${typeof open}, high: ${typeof high}, low: ${typeof low}, close: ${typeof close}}`,
+            `{timestamp: ${typeof timestamp}, open: ${typeof open}, high: ${typeof high}, low: ${typeof low}, close: ${typeof close}}`
         );
       }
 

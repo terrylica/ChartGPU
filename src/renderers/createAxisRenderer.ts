@@ -1,24 +1,20 @@
-import gridWgsl from "../shaders/grid.wgsl?raw";
-import type { AxisConfig } from "../config/types";
-import type { LinearScale } from "../utils/scales";
-import {
-  createRenderPipeline,
-  createUniformBuffer,
-  writeUniformBuffer,
-} from "./rendererUtils";
-import type { GridArea } from "./createGridRenderer";
-import { parseCssColorToRgba01 } from "../utils/colors";
-import type { PipelineCache } from "../core/PipelineCache";
+import gridWgsl from '../shaders/grid.wgsl?raw';
+import type { AxisConfig } from '../config/types';
+import type { LinearScale } from '../utils/scales';
+import { createRenderPipeline, createUniformBuffer, writeUniformBuffer } from './rendererUtils';
+import type { GridArea } from './createGridRenderer';
+import { parseCssColorToRgba01 } from '../utils/colors';
+import type { PipelineCache } from '../core/PipelineCache';
 
 export interface AxisRenderer {
   prepare(
     axisConfig: AxisConfig,
     scale: LinearScale,
-    orientation: "x" | "y",
+    orientation: 'x' | 'y',
     gridArea: GridArea,
     axisLineColor?: string,
     axisTickColor?: string,
-    tickCount?: number,
+    tickCount?: number
   ): void;
   render(passEncoder: GPURenderPassEncoder): void;
   dispose(): void;
@@ -45,36 +41,17 @@ export interface AxisRendererOptions {
   readonly pipelineCache?: PipelineCache;
 }
 
-const DEFAULT_TARGET_FORMAT: GPUTextureFormat = "bgra8unorm";
+const DEFAULT_TARGET_FORMAT: GPUTextureFormat = 'bgra8unorm';
 const DEFAULT_TICK_COUNT = 5;
 const DEFAULT_TICK_LENGTH_CSS_PX = 6;
-const DEFAULT_AXIS_RGBA: readonly [number, number, number, number] = [
-  1, 1, 1, 0.8,
-];
+const DEFAULT_AXIS_RGBA: readonly [number, number, number, number] = [1, 1, 1, 0.8];
 
-const createIdentityMat4Buffer = (): ArrayBuffer => {
-  // Column-major identity mat4x4
+// Module-level identity (issue 3.3) — avoid per-prepare ArrayBuffer alloc.
+const IDENTITY_MAT4_BUFFER: ArrayBuffer = (() => {
   const buffer = new ArrayBuffer(16 * 4);
-  new Float32Array(buffer).set([
-    1,
-    0,
-    0,
-    0, // col0
-    0,
-    1,
-    0,
-    0, // col1
-    0,
-    0,
-    1,
-    0, // col2
-    0,
-    0,
-    0,
-    1, // col3
-  ]);
+  new Float32Array(buffer).set([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
   return buffer;
-};
+})();
 
 const isFiniteGridArea = (gridArea: GridArea): boolean =>
   Number.isFinite(gridArea.left) &&
@@ -85,11 +62,11 @@ const isFiniteGridArea = (gridArea: GridArea): boolean =>
   Number.isFinite(gridArea.canvasHeight);
 
 const finiteOrUndefined = (v: number | undefined): number | undefined =>
-  typeof v === "number" && Number.isFinite(v) ? v : undefined;
+  typeof v === 'number' && Number.isFinite(v) ? v : undefined;
 
 const normalizeDomain = (
   minCandidate: number,
-  maxCandidate: number,
+  maxCandidate: number
 ): { readonly min: number; readonly max: number } => {
   let min = minCandidate;
   let max = maxCandidate;
@@ -113,31 +90,23 @@ const normalizeDomain = (
 const generateAxisVertices = (
   axisConfig: AxisConfig,
   scale: LinearScale,
-  orientation: "x" | "y",
+  orientation: 'x' | 'y',
   gridArea: GridArea,
-  tickCountOverride?: number,
+  tickCountOverride?: number
 ): Float32Array => {
   const { left, right, top, bottom, canvasWidth, canvasHeight } = gridArea;
   // Be resilient: older call sites may omit/incorrectly pass DPR. Defaulting avoids hard crashes.
   const devicePixelRatio =
-    Number.isFinite(gridArea.devicePixelRatio) && gridArea.devicePixelRatio > 0
-      ? gridArea.devicePixelRatio
-      : 1;
+    Number.isFinite(gridArea.devicePixelRatio) && gridArea.devicePixelRatio > 0 ? gridArea.devicePixelRatio : 1;
 
   if (!isFiniteGridArea(gridArea)) {
-    throw new Error(
-      "AxisRenderer.prepare: gridArea dimensions must be finite numbers.",
-    );
+    throw new Error('AxisRenderer.prepare: gridArea dimensions must be finite numbers.');
   }
   if (canvasWidth <= 0 || canvasHeight <= 0) {
-    throw new Error(
-      "AxisRenderer.prepare: canvas dimensions must be positive.",
-    );
+    throw new Error('AxisRenderer.prepare: canvas dimensions must be positive.');
   }
   if (left < 0 || right < 0 || top < 0 || bottom < 0) {
-    throw new Error(
-      "AxisRenderer.prepare: gridArea margins must be non-negative.",
-    );
+    throw new Error('AxisRenderer.prepare: gridArea margins must be non-negative.');
   }
 
   const plotLeft = left * devicePixelRatio;
@@ -152,17 +121,13 @@ const generateAxisVertices = (
 
   const tickLengthCssPx = axisConfig.tickLength ?? DEFAULT_TICK_LENGTH_CSS_PX;
   if (!Number.isFinite(tickLengthCssPx) || tickLengthCssPx < 0) {
-    throw new Error(
-      "AxisRenderer.prepare: tickLength must be a finite non-negative number.",
-    );
+    throw new Error('AxisRenderer.prepare: tickLength must be a finite non-negative number.');
   }
 
   const tickCountRaw = tickCountOverride ?? DEFAULT_TICK_COUNT;
   const tickCount = Math.max(1, Math.floor(tickCountRaw));
   if (!Number.isFinite(tickCountRaw) || tickCount < 1) {
-    throw new Error(
-      "AxisRenderer.prepare: tickCount must be a finite number >= 1.",
-    );
+    throw new Error('AxisRenderer.prepare: tickCount must be a finite number >= 1.');
   }
   const tickLengthDevicePx = tickLengthCssPx * devicePixelRatio;
   const tickDeltaClipX = (tickLengthDevicePx / canvasWidth) * 2.0;
@@ -172,14 +137,10 @@ const generateAxisVertices = (
   // (which also treats min/max as “unset” when non-finite).
   const domainMinRaw =
     finiteOrUndefined(axisConfig.min) ??
-    (orientation === "x"
-      ? scale.invert(plotLeftClip)
-      : scale.invert(plotBottomClip));
+    (orientation === 'x' ? scale.invert(plotLeftClip) : scale.invert(plotBottomClip));
   const domainMaxRaw =
     finiteOrUndefined(axisConfig.max) ??
-    (orientation === "x"
-      ? scale.invert(plotRightClip)
-      : scale.invert(plotTopClip));
+    (orientation === 'x' ? scale.invert(plotRightClip) : scale.invert(plotTopClip));
   const domain = normalizeDomain(domainMinRaw, domainMaxRaw);
   const domainMin = domain.min;
   const domainMax = domain.max;
@@ -192,7 +153,7 @@ const generateAxisVertices = (
 
   let idx = 0;
 
-  if (orientation === "x") {
+  if (orientation === 'x') {
     // Baseline along bottom edge of plot rect.
     vertices[idx++] = plotLeftClip;
     vertices[idx++] = plotBottomClip;
@@ -214,7 +175,7 @@ const generateAxisVertices = (
       vertices[idx++] = y1;
     }
   } else {
-    const isRight = axisConfig.position === "right";
+    const isRight = axisConfig.position === 'right';
     const baselineX = isRight ? plotRightClip : plotLeftClip;
 
     // Baseline along edge of plot rect.
@@ -242,17 +203,12 @@ const generateAxisVertices = (
   return vertices;
 };
 
-export function createAxisRenderer(
-  device: GPUDevice,
-  options?: AxisRendererOptions,
-): AxisRenderer {
+export function createAxisRenderer(device: GPUDevice, options?: AxisRendererOptions): AxisRenderer {
   let disposed = false;
   const targetFormat = options?.targetFormat ?? DEFAULT_TARGET_FORMAT;
   // Be resilient: coerce invalid values to 1 (no MSAA).
   const sampleCountRaw = options?.sampleCount ?? 1;
-  const sampleCount = Number.isFinite(sampleCountRaw)
-    ? Math.max(1, Math.floor(sampleCountRaw))
-    : 1;
+  const sampleCount = Number.isFinite(sampleCountRaw) ? Math.max(1, Math.floor(sampleCountRaw)) : 1;
   const pipelineCache = options?.pipelineCache;
 
   const bindGroupLayout = device.createBindGroupLayout({
@@ -260,24 +216,24 @@ export function createAxisRenderer(
       {
         binding: 0,
         visibility: GPUShaderStage.VERTEX,
-        buffer: { type: "uniform" },
+        buffer: { type: 'uniform' },
       },
       {
         binding: 1,
         visibility: GPUShaderStage.FRAGMENT,
-        buffer: { type: "uniform" },
+        buffer: { type: 'uniform' },
       },
     ],
   });
 
   const vsUniformBuffer = createUniformBuffer(device, 64, {
-    label: "axisRenderer/vsUniforms",
+    label: 'axisRenderer/vsUniforms',
   });
   const fsUniformBufferLine = createUniformBuffer(device, 16, {
-    label: "axisRenderer/fsUniformsLine",
+    label: 'axisRenderer/fsUniformsLine',
   });
   const fsUniformBufferTick = createUniformBuffer(device, 16, {
-    label: "axisRenderer/fsUniformsTick",
+    label: 'axisRenderer/fsUniformsTick',
   });
 
   const bindGroupLine = device.createBindGroup({
@@ -299,71 +255,65 @@ export function createAxisRenderer(
   const pipeline = createRenderPipeline(
     device,
     {
-      label: "axisRenderer/pipeline",
+      label: 'axisRenderer/pipeline',
       bindGroupLayouts: [bindGroupLayout],
       vertex: {
         code: gridWgsl,
-        label: "grid.wgsl",
+        label: 'grid.wgsl',
         buffers: [
           {
             arrayStride: 8,
-            stepMode: "vertex",
-            attributes: [{ shaderLocation: 0, format: "float32x2", offset: 0 }],
+            stepMode: 'vertex',
+            attributes: [{ shaderLocation: 0, format: 'float32x2', offset: 0 }],
           },
         ],
       },
       fragment: {
         code: gridWgsl,
-        label: "grid.wgsl",
+        label: 'grid.wgsl',
         formats: targetFormat,
         blend: {
           color: {
-            operation: "add",
-            srcFactor: "src-alpha",
-            dstFactor: "one-minus-src-alpha",
+            operation: 'add',
+            srcFactor: 'src-alpha',
+            dstFactor: 'one-minus-src-alpha',
           },
           alpha: {
-            operation: "add",
-            srcFactor: "one",
-            dstFactor: "one-minus-src-alpha",
+            operation: 'add',
+            srcFactor: 'one',
+            dstFactor: 'one-minus-src-alpha',
           },
         },
       },
-      primitive: { topology: "line-list", cullMode: "none" },
+      primitive: { topology: 'line-list', cullMode: 'none' },
       multisample: { count: sampleCount },
     },
-    pipelineCache,
+    pipelineCache
   );
 
   let vertexBuffer: GPUBuffer | null = null;
   let vertexCount = 0;
 
   const assertNotDisposed = (): void => {
-    if (disposed) throw new Error("AxisRenderer is disposed.");
+    if (disposed) throw new Error('AxisRenderer is disposed.');
   };
 
-  const prepare: AxisRenderer["prepare"] = (
+  const prepare: AxisRenderer['prepare'] = (
     axisConfig,
     scale,
     orientation,
     gridArea,
     axisLineColor,
     axisTickColor,
-    tickCount,
+    tickCount
   ) => {
     assertNotDisposed();
 
-    if (orientation !== "x" && orientation !== "y") {
+    if (orientation !== 'x' && orientation !== 'y') {
       throw new Error("AxisRenderer.prepare: orientation must be 'x' or 'y'.");
     }
 
-    const vertices = generateAxisVertices(
-      axisConfig,
-      scale,
-      orientation,
-      gridArea,
-      tickCount,
-    );
+    const vertices = generateAxisVertices(axisConfig, scale, orientation, gridArea, tickCount);
     const requiredSize = vertices.byteLength;
     const bufferSize = Math.max(4, requiredSize);
 
@@ -376,54 +326,36 @@ export function createAxisRenderer(
         }
       }
       vertexBuffer = device.createBuffer({
-        label: "axisRenderer/vertexBuffer",
+        label: 'axisRenderer/vertexBuffer',
         size: bufferSize,
         usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
       });
     }
 
-    device.queue.writeBuffer(
-      vertexBuffer,
-      0,
-      vertices.buffer,
-      0,
-      vertices.byteLength,
-    );
+    device.queue.writeBuffer(vertexBuffer, 0, vertices.buffer, 0, vertices.byteLength);
     vertexCount = vertices.length / 2;
 
     // Identity transform (vertices already in clip-space).
-    writeUniformBuffer(device, vsUniformBuffer, createIdentityMat4Buffer());
+    writeUniformBuffer(device, vsUniformBuffer, IDENTITY_MAT4_BUFFER);
 
     // Separate colors for baseline vs ticks.
     // Gracefully fall back to legacy (slightly brighter than grid) when parsing fails.
-    const axisLineColorString = axisLineColor ?? "rgba(255,255,255,0.8)";
+    const axisLineColorString = axisLineColor ?? 'rgba(255,255,255,0.8)';
     const axisTickColorString = axisTickColor ?? axisLineColorString;
 
-    const axisLineRgba =
-      parseCssColorToRgba01(axisLineColorString) ?? DEFAULT_AXIS_RGBA;
-    const axisTickRgba =
-      parseCssColorToRgba01(axisTickColorString) ?? axisLineRgba;
+    const axisLineRgba = parseCssColorToRgba01(axisLineColorString) ?? DEFAULT_AXIS_RGBA;
+    const axisTickRgba = parseCssColorToRgba01(axisTickColorString) ?? axisLineRgba;
 
     const lineColorBuffer = new ArrayBuffer(4 * 4);
-    new Float32Array(lineColorBuffer).set([
-      axisLineRgba[0],
-      axisLineRgba[1],
-      axisLineRgba[2],
-      axisLineRgba[3],
-    ]);
+    new Float32Array(lineColorBuffer).set([axisLineRgba[0], axisLineRgba[1], axisLineRgba[2], axisLineRgba[3]]);
     writeUniformBuffer(device, fsUniformBufferLine, lineColorBuffer);
 
     const tickColorBuffer = new ArrayBuffer(4 * 4);
-    new Float32Array(tickColorBuffer).set([
-      axisTickRgba[0],
-      axisTickRgba[1],
-      axisTickRgba[2],
-      axisTickRgba[3],
-    ]);
+    new Float32Array(tickColorBuffer).set([axisTickRgba[0], axisTickRgba[1], axisTickRgba[2], axisTickRgba[3]]);
     writeUniformBuffer(device, fsUniformBufferTick, tickColorBuffer);
   };
 
-  const render: AxisRenderer["render"] = (passEncoder) => {
+  const render: AxisRenderer['render'] = (passEncoder) => {
     assertNotDisposed();
     if (vertexCount === 0 || !vertexBuffer) return;
 
@@ -441,7 +373,7 @@ export function createAxisRenderer(
     }
   };
 
-  const dispose: AxisRenderer["dispose"] = () => {
+  const dispose: AxisRenderer['dispose'] = () => {
     if (disposed) return;
     disposed = true;
 

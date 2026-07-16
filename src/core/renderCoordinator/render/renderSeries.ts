@@ -13,38 +13,28 @@ import type {
   ResolvedBarSeriesConfig,
   ResolvedAreaSeriesConfig,
   ResolvedPieSeriesConfig,
-} from "../../../config/OptionResolver";
-import type { DataPoint } from "../../../config/types";
-import type { LinearScale } from "../../../utils/scales";
-import type { GridArea } from "../../../renderers/createGridRenderer";
-import type { LineRenderer } from "../../../renderers/createLineRenderer";
-import type { AreaRenderer } from "../../../renderers/createAreaRenderer";
-import type { BarRenderer } from "../../../renderers/createBarRenderer";
-import type { ScatterRenderer } from "../../../renderers/createScatterRenderer";
-import type { ScatterDensityRenderer } from "../../../renderers/createScatterDensityRenderer";
-import type { PieRenderer } from "../../../renderers/createPieRenderer";
-import type { CandlestickRenderer } from "../../../renderers/createCandlestickRenderer";
-import type { ReferenceLineRenderer } from "../../../renderers/createReferenceLineRenderer";
-import type { AnnotationMarkerRenderer } from "../../../renderers/createAnnotationMarkerRenderer";
-import type { DecimationCompute } from "../../../renderers/createDecimationCompute";
-import type { DataStore } from "../../../data/createDataStore";
-import {
-  isGpuDecimationEligible,
-  mapSamplingToDecimationAlgorithm,
-} from "../../../data/gpuDecimationEligibility";
-import { clampInt } from "../utils/canvasUtils";
-import { clamp01 } from "../animation/animationHelpers";
-import { findVisibleRangeIndicesByX } from "../data/computeVisibleSlice";
-import { resolvePieRadiiCss } from "../utils/timeAxisUtils";
-import {
-  getPointCount,
-  getX,
-  isStagingRingView,
-} from "../../../data/cartesianData";
-import {
-  type FilterGapsCache,
-  getFilteredGapsCached,
-} from "./filterGapsCache";
+} from '../../../config/OptionResolver';
+import type { DataPoint } from '../../../config/types';
+import type { LinearScale } from '../../../utils/scales';
+import type { GridArea } from '../../../renderers/createGridRenderer';
+import type { LineRenderer } from '../../../renderers/createLineRenderer';
+import type { AreaRenderer } from '../../../renderers/createAreaRenderer';
+import type { BarRenderer } from '../../../renderers/createBarRenderer';
+import type { ScatterRenderer } from '../../../renderers/createScatterRenderer';
+import type { ScatterDensityRenderer } from '../../../renderers/createScatterDensityRenderer';
+import type { PieRenderer } from '../../../renderers/createPieRenderer';
+import type { CandlestickRenderer } from '../../../renderers/createCandlestickRenderer';
+import type { ReferenceLineRenderer } from '../../../renderers/createReferenceLineRenderer';
+import type { AnnotationMarkerRenderer } from '../../../renderers/createAnnotationMarkerRenderer';
+import type { DecimationCompute } from '../../../renderers/createDecimationCompute';
+import type { DataStore } from '../../../data/createDataStore';
+import { isGpuDecimationEligible, mapSamplingToDecimationAlgorithm } from '../../../data/gpuDecimationEligibility';
+import { clampInt } from '../utils/canvasUtils';
+import { clamp01 } from '../animation/animationHelpers';
+import { findVisibleRangeIndicesByX } from '../data/computeVisibleSlice';
+import { resolvePieRadiiCss } from '../utils/timeAxisUtils';
+import { getPointCount, getX, isRingXYColumns, isStagingRingView } from '../../../data/cartesianData';
+import { type FilterGapsCache, getFilteredGapsCached } from './filterGapsCache';
 
 export interface SeriesRenderers {
   readonly lineRenderers: ReadonlyArray<LineRenderer>;
@@ -71,10 +61,7 @@ export interface AnnotationRenderers {
  * O(n) pack + hash that would otherwise run before the content-hash early-return.
  * (P1-2)
  */
-export type LastSetSeriesCache = Map<
-  number,
-  Readonly<{ data: unknown; xOffset: number }>
->;
+export type LastSetSeriesCache = Map<number, Readonly<{ data: unknown; xOffset: number }>>;
 
 export interface SeriesPrepareContext {
   currentOptions: ResolvedChartGPUOptions;
@@ -84,12 +71,10 @@ export interface SeriesPrepareContext {
   gridArea: GridArea;
   dataStore: DataStore;
   appendedGpuThisFrame: Set<number>;
-  gpuSeriesKindByIndex: Array<
-    "fullRawLine" | "gpuDecimationRaw" | "other" | "unknown"
-  >;
+  gpuSeriesKindByIndex: Array<'fullRawLine' | 'gpuDecimationRaw' | 'other' | 'unknown'>;
   zoomState: { getRange(): { start: number; end: number } | null } | null;
   visibleXDomain: { min: number; max: number };
-  introPhase: "pending" | "running" | "done";
+  introPhase: 'pending' | 'running' | 'done';
   introProgress01: number;
   withAlpha: (color: string, alpha: number) => string;
   maxRadiusCss: number;
@@ -112,7 +97,7 @@ export interface SeriesRenderContext {
   gridArea: GridArea;
   mainPass: GPURenderPassEncoder;
   plotScissor: { x: number; y: number; w: number; h: number };
-  introPhase: "pending" | "running" | "done";
+  introPhase: 'pending' | 'running' | 'done';
   introProgress01: number;
   referenceLineBelowCount: number;
   markerBelowCount: number;
@@ -143,9 +128,7 @@ export interface SeriesPreparationResult {
  * Line series with areaStyle should render as area.
  */
 function shouldRenderArea(series: ResolvedSeriesConfig): boolean {
-  return (
-    series.type === "area" || (series.type === "line" && !!series.areaStyle)
-  );
+  return series.type === 'area' || (series.type === 'line' && !!series.areaStyle);
 }
 
 /**
@@ -158,10 +141,7 @@ function shouldRenderArea(series: ResolvedSeriesConfig): boolean {
  * @param context - Preparation context with scales, options, and state
  * @returns Preparation result with visibility-filtered series arrays
  */
-export function prepareSeries(
-  renderers: SeriesRenderers,
-  context: SeriesPrepareContext,
-): SeriesPreparationResult {
+export function prepareSeries(renderers: SeriesRenderers, context: SeriesPrepareContext): SeriesPreparationResult {
   const {
     currentOptions,
     seriesForRender,
@@ -171,7 +151,6 @@ export function prepareSeries(
     dataStore,
     appendedGpuThisFrame,
     gpuSeriesKindByIndex,
-    zoomState,
     visibleXDomain,
     introPhase,
     introProgress01,
@@ -180,10 +159,12 @@ export function prepareSeries(
     lastSetSeriesCache,
     filterGapsCache,
   } = context;
+  // zoomState kept on context for callers; sampling:none no longer needs full-span (1.6).
+  void context.zoomState;
 
   // Helper: get the y-scale for a series by its yAxis binding
   const getYScale = (s: ResolvedSeriesConfig): LinearScale => {
-    const axisId = (s as any).yAxis || "y";
+    const axisId = (s as any).yAxis || 'y';
     return yScales.get(axisId) ?? yScales.values().next().value!;
   };
 
@@ -195,12 +176,12 @@ export function prepareSeries(
    * Never setSeries a `StagingRingView`: staging already aliases DataStore modular
    * layout. setSeries always repacks linearly (ringStart=0, ringCapacity=0) and
    * would desync the view's modular start/capacity from GPU content.
+   *
+   * Hard-guard (issue 0.2): while DataStore is in maxPoints ring mode, never
+   * linearize via setSeries for ring-backed runtime refs (RingXY / staging).
+   * Intentional full rewrites pass plain arrays and are allowed.
    */
-  const setSeriesIfChanged = (
-    seriesIndex: number,
-    data: unknown,
-    options?: Readonly<{ xOffset?: number }>,
-  ): void => {
+  const setSeriesIfChanged = (seriesIndex: number, data: unknown, options?: Readonly<{ xOffset?: number }>): void => {
     if (isStagingRingView(data)) {
       return;
     }
@@ -209,41 +190,44 @@ export function prepareSeries(
     if (cached && cached.data === data && cached.xOffset === xOffset) {
       return;
     }
-    dataStore.setSeries(
-      seriesIndex,
-      data as ReadonlyArray<DataPoint>,
-      options,
-    );
+    // Protect active modular rings from accidental linearizing setSeries.
+    if (isRingXYColumns(data)) {
+      try {
+        if (dataStore.isSeriesRingMode(seriesIndex)) {
+          lastSetSeriesCache.set(seriesIndex, { data, xOffset });
+          return;
+        }
+      } catch {
+        // Series not yet resident — fall through to setSeries.
+      }
+    }
+    // Cache miss ⇒ content changed from coordinator's view (issue 2.6):
+    // skip O(N) FNV when packing full rewrite; decimation still gets a stamp.
+    dataStore.setSeries(seriesIndex, data as ReadonlyArray<DataPoint>, {
+      ...options,
+      skipContentHash: true,
+    });
     lastSetSeriesCache.set(seriesIndex, { data, xOffset });
   };
 
-  const defaultBaseline =
-    currentOptions.yAxes[0]?.min ?? 0;
+  const defaultBaseline = currentOptions.yAxes[0]?.min ?? 0;
   const barSeriesConfigs: ResolvedBarSeriesConfig[] = [];
 
-  const introP = introPhase === "running" ? clamp01(introProgress01) : 1;
+  const introP = introPhase === 'running' ? clamp01(introProgress01) : 1;
 
   // Preparation loop: prepare ALL series (including hidden) to maintain correct indices
   for (let i = 0; i < seriesForRender.length; i++) {
     const s = seriesForRender[i];
     switch (s.type) {
-      case "area": {
+      case 'area': {
         const baseline = s.baseline ?? defaultBaseline;
         // When connectNulls is true, strip null/NaN gap entries so the area draws through gaps.
         // Cached by data ref identity (P2-12) so static frames do not re-allocate.
-        const areaData = s.connectNulls
-          ? getFilteredGapsCached(filterGapsCache, i, s.data)
-          : s.data;
-        renderers.areaRenderers[i].prepare(
-          s,
-          areaData,
-          xScale,
-          getYScale(s),
-          baseline,
-        );
+        const areaData = s.connectNulls ? getFilteredGapsCached(filterGapsCache, i, s.data) : s.data;
+        renderers.areaRenderers[i].prepare(s, areaData, xScale, getYScale(s), baseline);
         break;
       }
-      case "line": {
+      case 'line': {
         // GPU compute-shader decimation (P0-2 / Stretch S1) vs CPU path.
         // Eligibility is a pure predicate; see `isGpuDecimationEligible`.
         const rawDataForGpu = s.rawData;
@@ -256,7 +240,7 @@ export function prepareSeries(
           // origin — after FIFO drops the original oldest, chronological getX(0)
           // is a newer timestamp and must NOT be used as the line affine offset.
           const domainFirstX = (() => {
-            if (currentOptions.xAxis.type !== "time") return 0;
+            if (currentOptions.xAxis.type !== 'time') return 0;
             const count = getPointCount(rawDataForGpu);
             for (let k = 0; k < count; k++) {
               const x = getX(rawDataForGpu, k);
@@ -264,16 +248,27 @@ export function prepareSeries(
             }
             return 0;
           })();
-          const packingXOffset = isStagingRingView(rawDataForGpu)
-            ? rawDataForGpu.xOffset
-            : domainFirstX;
+          // Prefer DataStore's fixed packing origin when the series is already
+          // resident (append / idle after FIFO). domain-first drifts after the
+          // original oldest sample is dropped (issue 0.2 cache miss).
+          const packingXOffset = (() => {
+            if (isStagingRingView(rawDataForGpu)) {
+              return rawDataForGpu.xOffset;
+            }
+            if (currentOptions.xAxis.type !== 'time') return 0;
+            try {
+              return dataStore.getSeriesXOffset(i);
+            } catch {
+              return domainFirstX;
+            }
+          })();
 
           if (!appendedGpuThisFrame.has(i)) {
             setSeriesIfChanged(i, rawDataForGpu, { xOffset: packingXOffset });
           }
 
           const xOffset = (() => {
-            if (currentOptions.xAxis.type !== "time") return 0;
+            if (currentOptions.xAxis.type !== 'time') return 0;
             if (isStagingRingView(rawDataForGpu)) {
               return rawDataForGpu.xOffset;
             }
@@ -287,17 +282,11 @@ export function prepareSeries(
           const rawBuffer = dataStore.getSeriesBuffer(i);
           const rawPointCount = dataStore.getSeriesPointCount(i);
 
-          const fallbackTarget = Math.max(
-            2,
-            Math.floor(Math.max(1, gridArea.canvasWidth) * 2),
-          );
+          const fallbackTarget = Math.max(2, Math.floor(Math.max(1, gridArea.canvasWidth) * 2));
           const rawTarget = Number.isFinite(s.samplingThreshold)
             ? Math.max(2, s.samplingThreshold | 0)
             : fallbackTarget;
-          const targetBuckets = Math.min(
-            rawTarget,
-            Math.max(2, rawPointCount),
-          );
+          const targetBuckets = Math.min(rawTarget, Math.max(2, rawPointCount));
 
           // Prefer visible-range binary search on coordinator raw (including
           // RingXYColumns / StagingRingView — getX is chronological). Full-range
@@ -306,14 +295,13 @@ export function prepareSeries(
           const ringLayout = dataStore.getSeriesRingLayout(i);
           const visible =
             rawDataForGpu != null
-              ? findVisibleRangeIndicesByX(
-                  rawDataForGpu,
-                  visibleXDomain.min,
-                  visibleXDomain.max,
-                )
+              ? findVisibleRangeIndicesByX(rawDataForGpu, visibleXDomain.min, visibleXDomain.max)
               : { start: 0, end: rawPointCount };
 
           const algorithm = mapSamplingToDecimationAlgorithm(s.sampling);
+
+          let strokeBuffer = rawBuffer;
+          let strokePointCount = rawPointCount;
 
           if (rawPointCount <= targetBuckets || algorithm === null) {
             renderers.lineRenderers[i].prepare(
@@ -325,9 +313,9 @@ export function prepareSeries(
               gridArea.devicePixelRatio,
               gridArea.canvasWidth,
               gridArea.canvasHeight,
-              rawPointCount,
+              rawPointCount
             );
-            gpuSeriesKindByIndex[i] = "gpuDecimationRaw";
+            gpuSeriesKindByIndex[i] = 'gpuDecimationRaw';
           } else {
             const outputPointCount = renderers.decimationComputes[i].prepare({
               algorithm,
@@ -343,8 +331,9 @@ export function prepareSeries(
               ringStart: ringLayout.start,
               ringCapacity: ringLayout.capacity,
             });
-            const decimatedBuffer =
-              renderers.decimationComputes[i].getOutputBuffer();
+            const decimatedBuffer = renderers.decimationComputes[i].getOutputBuffer();
+            strokeBuffer = decimatedBuffer;
+            strokePointCount = outputPointCount;
 
             renderers.lineRenderers[i].prepare(
               s,
@@ -357,9 +346,47 @@ export function prepareSeries(
               gridArea.devicePixelRatio,
               gridArea.canvasWidth,
               gridArea.canvasHeight,
-              outputPointCount,
+              outputPointCount
             );
-            gpuSeriesKindByIndex[i] = "gpuDecimationRaw";
+            gpuSeriesKindByIndex[i] = 'gpuDecimationRaw';
+          }
+
+          // Line+areaStyle: share stroke storage only when chronological
+          // (decimation output, or linear DataStore layout). After modular ring
+          // wrap raw GPU order is not chronological — area.wgsl reads linearly
+          // and would connect physical neighbors (issue 1 review fix).
+          if (s.areaStyle) {
+            const areaLike: ResolvedAreaSeriesConfig = {
+              type: 'area',
+              name: s.name,
+              rawData: rawDataForGpu as ResolvedAreaSeriesConfig['rawData'],
+              data: (s.data ?? rawDataForGpu) as ResolvedAreaSeriesConfig['data'],
+              color: s.areaStyle.color,
+              areaStyle: s.areaStyle,
+              sampling: s.sampling,
+              samplingThreshold: s.samplingThreshold,
+              connectNulls: s.connectNulls,
+              yAxis: (s as { yAxis?: string }).yAxis ?? 'y',
+              rawBounds: (s as { rawBounds?: ResolvedAreaSeriesConfig['rawBounds'] }).rawBounds,
+            };
+            // Decimated buffer is always chronological; raw only when layout.capacity===0.
+            const strokeIsDecimated = strokeBuffer !== rawBuffer;
+            const rawIsLinear = ringLayout.capacity === 0;
+            if (strokeIsDecimated || rawIsLinear) {
+              renderers.areaRenderers[i].prepare(
+                areaLike,
+                areaLike.data,
+                xScale,
+                getYScale(s),
+                defaultBaseline,
+                strokeBuffer,
+                strokePointCount,
+                xOffset
+              );
+            } else {
+              // Modular ring wrap: private chronological pack from runtime raw.
+              renderers.areaRenderers[i].prepare(areaLike, areaLike.data, xScale, getYScale(s), defaultBaseline);
+            }
           }
 
           break;
@@ -371,11 +398,9 @@ export function prepareSeries(
         // (Float32 ulp at ~1e12 is ~2e5), which can manifest as stroke shimmer during zoom.
         // When connectNulls is true, strip null/NaN gap entries so the line draws through gaps.
         // Cached by data ref identity (P2-12) so static frames do not re-allocate.
-        const uploadData = s.connectNulls
-          ? getFilteredGapsCached(filterGapsCache, i, s.data)
-          : s.data;
+        const uploadData = s.connectNulls ? getFilteredGapsCached(filterGapsCache, i, s.data) : s.data;
         const domainFirstX = (() => {
-          if (currentOptions.xAxis.type !== "time") return 0;
+          if (currentOptions.xAxis.type !== 'time') return 0;
           const d = uploadData;
           const count = getPointCount(d);
           for (let k = 0; k < count; k++) {
@@ -386,14 +411,22 @@ export function prepareSeries(
         })();
         // Staging / GPU-backed: packing origin is fixed on DataStore; domain-first
         // would drift after maxPoints FIFO drops the original oldest sample.
-        const packingXOffset = isStagingRingView(uploadData)
-          ? uploadData.xOffset
-          : domainFirstX;
+        const packingXOffset = (() => {
+          if (isStagingRingView(uploadData)) {
+            return uploadData.xOffset;
+          }
+          if (currentOptions.xAxis.type !== 'time') return 0;
+          try {
+            return dataStore.getSeriesXOffset(i);
+          } catch {
+            return domainFirstX;
+          }
+        })();
         if (!appendedGpuThisFrame.has(i)) {
           setSeriesIfChanged(i, uploadData, { xOffset: packingXOffset });
         }
         const xOffset = (() => {
-          if (currentOptions.xAxis.type !== "time") return 0;
+          if (currentOptions.xAxis.type !== 'time') return 0;
           if (isStagingRingView(uploadData)) {
             return uploadData.xOffset;
           }
@@ -407,8 +440,7 @@ export function prepareSeries(
         })();
         const buffer = dataStore.getSeriesBuffer(i);
         // Pass filtered data to the renderer so point count matches the GPU buffer.
-        const lineSeriesForRenderer =
-          uploadData !== s.data ? { ...s, data: uploadData } : s;
+        const lineSeriesForRenderer = uploadData !== s.data ? { ...s, data: uploadData } : s;
         renderers.lineRenderers[i].prepare(
           lineSeriesForRenderer,
           buffer,
@@ -417,27 +449,23 @@ export function prepareSeries(
           xOffset,
           gridArea.devicePixelRatio,
           gridArea.canvasWidth,
-          gridArea.canvasHeight,
+          gridArea.canvasHeight
         );
 
         // Track the GPU buffer kind for future append fast-path decisions.
-        const zoomRange = zoomState?.getRange() ?? null;
-        const isFullSpanZoom =
-          zoomRange == null ||
-          (Number.isFinite(zoomRange.start) &&
-            Number.isFinite(zoomRange.end) &&
-            zoomRange.start <= 0 &&
-            zoomRange.end >= 100);
-        if (isFullSpanZoom && s.sampling === "none") {
-          gpuSeriesKindByIndex[i] = "fullRawLine";
+        // sampling:'none' keeps full raw resident at any zoom → ranged append
+        // (issue 1.6). Zoomed sampled CPU paths tag 'other' (full re-upload).
+        if (s.sampling === 'none') {
+          gpuSeriesKindByIndex[i] = 'fullRawLine';
         } else {
-          gpuSeriesKindByIndex[i] = "other";
+          gpuSeriesKindByIndex[i] = 'other';
         }
 
-        // If `areaStyle` is provided on a line series, render a fill behind it.
+        // Line+areaStyle on CPU path: share DataStore only when linear (capacity 0).
+        // After modular wrap, private-pack chronological uploadData (issue 1 review).
         if (s.areaStyle) {
           const areaLike: ResolvedAreaSeriesConfig = {
-            type: "area",
+            type: 'area',
             name: s.name,
             rawData: s.data,
             data: uploadData,
@@ -446,38 +474,41 @@ export function prepareSeries(
             sampling: s.sampling,
             samplingThreshold: s.samplingThreshold,
             connectNulls: s.connectNulls,
-            yAxis: (s as any).yAxis ?? "y",
+            yAxis: (s as any).yAxis ?? 'y',
             // Forward resolver bounds so AreaRenderer can skip O(n) bounds scan.
-            rawBounds: (s as { rawBounds?: ResolvedAreaSeriesConfig["rawBounds"] })
-              .rawBounds,
+            rawBounds: (s as { rawBounds?: ResolvedAreaSeriesConfig['rawBounds'] }).rawBounds,
           };
 
-          renderers.areaRenderers[i].prepare(
-            areaLike,
-            areaLike.data,
-            xScale,
-            getYScale(s),
-            defaultBaseline,
-          );
+          const cpuRingLayout = dataStore.getSeriesRingLayout(i);
+          if (cpuRingLayout.capacity === 0) {
+            renderers.areaRenderers[i].prepare(
+              areaLike,
+              areaLike.data,
+              xScale,
+              getYScale(s),
+              defaultBaseline,
+              buffer,
+              dataStore.getSeriesPointCount(i),
+              xOffset
+            );
+          } else {
+            renderers.areaRenderers[i].prepare(areaLike, areaLike.data, xScale, getYScale(s), defaultBaseline);
+          }
         }
 
         break;
       }
-      case "bar": {
+      case 'bar': {
         barSeriesConfigs.push(s);
         break;
       }
-      case "scatter": {
+      case 'scatter': {
         // Scatter renderer sets/resets its own scissor. Animate intro via alpha fade.
-        if (s.mode === "density") {
+        if (s.mode === 'density') {
           // Density mode bins raw (unsampled) data for correctness, but limits compute to the visible
           // range when x is monotonic.
           const rawData = (s.rawData ?? s.data) as ReadonlyArray<DataPoint>;
-          const visible = findVisibleRangeIndicesByX(
-            rawData,
-            visibleXDomain.min,
-            visibleXDomain.max,
-          );
+          const visible = findVisibleRangeIndicesByX(rawData, visibleXDomain.min, visibleXDomain.max);
 
           // Upload full raw data for compute. Skip pack+hash when data ref is unchanged (P1-2).
           if (!appendedGpuThisFrame.has(i)) {
@@ -485,6 +516,13 @@ export function prepareSeries(
           }
           const buffer = dataStore.getSeriesBuffer(i);
           const pointCount = dataStore.getSeriesPointCount(i);
+          // Content hash so equal-N rewrites re-bin even when buffer identity is stable (0.1).
+          let contentVersion = 0;
+          try {
+            contentVersion = dataStore.getSeriesContentHash(i);
+          } catch {
+            contentVersion = 0;
+          }
 
           renderers.scatterDensityRenderers[i].prepare(
             s,
@@ -496,25 +534,17 @@ export function prepareSeries(
             getYScale(s),
             gridArea,
             s.rawBounds,
+            contentVersion
           );
           // Density mode keeps its own compute path; treat as non-fast-path for append heuristics.
-          gpuSeriesKindByIndex[i] = "other";
+          gpuSeriesKindByIndex[i] = 'other';
         } else {
-          const animated =
-            introP < 1
-              ? ({ ...s, color: withAlpha(s.color, introP) } as const)
-              : s;
-          renderers.scatterRenderers[i].prepare(
-            animated,
-            s.data,
-            xScale,
-            getYScale(s),
-            gridArea,
-          );
+          const animated = introP < 1 ? ({ ...s, color: withAlpha(s.color, introP) } as const) : s;
+          renderers.scatterRenderers[i].prepare(animated, s.data, xScale, getYScale(s), gridArea);
         }
         break;
       }
-      case "pie": {
+      case 'pie': {
         // Pie renderer sets/resets its own scissor. Animate intro via radius scale (CSS px).
         if (introP < 1 && maxRadiusCss > 0) {
           const radiiCss = resolvePieRadiiCss(s.radius, maxRadiusCss);
@@ -530,7 +560,7 @@ export function prepareSeries(
         renderers.pieRenderers[i].prepare(s, gridArea);
         break;
       }
-      case "candlestick": {
+      case 'candlestick': {
         // Candlestick renderer handles clipping internally, no intro animation for now.
         renderers.candlestickRenderers[i].prepare(
           s,
@@ -538,7 +568,7 @@ export function prepareSeries(
           xScale,
           getYScale(s),
           gridArea,
-          currentOptions.theme.backgroundColor,
+          currentOptions.theme.backgroundColor
         );
         break;
       }
@@ -556,9 +586,7 @@ export function prepareSeries(
     .filter(({ series }) => series.visible !== false);
 
   // Bars are collected but prepared separately by coordinator (needs yScaleForBars which depends on visibleBarSeriesConfigs)
-  const visibleBarSeriesConfigs = barSeriesConfigs.filter(
-    (s) => s.visible !== false,
-  );
+  const visibleBarSeriesConfigs = barSeriesConfigs.filter((s) => s.visible !== false);
 
   return {
     visibleSeriesForRender,
@@ -579,11 +607,11 @@ export function prepareSeries(
 export function encodeScatterDensityCompute(
   renderers: SeriesRenderers,
   seriesForRender: ReadonlyArray<ResolvedSeriesConfig>,
-  encoder: GPUCommandEncoder,
+  encoder: GPUCommandEncoder
 ): void {
   for (let i = 0; i < seriesForRender.length; i++) {
     const s = seriesForRender[i];
-    if (s.visible !== false && s.type === "scatter" && s.mode === "density") {
+    if (s.visible !== false && s.type === 'scatter' && s.mode === 'density') {
       renderers.scatterDensityRenderers[i].encodeCompute(encoder);
     }
   }
@@ -599,17 +627,17 @@ export function encodeScatterDensityCompute(
 export function encodeDecimationCompute(
   renderers: SeriesRenderers,
   seriesForRender: ReadonlyArray<ResolvedSeriesConfig>,
-  encoder: GPUCommandEncoder,
+  encoder: GPUCommandEncoder
 ): void {
   let pass: GPUComputePassEncoder | null = null;
   for (let i = 0; i < seriesForRender.length; i++) {
     const s = seriesForRender[i];
-    if (s.visible === false || s.type !== "line") continue;
+    if (s.visible === false || s.type !== 'line') continue;
     const compute = renderers.decimationComputes[i];
     if (!compute.needsEncode()) continue;
     if (pass == null) {
       pass = encoder.beginComputePass({
-        label: "decimationCompute/batchPass",
+        label: 'decimationCompute/batchPass',
       });
     }
     compute.encodeCompute(encoder, pass);
@@ -637,7 +665,7 @@ export function renderSeries(
   renderers: SeriesRenderers,
   annotationRenderers: AnnotationRenderers,
   context: SeriesRenderContext,
-  prepResult: SeriesPreparationResult,
+  prepResult: SeriesPreparationResult
 ): void {
   const {
     hasCartesianSeries,
@@ -651,12 +679,12 @@ export function renderSeries(
   } = context;
 
   const { visibleSeriesForRender } = prepResult;
-  const introP = introPhase === "running" ? clamp01(introProgress01) : 1;
+  const introP = introPhase === 'running' ? clamp01(introProgress01) : 1;
 
   // Render pies first (non-cartesian, visible behind cartesian series)
   for (let idx = 0; idx < visibleSeriesForRender.length; idx++) {
     const { series, originalIndex } = visibleSeriesForRender[idx];
-    if (series.type === "pie") {
+    if (series.type === 'pie') {
       renderers.pieRenderers[originalIndex].render(mainPass);
     }
   }
@@ -665,32 +693,14 @@ export function renderSeries(
   if (hasCartesianSeries && plotScissor.w > 0 && plotScissor.h > 0) {
     const hasBelow = referenceLineBelowCount > 0 || markerBelowCount > 0;
     if (hasBelow) {
-      mainPass.setScissorRect(
-        plotScissor.x,
-        plotScissor.y,
-        plotScissor.w,
-        plotScissor.h,
-      );
+      mainPass.setScissorRect(plotScissor.x, plotScissor.y, plotScissor.w, plotScissor.h);
       if (referenceLineBelowCount > 0) {
-        annotationRenderers.referenceLineRenderer.render(
-          mainPass,
-          0,
-          referenceLineBelowCount,
-        );
+        annotationRenderers.referenceLineRenderer.render(mainPass, 0, referenceLineBelowCount);
       }
       if (markerBelowCount > 0) {
-        annotationRenderers.annotationMarkerRenderer.render(
-          mainPass,
-          0,
-          markerBelowCount,
-        );
+        annotationRenderers.annotationMarkerRenderer.render(mainPass, 0, markerBelowCount);
       }
-      mainPass.setScissorRect(
-        0,
-        0,
-        gridArea.canvasWidth,
-        gridArea.canvasHeight,
-      );
+      mainPass.setScissorRect(0, 0, gridArea.canvasWidth, gridArea.canvasHeight);
     }
   }
 
@@ -700,52 +710,23 @@ export function renderSeries(
     if (shouldRenderArea(series)) {
       // Line/area intro reveal: left-to-right plot scissor.
       if (introP < 1) {
-        const w = clampInt(
-          Math.floor(plotScissor.w * introP),
-          0,
-          plotScissor.w,
-        );
+        const w = clampInt(Math.floor(plotScissor.w * introP), 0, plotScissor.w);
         if (w > 0 && plotScissor.h > 0) {
-          mainPass.setScissorRect(
-            plotScissor.x,
-            plotScissor.y,
-            w,
-            plotScissor.h,
-          );
+          mainPass.setScissorRect(plotScissor.x, plotScissor.y, w, plotScissor.h);
           renderers.areaRenderers[originalIndex].render(mainPass);
-          mainPass.setScissorRect(
-            0,
-            0,
-            gridArea.canvasWidth,
-            gridArea.canvasHeight,
-          );
+          mainPass.setScissorRect(0, 0, gridArea.canvasWidth, gridArea.canvasHeight);
         }
       } else {
-        mainPass.setScissorRect(
-          plotScissor.x,
-          plotScissor.y,
-          plotScissor.w,
-          plotScissor.h,
-        );
+        mainPass.setScissorRect(plotScissor.x, plotScissor.y, plotScissor.w, plotScissor.h);
         renderers.areaRenderers[originalIndex].render(mainPass);
-        mainPass.setScissorRect(
-          0,
-          0,
-          gridArea.canvasWidth,
-          gridArea.canvasHeight,
-        );
+        mainPass.setScissorRect(0, 0, gridArea.canvasWidth, gridArea.canvasHeight);
       }
     }
   }
 
   // Clip bars to the plot grid (mirrors area/line scissor usage).
   if (plotScissor.w > 0 && plotScissor.h > 0) {
-    mainPass.setScissorRect(
-      plotScissor.x,
-      plotScissor.y,
-      plotScissor.w,
-      plotScissor.h,
-    );
+    mainPass.setScissorRect(plotScissor.x, plotScissor.y, plotScissor.w, plotScissor.h);
     renderers.barRenderer.render(mainPass);
     mainPass.setScissorRect(0, 0, gridArea.canvasWidth, gridArea.canvasHeight);
   }
@@ -753,7 +734,7 @@ export function renderSeries(
   // Render candlesticks
   for (let idx = 0; idx < visibleSeriesForRender.length; idx++) {
     const { series, originalIndex } = visibleSeriesForRender[idx];
-    if (series.type === "candlestick") {
+    if (series.type === 'candlestick') {
       renderers.candlestickRenderers[originalIndex].render(mainPass);
     }
   }
@@ -761,8 +742,8 @@ export function renderSeries(
   // Render scatter points
   for (let idx = 0; idx < visibleSeriesForRender.length; idx++) {
     const { series, originalIndex } = visibleSeriesForRender[idx];
-    if (series.type !== "scatter") continue;
-    if (series.mode === "density") {
+    if (series.type !== 'scatter') continue;
+    if (series.mode === 'density') {
       renderers.scatterDensityRenderers[originalIndex].render(mainPass);
     } else {
       renderers.scatterRenderers[originalIndex].render(mainPass);
@@ -772,43 +753,19 @@ export function renderSeries(
   // Render line strokes
   for (let idx = 0; idx < visibleSeriesForRender.length; idx++) {
     const { series, originalIndex } = visibleSeriesForRender[idx];
-    if (series.type === "line") {
+    if (series.type === 'line') {
       // Line intro reveal: left-to-right plot scissor.
       if (introP < 1) {
-        const w = clampInt(
-          Math.floor(plotScissor.w * introP),
-          0,
-          plotScissor.w,
-        );
+        const w = clampInt(Math.floor(plotScissor.w * introP), 0, plotScissor.w);
         if (w > 0 && plotScissor.h > 0) {
-          mainPass.setScissorRect(
-            plotScissor.x,
-            plotScissor.y,
-            w,
-            plotScissor.h,
-          );
+          mainPass.setScissorRect(plotScissor.x, plotScissor.y, w, plotScissor.h);
           renderers.lineRenderers[originalIndex].render(mainPass);
-          mainPass.setScissorRect(
-            0,
-            0,
-            gridArea.canvasWidth,
-            gridArea.canvasHeight,
-          );
+          mainPass.setScissorRect(0, 0, gridArea.canvasWidth, gridArea.canvasHeight);
         }
       } else {
-        mainPass.setScissorRect(
-          plotScissor.x,
-          plotScissor.y,
-          plotScissor.w,
-          plotScissor.h,
-        );
+        mainPass.setScissorRect(plotScissor.x, plotScissor.y, plotScissor.w, plotScissor.h);
         renderers.lineRenderers[originalIndex].render(mainPass);
-        mainPass.setScissorRect(
-          0,
-          0,
-          gridArea.canvasWidth,
-          gridArea.canvasHeight,
-        );
+        mainPass.setScissorRect(0, 0, gridArea.canvasWidth, gridArea.canvasHeight);
       }
     }
   }
@@ -824,7 +781,7 @@ export function renderSeries(
  */
 export function renderAboveSeriesAnnotations(
   annotationRenderers: AnnotationRenderers,
-  context: AboveSeriesAnnotationContext,
+  context: AboveSeriesAnnotationContext
 ): void {
   const {
     hasCartesianSeries,
@@ -843,32 +800,14 @@ export function renderAboveSeriesAnnotations(
     if (hasAbove) {
       const firstLine = referenceLineBelowCount;
       const firstMarker = markerBelowCount;
-      overlayPass.setScissorRect(
-        plotScissor.x,
-        plotScissor.y,
-        plotScissor.w,
-        plotScissor.h,
-      );
+      overlayPass.setScissorRect(plotScissor.x, plotScissor.y, plotScissor.w, plotScissor.h);
       if (referenceLineAboveCount > 0) {
-        annotationRenderers.referenceLineRendererMsaa.render(
-          overlayPass,
-          firstLine,
-          referenceLineAboveCount,
-        );
+        annotationRenderers.referenceLineRendererMsaa.render(overlayPass, firstLine, referenceLineAboveCount);
       }
       if (markerAboveCount > 0) {
-        annotationRenderers.annotationMarkerRendererMsaa.render(
-          overlayPass,
-          firstMarker,
-          markerAboveCount,
-        );
+        annotationRenderers.annotationMarkerRendererMsaa.render(overlayPass, firstMarker, markerAboveCount);
       }
-      overlayPass.setScissorRect(
-        0,
-        0,
-        gridArea.canvasWidth,
-        gridArea.canvasHeight,
-      );
+      overlayPass.setScissorRect(0, 0, gridArea.canvasWidth, gridArea.canvasHeight);
     }
   }
 }

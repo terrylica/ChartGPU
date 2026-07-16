@@ -71,9 +71,7 @@ export interface CategoryScale {
 
 const assertFinite = (label: string, value: number): void => {
   if (!Number.isFinite(value)) {
-    throw new Error(
-      `${label} must be a finite number. Received: ${String(value)}`,
-    );
+    throw new Error(`${label} must be a finite number. Received: ${String(value)}`);
   }
 };
 
@@ -91,16 +89,16 @@ export function createLinearScale(): LinearScale {
 
   const self: LinearScale = {
     domain(min: number, max: number) {
-      assertFinite("domain min", min);
-      assertFinite("domain max", max);
+      assertFinite('domain min', min);
+      assertFinite('domain max', max);
       domainMin = min;
       domainMax = max;
       return self;
     },
 
     range(min: number, max: number) {
-      assertFinite("range min", min);
-      assertFinite("range max", max);
+      assertFinite('range min', min);
+      assertFinite('range max', max);
       rangeMin = min;
       rangeMax = max;
       return self;
@@ -156,9 +154,7 @@ export function createCategoryScale(): CategoryScale {
       const c = nextCategories[i];
       // Enforce uniqueness to avoid ambiguous mapping
       if (nextIndex.has(c)) {
-        throw new Error(
-          `Category domain must not contain duplicates. Duplicate: ${JSON.stringify(c)}`,
-        );
+        throw new Error(`Category domain must not contain duplicates. Duplicate: ${JSON.stringify(c)}`);
       }
       nextIndex.set(c, i);
     }
@@ -173,8 +169,8 @@ export function createCategoryScale(): CategoryScale {
     },
 
     range(min: number, max: number) {
-      assertFinite("range min", min);
-      assertFinite("range max", max);
+      assertFinite('range min', min);
+      assertFinite('range max', max);
       rangeMin = min;
       rangeMax = max;
       return self;

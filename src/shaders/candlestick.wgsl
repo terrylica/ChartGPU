@@ -1,18 +1,21 @@
 // candlestick.wgsl
 // Instanced candlestick shader (bodies + wicks):
-// - Per-instance vertex input:
-//   - xClip, openClip, closeClip, lowClip, highClip, bodyWidthClip (6 floats)
+// - Per-instance vertex input is in **relative domain space** (issue 1.3):
+//   - x = timestamp - packingOrigin (f32-safe; ms epoch collapses as absolute f32)
+//   - open, close, low, high, bodyWidthDomain (5 more floats)
 //   - bodyColor rgba (4 floats)
+// - Geometry is expanded in relative domain; VSUniforms.transform maps →clip
+//   with origin baked into the translation column (bx' = bx + ax * packingOrigin).
+// - wickWidth is also domain units (CSS px converted each frame) so pan/zoom
+//   updates uniforms only when instance layout is stable.
 // - Draw call: draw(18, instanceCount) using triangle-list expansion in VS
 //   - vertices 0-5: body quad (2 triangles)
 //   - vertices 6-11: upper wick (2 triangles)
 //   - vertices 12-17: lower wick (2 triangles)
-// - Uniforms:
-//   - @group(0) @binding(0): VSUniforms { transform, wickWidthClip }
 
 struct VSUniforms {
   transform: mat4x4<f32>,
-  wickWidthClip: f32,
+  wickWidth: f32,
   _pad0: f32,
   _pad1: f32,
   _pad2: f32,
@@ -21,12 +24,12 @@ struct VSUniforms {
 @group(0) @binding(0) var<uniform> vsUniforms: VSUniforms;
 
 struct VSIn {
-  @location(0) xClip: f32,
-  @location(1) openClip: f32,
-  @location(2) closeClip: f32,
-  @location(3) lowClip: f32,
-  @location(4) highClip: f32,
-  @location(5) bodyWidthClip: f32,
+  @location(0) x: f32,
+  @location(1) open: f32,
+  @location(2) close: f32,
+  @location(3) low: f32,
+  @location(4) high: f32,
+  @location(5) bodyWidth: f32,
   @location(6) bodyColor: vec4<f32>,
 };
 
@@ -37,15 +40,15 @@ struct VSOut {
 
 @vertex
 fn vsMain(in: VSIn, @builtin(vertex_index) vertexIndex: u32) -> VSOut {
-  // Compute body bounds
-  let bodyTop = max(in.openClip, in.closeClip);
-  let bodyBottom = min(in.openClip, in.closeClip);
-  let bodyLeft = in.xClip - in.bodyWidthClip * 0.5;
-  let bodyRight = in.xClip + in.bodyWidthClip * 0.5;
+  // Domain-space body bounds (transform maps to clip)
+  let bodyTop = max(in.open, in.close);
+  let bodyBottom = min(in.open, in.close);
+  let bodyLeft = in.x - in.bodyWidth * 0.5;
+  let bodyRight = in.x + in.bodyWidth * 0.5;
 
-  // Wick bounds
-  let wickLeft = in.xClip - vsUniforms.wickWidthClip * 0.5;
-  let wickRight = in.xClip + vsUniforms.wickWidthClip * 0.5;
+  // Wick bounds (wickWidth is domain units converted from CSS px each frame)
+  let wickLeft = in.x - vsUniforms.wickWidth * 0.5;
+  let wickRight = in.x + vsUniforms.wickWidth * 0.5;
 
   var pos: vec2<f32>;
 
@@ -64,7 +67,7 @@ fn vsMain(in: VSIn, @builtin(vertex_index) vertexIndex: u32) -> VSOut {
     let bodyMax = vec2<f32>(bodyRight, bodyTop);
     pos = bodyMin + corner * (bodyMax - bodyMin);
   } else if (vertexIndex < 12u) {
-    // Upper wick (vertices 6-11): from bodyTop to highClip
+    // Upper wick (vertices 6-11): from bodyTop to high
     let idx = vertexIndex - 6u;
     let corners = array<vec2<f32>, 6>(
       vec2<f32>(0.0, 0.0),
@@ -76,10 +79,10 @@ fn vsMain(in: VSIn, @builtin(vertex_index) vertexIndex: u32) -> VSOut {
     );
     let corner = corners[idx];
     let wickMin = vec2<f32>(wickLeft, bodyTop);
-    let wickMax = vec2<f32>(wickRight, in.highClip);
+    let wickMax = vec2<f32>(wickRight, in.high);
     pos = wickMin + corner * (wickMax - wickMin);
   } else {
-    // Lower wick (vertices 12-17): from lowClip to bodyBottom
+    // Lower wick (vertices 12-17): from low to bodyBottom
     let idx = vertexIndex - 12u;
     let corners = array<vec2<f32>, 6>(
       vec2<f32>(0.0, 0.0),
@@ -90,7 +93,7 @@ fn vsMain(in: VSIn, @builtin(vertex_index) vertexIndex: u32) -> VSOut {
       vec2<f32>(1.0, 1.0)
     );
     let corner = corners[idx];
-    let wickMin = vec2<f32>(wickLeft, in.lowClip);
+    let wickMin = vec2<f32>(wickLeft, in.low);
     let wickMax = vec2<f32>(wickRight, bodyBottom);
     pos = wickMin + corner * (wickMax - wickMin);
   }

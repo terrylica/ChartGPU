@@ -12,8 +12,8 @@ import type {
   ResolvedChartGPUOptions,
   ResolvedPieSeriesConfig,
   ResolvedSeriesConfig,
-} from "../../../config/OptionResolver";
-import type { DataPoint } from "../../../config/types";
+} from '../../../config/OptionResolver';
+import type { DataPoint } from '../../../config/types';
 
 type WithContentHash = {
   readonly contentHash?: number;
@@ -38,8 +38,8 @@ type WithContentHash = {
  * if a caller/test manually supplies hashes.
  */
 export function didSeriesDataLikelyChange(
-  prev: ResolvedChartGPUOptions["series"],
-  next: ResolvedChartGPUOptions["series"],
+  prev: ResolvedChartGPUOptions['series'],
+  next: ResolvedChartGPUOptions['series']
 ): boolean {
   if (prev.length !== next.length) return true;
   for (let i = 0; i < prev.length; i++) {
@@ -47,7 +47,7 @@ export function didSeriesDataLikelyChange(
     const b = next[i]!;
     if (a.type !== b.type) return true;
 
-    if (a.type === "pie") {
+    if (a.type === 'pie') {
       const aPie = a as ResolvedPieSeriesConfig;
       const bPie = b as ResolvedPieSeriesConfig;
       if (aPie.data !== bPie.data) return true;
@@ -60,18 +60,14 @@ export function didSeriesDataLikelyChange(
       if (aRaw !== bRaw) return true;
       // Same ref: prefer contentHash when both present (in-place mutation).
       if (
-        typeof aAny.contentHash === "number" &&
-        typeof bAny.contentHash === "number" &&
+        typeof aAny.contentHash === 'number' &&
+        typeof bAny.contentHash === 'number' &&
         aAny.contentHash !== bAny.contentHash
       ) {
         return true;
       }
       // Fallback length check for arrays without hash (defensive).
-      if (
-        Array.isArray(aRaw) &&
-        Array.isArray(bRaw) &&
-        aRaw.length !== bRaw.length
-      ) {
+      if (Array.isArray(aRaw) && Array.isArray(bRaw) && aRaw.length !== bRaw.length) {
         return true;
       }
     }
@@ -84,9 +80,9 @@ export function didSeriesDataLikelyChange(
  * see `isGpuDecimationEligible`).
  */
 export function lineHasAreaStyle(series: unknown): boolean {
-  if (!series || typeof series !== "object") return false;
+  if (!series || typeof series !== 'object') return false;
   const s = series as { readonly type?: string; readonly areaStyle?: unknown };
-  return s.type === "line" && s.areaStyle != null;
+  return s.type === 'line' && s.areaStyle != null;
 }
 
 /**
@@ -95,8 +91,8 @@ export function lineHasAreaStyle(series: unknown): boolean {
  * These force baseline re-sample even when the raw data reference is stable.
  */
 export function didSamplingConfigChange(
-  prev: ResolvedChartGPUOptions["series"],
-  next: ResolvedChartGPUOptions["series"],
+  prev: ResolvedChartGPUOptions['series'],
+  next: ResolvedChartGPUOptions['series']
 ): boolean {
   if (prev.length !== next.length) return true;
   for (let i = 0; i < prev.length; i++) {
@@ -116,12 +112,10 @@ export function didSamplingConfigChange(
  * Presentation-only updates (theme, colors, names, legend, tooltip) return false.
  */
 export function shouldRecomputeBaselineSampling(
-  prev: ResolvedChartGPUOptions["series"],
-  next: ResolvedChartGPUOptions["series"],
+  prev: ResolvedChartGPUOptions['series'],
+  next: ResolvedChartGPUOptions['series']
 ): boolean {
-  return (
-    didSeriesDataLikelyChange(prev, next) || didSamplingConfigChange(prev, next)
-  );
+  return didSeriesDataLikelyChange(prev, next) || didSamplingConfigChange(prev, next);
 }
 
 type WithRawBoundsMeta = {
@@ -143,27 +137,23 @@ type WithRawBoundsMeta = {
  * Used when setOptions is presentation-only so series colors/styles update without LTTB.
  */
 export function patchSeriesPresentationKeepingSampledData(
-  nextSeries: ResolvedChartGPUOptions["series"],
-  previousSampled: ReadonlyArray<ResolvedSeriesConfig>,
+  nextSeries: ResolvedChartGPUOptions['series'],
+  previousSampled: ReadonlyArray<ResolvedSeriesConfig>
 ): ResolvedSeriesConfig[] {
   const out: ResolvedSeriesConfig[] = new Array(nextSeries.length);
   for (let i = 0; i < nextSeries.length; i++) {
     const next = nextSeries[i]!;
     const prev = previousSampled[i];
-    if (!prev || prev.type !== next.type || next.type === "pie") {
+    if (!prev || prev.type !== next.type || next.type === 'pie') {
       out[i] = next;
       continue;
     }
     const prevAny = prev as ResolvedSeriesConfig & WithRawBoundsMeta;
     const nextAny = next as WithRawBoundsMeta;
-    const modeChanged =
-      nextAny.rawBoundsMode != null &&
-      nextAny.rawBoundsMode !== prevAny.rawBoundsMode;
+    const modeChanged = nextAny.rawBoundsMode != null && nextAny.rawBoundsMode !== prevAny.rawBoundsMode;
     // When axes explicitness changes, OptionResolver recomputed data-driven or
     // synthetic bounds — must not keep sticky prev.rawBounds (synthetic→auto).
-    const rawBounds = modeChanged
-      ? (nextAny.rawBounds ?? prevAny.rawBounds)
-      : (prevAny.rawBounds ?? nextAny.rawBounds);
+    const rawBounds = modeChanged ? (nextAny.rawBounds ?? prevAny.rawBounds) : (prevAny.rawBounds ?? nextAny.rawBounds);
     const rawBoundsMode = modeChanged
       ? (nextAny.rawBoundsMode ?? prevAny.rawBoundsMode)
       : (prevAny.rawBoundsMode ?? nextAny.rawBoundsMode);
@@ -174,9 +164,9 @@ export function patchSeriesPresentationKeepingSampledData(
       ...(rawBoundsMode != null ? { rawBoundsMode } : {}),
       data: prevAny.data ?? nextAny.data,
       // Keep prior hash so later dirty checks stay consistent with retained content.
-      ...(typeof prevAny.contentHash === "number"
+      ...(typeof prevAny.contentHash === 'number'
         ? { contentHash: prevAny.contentHash }
-        : typeof nextAny.contentHash === "number"
+        : typeof nextAny.contentHash === 'number'
           ? { contentHash: nextAny.contentHash }
           : {}),
     } as ResolvedSeriesConfig;
@@ -190,22 +180,18 @@ export function patchSeriesPresentationKeepingSampledData(
  * bounds stores that may still hold synthetic extents.
  */
 export function didRawBoundsModeChange(
-  prev: ResolvedChartGPUOptions["series"],
-  next: ResolvedChartGPUOptions["series"],
+  prev: ResolvedChartGPUOptions['series'],
+  next: ResolvedChartGPUOptions['series']
 ): boolean {
   const n = Math.min(prev.length, next.length);
   for (let i = 0; i < n; i++) {
     const aSeries = prev[i];
     const bSeries = next[i];
     if (!aSeries || !bSeries) continue;
-    if (aSeries.type === "pie" || bSeries.type === "pie") continue;
+    if (aSeries.type === 'pie' || bSeries.type === 'pie') continue;
     const a = aSeries as WithRawBoundsMeta;
     const b = bSeries as WithRawBoundsMeta;
-    if (
-      b.rawBoundsMode != null &&
-      a.rawBoundsMode != null &&
-      b.rawBoundsMode !== a.rawBoundsMode
-    ) {
+    if (b.rawBoundsMode != null && a.rawBoundsMode != null && b.rawBoundsMode !== a.rawBoundsMode) {
       return true;
     }
   }

@@ -1,8 +1,4 @@
-import type {
-  ChartGPU,
-  ChartGPUCrosshairMovePayload,
-  ChartGPUZoomRangeChangePayload,
-} from "../ChartGPU";
+import type { ChartGPU, ChartGPUCrosshairMovePayload, ChartGPUZoomRangeChangePayload } from '../ChartGPU';
 
 export type DisconnectCharts = () => void;
 
@@ -30,14 +26,11 @@ export type ChartSyncOptions = Readonly<{
  * - Enable zoom sync via `{ syncZoom: true }`.
  * - Uses a per-connection loop guard to prevent feedback.
  */
-export function connectCharts(
-  charts: ChartGPU[],
-  options?: ChartSyncOptions,
-): DisconnectCharts {
+export function connectCharts(charts: ChartGPU[], options?: ChartSyncOptions): DisconnectCharts {
   const syncCrosshair = options?.syncCrosshair ?? true;
   const syncZoom = options?.syncZoom ?? false;
 
-  const connectionToken = Symbol("ChartGPU.connectCharts");
+  const connectionToken = Symbol('ChartGPU.connectCharts');
 
   let disconnected = false;
   const unsubscribeFns: Array<() => void> = [];
@@ -51,10 +44,7 @@ export function connectCharts(
   let lastZoomStart = 0;
   let lastZoomEnd = 100;
 
-  const broadcastCrosshair = (
-    sourceChart: ChartGPU,
-    x: number | null,
-  ): void => {
+  const broadcastCrosshair = (sourceChart: ChartGPU, x: number | null): void => {
     // Early-exit: avoid iteration if value unchanged (reduces work on repeated pointer moves at same x).
     if (hasLastCrosshair && x === lastCrosshairX) return;
     hasLastCrosshair = true;
@@ -67,11 +57,7 @@ export function connectCharts(
     }
   };
 
-  const broadcastZoom = (
-    sourceChart: ChartGPU,
-    start: number,
-    end: number,
-  ): void => {
+  const broadcastZoom = (sourceChart: ChartGPU, start: number, end: number): void => {
     // Early-exit: avoid iteration if range unchanged (reduces work on redundant zoom events).
     if (hasLastZoom && start === lastZoomStart && end === lastZoomEnd) return;
     hasLastZoom = true;
@@ -96,25 +82,23 @@ export function connectCharts(
         broadcastCrosshair(chart, payload.x);
       };
 
-      chart.on("crosshairMove", onCrosshairMove);
-      const unsub = (): void => chart.off("crosshairMove", onCrosshairMove);
+      chart.on('crosshairMove', onCrosshairMove);
+      const unsub = (): void => chart.off('crosshairMove', onCrosshairMove);
       unsubscribeFns.push(unsub);
     }
 
     if (syncZoom) {
-      const onZoomRangeChange = (
-        payload: ChartGPUZoomRangeChangePayload,
-      ): void => {
+      const onZoomRangeChange = (payload: ChartGPUZoomRangeChangePayload): void => {
         if (disconnected) return;
         if (payload.source === connectionToken) return;
         // Ignore auto-scroll zoom changes to prevent syncing streaming-induced zoom adjustments
-        if (payload.sourceKind === "auto-scroll") return;
+        if (payload.sourceKind === 'auto-scroll') return;
         if (chart.disposed) return;
         broadcastZoom(chart, payload.start, payload.end);
       };
 
-      chart.on("zoomRangeChange", onZoomRangeChange);
-      const unsub = (): void => chart.off("zoomRangeChange", onZoomRangeChange);
+      chart.on('zoomRangeChange', onZoomRangeChange);
+      const unsub = (): void => chart.off('zoomRangeChange', onZoomRangeChange);
       unsubscribeFns.push(unsub);
     }
   }

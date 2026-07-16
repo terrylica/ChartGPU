@@ -5,10 +5,10 @@
  * plus convenience helpers for stats and disposal.
  */
 
-export type { PipelineCache, PipelineCacheStats } from "./PipelineCache";
-export { createPipelineCache } from "./PipelineCache";
+export type { PipelineCache, PipelineCacheStats } from './PipelineCache';
+export { createPipelineCache } from './PipelineCache';
 
-import type { PipelineCache, PipelineCacheStats } from "./PipelineCache";
+import type { PipelineCache, PipelineCacheStats } from './PipelineCache';
 
 /**
  * Gets statistics for a pipeline cache.
@@ -16,9 +16,7 @@ import type { PipelineCache, PipelineCacheStats } from "./PipelineCache";
  * @param cache - The pipeline cache to query
  * @returns Cache statistics including hit/miss counts and pipeline count
  */
-export function getPipelineCacheStats(
-  cache: PipelineCache,
-): PipelineCacheStats {
+export function getPipelineCacheStats(cache: PipelineCache): PipelineCacheStats {
   return cache.getStats();
 }
 

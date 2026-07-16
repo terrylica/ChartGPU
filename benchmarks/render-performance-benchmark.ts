@@ -5,7 +5,7 @@
  * profiling infrastructure (PerformanceProfiler).  Exercises the critical
  * paths exercised on every frame:
  *
- *   1. Data packing            – DataPoint[] → Float32Array
+ *   1. Data packing            – packXYInto into staging (production path)
  *   2. LTTB downsampling       – 1M points → various targets
  *   3. Scale computation       – domain/range mapping
  *   4. Easing functions        – animation curve evaluation
@@ -18,7 +18,7 @@
  *   tsx benchmarks/render-performance-benchmark.ts --export-trace trace.json
  */
 
-import { packDataPoints } from '../src/data/packDataPoints';
+import { packXYInto } from '../src/data/cartesianData';
 import type { DataPoint } from '../src/config/types';
 import { createLinearScale } from '../src/utils/scales';
 import { easeCubicInOut } from '../src/utils/easing';
@@ -81,19 +81,22 @@ function benchmarkDataPacking(profiler: ReturnType<typeof createProfiler>): Benc
 
   for (const { label, count } of scales) {
     const data = generateSineData(count);
+    const staging = new Float32Array(count * 2);
     recordCounter(profiler, 'packingDataPoints', count);
     const times: number[] = [];
 
     for (let r = 0; r < runs; r++) {
       const t0 = performance.now();
-      measure(profiler, `packDataPoints-${label}`, 'data', () => packDataPoints(data));
+      measure(profiler, `packXYInto-${label}`, 'data', () => {
+        packXYInto(staging, 0, data, 0, count, 0);
+      });
       const t1 = performance.now();
       times.push(t1 - t0);
     }
 
     const med = median(times);
     results.push({
-      name: 'packDataPoints',
+      name: 'packXYInto',
       scale: label,
       runs,
       medianMs: med,
@@ -231,7 +234,7 @@ function run(): void {
   const scaleResults = benchmarkScaleComputation(profiler);
   const easingResults = benchmarkEasing(profiler);
 
-  printResults('Data Packing (packDataPoints)', packResults);
+  printResults('Data Packing (packXYInto)', packResults);
   printResults('Scale Computation (linearScale)', scaleResults);
   printResults('Easing Functions (easeCubicInOut)', easingResults);
 

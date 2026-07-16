@@ -11,9 +11,19 @@ This document is intentionally **short**. It’s a map to the internal modules t
 ## Data pipeline (internal)
 
 - **Data store + GPU uploads**: [`createDataStore.ts`](../../src/data/createDataStore.ts)
+- **Series residency + upload policy** (issue 3.4): [`seriesResidency.ts`](../../src/data/seriesResidency.ts) — shared verbs (`skip` | `rangedAppend` | `fullRewrite` | `growWithGpuCopy`). **Scatter and candlestick** call `resolveUploadPolicy` for geometry-cache skip decisions. Line/DataStore keep equivalent inlined policy (same verbs). Area shares line storage only when chronological (linear layout or decimation output).
+- **`mappedAtCreation`**: Still **unused** in production series paths (default remains `queue.writeBuffer`). Performance canvas task “Use mappedAtCreation for Initial Uploads” is **incomplete** — do not treat as done.
 - **Streaming GPU buffers** (double-buffered): [`createStreamBuffer.ts`](../../src/data/createStreamBuffer.ts)
 - **CPU downsampling (LTTB helper)**: [`lttbSample.ts`](../../src/data/lttbSample.ts)
 - **Content stamps / rewrite detect**: [`seriesContentHash.ts`](../../src/data/seriesContentHash.ts), [`seriesRewriteDetect.ts`](../../src/data/seriesRewriteDetect.ts)
+
+### Upload residuals (documented intentionally)
+
+| Residual | Choice | Notes |
+|----------|--------|--------|
+| **Y-only rewrite** (2.1) | **Accept residual GPU bandwidth** | CPU packs y-only when x matches staging; GPU is still a full interleaved `writeBuffer` of N×8 (WebGPU has no strided write). Full FNV is skipped when y-only proved change (cheap stamp for decimation). |
+| **CPU zoom pan** (2.2) | **Debounced resample** | Non–GPU-eligible series still full-`setSeries` on zoom debounce fire. GPU-eligible lines keep raw resident (zero raw re-upload on pan). Holding previous sample under clip mid-pan is not wired (would need a dedicated hold buffer). |
+| **Update animation** (2.3) | **Full re-upload while interpolating** | Identity caches clear every frame (correctness under in-place mutation). N>20k skips lerp. GPU-side lerp dual-buffer is deferred. |
 
 ### Full-series rewrite contracts (SciChart-style setOption)
 

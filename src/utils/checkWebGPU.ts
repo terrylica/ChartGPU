@@ -49,17 +49,17 @@ export async function checkWebGPUSupport(): Promise<WebGPUSupportResult> {
   // Create and cache the promise
   cachedSupportCheck = (async (): Promise<WebGPUSupportResult> => {
     // SSR-safe checks: ensure we're in a browser environment
-    if (typeof window === "undefined") {
+    if (typeof window === 'undefined') {
       return {
         supported: false,
-        reason: "Not running in a browser environment (window is undefined).",
+        reason: 'Not running in a browser environment (window is undefined).',
       };
     }
 
-    if (typeof navigator === "undefined") {
+    if (typeof navigator === 'undefined') {
       return {
         supported: false,
-        reason: "Navigator is not available in this environment.",
+        reason: 'Navigator is not available in this environment.',
       };
     }
 
@@ -67,8 +67,7 @@ export async function checkWebGPUSupport(): Promise<WebGPUSupportResult> {
     if (!navigator.gpu) {
       return {
         supported: false,
-        reason:
-          "WebGPU API (navigator.gpu) is not available. Your browser does not support WebGPU.",
+        reason: 'WebGPU API (navigator.gpu) is not available. Your browser does not support WebGPU.',
       };
     }
 
@@ -76,7 +75,7 @@ export async function checkWebGPUSupport(): Promise<WebGPUSupportResult> {
     try {
       // First attempt: high-performance adapter (aligns with GPUContext behavior)
       let adapter = await navigator.gpu.requestAdapter({
-        powerPreference: "high-performance",
+        powerPreference: 'high-performance',
       });
 
       // Second attempt: default adapter if high-performance is unavailable
@@ -89,7 +88,7 @@ export async function checkWebGPUSupport(): Promise<WebGPUSupportResult> {
         return {
           supported: false,
           reason:
-            "No compatible WebGPU adapter found. This may occur if: (1) no GPU is available, (2) GPU drivers are outdated or incompatible, (3) running in a VM or headless environment, or (4) WebGPU is disabled in browser settings.",
+            'No compatible WebGPU adapter found. This may occur if: (1) no GPU is available, (2) GPU drivers are outdated or incompatible, (3) running in a VM or headless environment, or (4) WebGPU is disabled in browser settings.',
         };
       }
 
@@ -99,7 +98,7 @@ export async function checkWebGPUSupport(): Promise<WebGPUSupportResult> {
       return { supported: true };
     } catch (error) {
       // Adapter request threw an error
-      let reason = "Failed to request WebGPU adapter.";
+      let reason = 'Failed to request WebGPU adapter.';
 
       // Try to extract useful error information
       if (error instanceof DOMException) {

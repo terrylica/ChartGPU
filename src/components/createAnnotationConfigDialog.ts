@@ -7,7 +7,7 @@
  * - Label, color, marker size (for point annotations)
  */
 
-import type { AnnotationConfig } from "../config/types.js";
+import type { AnnotationConfig } from '../config/types.js';
 
 export interface AnnotationConfigDialogOptions {
   readonly palette?: readonly string[];
@@ -16,16 +16,16 @@ export interface AnnotationConfigDialogOptions {
 
 export interface AnnotationConfigDialog {
   showCreate(
-    annotationType: "lineX" | "lineY" | "text" | "point",
+    annotationType: 'lineX' | 'lineY' | 'text' | 'point',
     defaults: Partial<AnnotationConfig>,
     onSave: (config: AnnotationConfig) => void,
-    onCancel: () => void,
+    onCancel: () => void
   ): void;
 
   showEdit(
     annotation: AnnotationConfig,
     onSave: (updates: Partial<AnnotationConfig>) => void,
-    onCancel: () => void,
+    onCancel: () => void
   ): void;
 
   hide(): void;
@@ -33,18 +33,18 @@ export interface AnnotationConfigDialog {
 }
 
 const HIGH_CONTRAST_PALETTE = [
-  "#ef4444", // Red (critical)
-  "#f97316", // Orange (warning)
-  "#eab308", // Yellow (caution)
-  "#22c55e", // Green (success)
-  "#06b6d4", // Cyan (info)
-  "#3b82f6", // Blue (primary)
-  "#8b5cf6", // Purple (accent)
-  "#ec4899", // Pink (highlight)
-  "#ffffff", // White (high contrast)
-  "#94a3b8", // Gray (neutral)
-  "#64748b", // Dark gray (subtle)
-  "#1e293b", // Near-black (background)
+  '#ef4444', // Red (critical)
+  '#f97316', // Orange (warning)
+  '#eab308', // Yellow (caution)
+  '#22c55e', // Green (success)
+  '#06b6d4', // Cyan (info)
+  '#3b82f6', // Blue (primary)
+  '#8b5cf6', // Purple (accent)
+  '#ec4899', // Pink (highlight)
+  '#ffffff', // White (high contrast)
+  '#94a3b8', // Gray (neutral)
+  '#64748b', // Dark gray (subtle)
+  '#1e293b', // Near-black (background)
 ] as const;
 
 /**
@@ -52,7 +52,7 @@ const HIGH_CONTRAST_PALETTE = [
  */
 export function createAnnotationConfigDialog(
   container: HTMLElement,
-  options: AnnotationConfigDialogOptions = {},
+  options: AnnotationConfigDialogOptions = {}
 ): AnnotationConfigDialog {
   const palette = options.palette ?? HIGH_CONTRAST_PALETTE;
   const zIndex = options.zIndex ?? 1000;
@@ -61,13 +61,13 @@ export function createAnnotationConfigDialog(
   let dialog: HTMLDivElement | null = null;
   let currentOnSave: ((config: any) => void) | null = null;
   let currentOnCancel: (() => void) | null = null;
-  let mode: "create" | "edit" = "create";
+  let mode: 'create' | 'edit' = 'create';
 
   /**
    * Create the modal overlay
    */
   function createOverlay(): HTMLDivElement {
-    const div = document.createElement("div");
+    const div = document.createElement('div');
     div.style.cssText = `
       position: fixed;
       top: 0;
@@ -80,7 +80,7 @@ export function createAnnotationConfigDialog(
       align-items: center;
       justify-content: center;
     `;
-    div.addEventListener("click", (e) => {
+    div.addEventListener('click', (e) => {
       if (e.target === div) {
         handleCancel();
       }
@@ -92,7 +92,7 @@ export function createAnnotationConfigDialog(
    * Create the dialog box
    */
   function createDialog(): HTMLDivElement {
-    const div = document.createElement("div");
+    const div = document.createElement('div');
     div.style.cssText = `
       width: 320px;
       background: #1a1a2e;
@@ -110,12 +110,12 @@ export function createAnnotationConfigDialog(
    * Create a form field container
    */
   function createField(label: string, input: HTMLElement): HTMLDivElement {
-    const field = document.createElement("div");
+    const field = document.createElement('div');
     field.style.cssText = `
       margin-bottom: 16px;
     `;
 
-    const labelEl = document.createElement("label");
+    const labelEl = document.createElement('label');
     labelEl.textContent = label;
     labelEl.style.cssText = `
       display: block;
@@ -133,13 +133,9 @@ export function createAnnotationConfigDialog(
   /**
    * Create a text input
    */
-  function createTextInput(
-    placeholder: string,
-    maxLength: number,
-    defaultValue = "",
-  ): HTMLInputElement {
-    const input = document.createElement("input");
-    input.type = "text";
+  function createTextInput(placeholder: string, maxLength: number, defaultValue = ''): HTMLInputElement {
+    const input = document.createElement('input');
+    input.type = 'text';
     input.placeholder = placeholder;
     input.maxLength = maxLength;
     input.value = defaultValue;
@@ -153,11 +149,11 @@ export function createAnnotationConfigDialog(
       font-size: 14px;
       box-sizing: border-box;
     `;
-    input.addEventListener("focus", () => {
-      input.style.borderColor = "#3b82f6";
+    input.addEventListener('focus', () => {
+      input.style.borderColor = '#3b82f6';
     });
-    input.addEventListener("blur", () => {
-      input.style.borderColor = "#444";
+    input.addEventListener('blur', () => {
+      input.style.borderColor = '#444';
     });
     return input;
   }
@@ -165,12 +161,8 @@ export function createAnnotationConfigDialog(
   /**
    * Create a textarea
    */
-  function createTextArea(
-    placeholder: string,
-    maxLength: number,
-    defaultValue = "",
-  ): HTMLTextAreaElement {
-    const textarea = document.createElement("textarea");
+  function createTextArea(placeholder: string, maxLength: number, defaultValue = ''): HTMLTextAreaElement {
+    const textarea = document.createElement('textarea');
     textarea.placeholder = placeholder;
     textarea.maxLength = maxLength;
     textarea.value = defaultValue;
@@ -187,11 +179,11 @@ export function createAnnotationConfigDialog(
       resize: vertical;
       font-family: inherit;
     `;
-    textarea.addEventListener("focus", () => {
-      textarea.style.borderColor = "#3b82f6";
+    textarea.addEventListener('focus', () => {
+      textarea.style.borderColor = '#3b82f6';
     });
-    textarea.addEventListener("blur", () => {
-      textarea.style.borderColor = "#444";
+    textarea.addEventListener('blur', () => {
+      textarea.style.borderColor = '#444';
     });
     return textarea;
   }
@@ -203,7 +195,7 @@ export function createAnnotationConfigDialog(
     container: HTMLDivElement;
     getValue: () => string;
   } {
-    const container = document.createElement("div");
+    const container = document.createElement('div');
     container.style.cssText = `
       display: grid;
       grid-template-columns: repeat(4, 1fr);
@@ -214,8 +206,8 @@ export function createAnnotationConfigDialog(
 
     palette.forEach((color) => {
       // Button wrapper for swatch
-      const swatch = document.createElement("button");
-      swatch.type = "button";
+      const swatch = document.createElement('button');
+      swatch.type = 'button';
       swatch.dataset.color = color; // Store color for reliable comparison
       swatch.style.cssText = `
         position: relative;
@@ -226,17 +218,14 @@ export function createAnnotationConfigDialog(
         border-radius: 4px;
         cursor: pointer;
         transition: transform 0.15s ease-out, box-shadow 0.15s ease-out;
-        box-shadow: ${color === currentColor ? "inset 0 0 0 2px #ffffff, inset 0 0 0 3px rgba(0, 0, 0, 0.3), 0 2px 8px rgba(0, 0, 0, 0.3)" : "inset 0 0 0 1px rgba(255, 255, 255, 0.1)"};
-        transform: ${color === currentColor ? "scale(1.05)" : "scale(1)"};
+        box-shadow: ${color === currentColor ? 'inset 0 0 0 2px #ffffff, inset 0 0 0 3px rgba(0, 0, 0, 0.3), 0 2px 8px rgba(0, 0, 0, 0.3)' : 'inset 0 0 0 1px rgba(255, 255, 255, 0.1)'};
+        transform: ${color === currentColor ? 'scale(1.05)' : 'scale(1)'};
       `;
 
       // Create checkmark SVG for selected state
-      const checkmark = document.createElementNS(
-        "http://www.w3.org/2000/svg",
-        "svg",
-      );
-      checkmark.setAttribute("viewBox", "0 0 24 24");
-      checkmark.setAttribute("fill", "none");
+      const checkmark = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      checkmark.setAttribute('viewBox', '0 0 24 24');
+      checkmark.setAttribute('fill', 'none');
       checkmark.style.cssText = `
         position: absolute;
         top: 50%;
@@ -245,20 +234,17 @@ export function createAnnotationConfigDialog(
         width: 60%;
         height: 60%;
         pointer-events: none;
-        opacity: ${color === currentColor ? "1" : "0"};
+        opacity: ${color === currentColor ? '1' : '0'};
         transition: opacity 0.15s ease-out;
       `;
 
       // Checkmark path with dual stroke for maximum contrast
-      const path = document.createElementNS(
-        "http://www.w3.org/2000/svg",
-        "path",
-      );
-      path.setAttribute("d", "M20 6L9 17l-5-5");
-      path.setAttribute("stroke", "#ffffff");
-      path.setAttribute("stroke-width", "3");
-      path.setAttribute("stroke-linecap", "round");
-      path.setAttribute("stroke-linejoin", "round");
+      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      path.setAttribute('d', 'M20 6L9 17l-5-5');
+      path.setAttribute('stroke', '#ffffff');
+      path.setAttribute('stroke-width', '3');
+      path.setAttribute('stroke-linecap', 'round');
+      path.setAttribute('stroke-linejoin', 'round');
       path.style.cssText = `
         filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.8)) drop-shadow(0 0 1px rgba(0, 0, 0, 0.9));
       `;
@@ -267,7 +253,7 @@ export function createAnnotationConfigDialog(
       swatch.appendChild(checkmark);
 
       // Click handler
-      swatch.addEventListener("click", () => {
+      swatch.addEventListener('click', () => {
         currentColor = color;
         // Update all swatches
         Array.from(container.children).forEach((child) => {
@@ -277,33 +263,32 @@ export function createAnnotationConfigDialog(
 
           // Update box-shadow for border effect
           btn.style.boxShadow = isSelected
-            ? "inset 0 0 0 2px #ffffff, inset 0 0 0 3px rgba(0, 0, 0, 0.3), 0 2px 8px rgba(0, 0, 0, 0.3)"
-            : "inset 0 0 0 1px rgba(255, 255, 255, 0.1)";
+            ? 'inset 0 0 0 2px #ffffff, inset 0 0 0 3px rgba(0, 0, 0, 0.3), 0 2px 8px rgba(0, 0, 0, 0.3)'
+            : 'inset 0 0 0 1px rgba(255, 255, 255, 0.1)';
 
           // Update scale
-          btn.style.transform = isSelected ? "scale(1.05)" : "scale(1)";
+          btn.style.transform = isSelected ? 'scale(1.05)' : 'scale(1)';
 
           // Update checkmark visibility
-          const svg = btn.querySelector("svg");
+          const svg = btn.querySelector('svg');
           if (svg) {
-            svg.style.opacity = isSelected ? "1" : "0";
+            svg.style.opacity = isSelected ? '1' : '0';
           }
         });
       });
 
       // Hover effects
-      swatch.addEventListener("mouseenter", () => {
+      swatch.addEventListener('mouseenter', () => {
         if (color !== currentColor) {
-          swatch.style.transform = "scale(1.1)";
-          swatch.style.boxShadow =
-            "inset 0 0 0 2px rgba(255, 255, 255, 0.2), 0 4px 12px rgba(0, 0, 0, 0.4)";
+          swatch.style.transform = 'scale(1.1)';
+          swatch.style.boxShadow = 'inset 0 0 0 2px rgba(255, 255, 255, 0.2), 0 4px 12px rgba(0, 0, 0, 0.4)';
         }
       });
 
-      swatch.addEventListener("mouseleave", () => {
+      swatch.addEventListener('mouseleave', () => {
         if (color !== currentColor) {
-          swatch.style.transform = "scale(1)";
-          swatch.style.boxShadow = "inset 0 0 0 1px rgba(255, 255, 255, 0.1)";
+          swatch.style.transform = 'scale(1)';
+          swatch.style.boxShadow = 'inset 0 0 0 1px rgba(255, 255, 255, 0.1)';
         }
       });
 
@@ -321,9 +306,9 @@ export function createAnnotationConfigDialog(
    */
   function createDropdown(
     options: Array<{ label: string; value: string }>,
-    defaultValue: string,
+    defaultValue: string
   ): { container: HTMLSelectElement; getValue: () => string } {
-    const select = document.createElement("select");
+    const select = document.createElement('select');
     select.style.cssText = `
       width: 100%;
       padding: 8px 12px;
@@ -336,7 +321,7 @@ export function createAnnotationConfigDialog(
     `;
 
     options.forEach((opt) => {
-      const option = document.createElement("option");
+      const option = document.createElement('option');
       option.value = opt.value;
       option.textContent = opt.label;
       if (opt.value === defaultValue) {
@@ -359,17 +344,17 @@ export function createAnnotationConfigDialog(
     max: number,
     step: number,
     defaultValue: number,
-    unit = "",
+    unit = ''
   ): { container: HTMLDivElement; getValue: () => number } {
-    const container = document.createElement("div");
+    const container = document.createElement('div');
     container.style.cssText = `
       display: flex;
       align-items: center;
       gap: 12px;
     `;
 
-    const slider = document.createElement("input");
-    slider.type = "range";
+    const slider = document.createElement('input');
+    slider.type = 'range';
     slider.min = String(min);
     slider.max = String(max);
     slider.step = String(step);
@@ -379,7 +364,7 @@ export function createAnnotationConfigDialog(
       cursor: pointer;
     `;
 
-    const valueDisplay = document.createElement("span");
+    const valueDisplay = document.createElement('span');
     valueDisplay.textContent = `${defaultValue}${unit}`;
     valueDisplay.style.cssText = `
       min-width: 40px;
@@ -388,7 +373,7 @@ export function createAnnotationConfigDialog(
       color: #b0b0b0;
     `;
 
-    slider.addEventListener("input", () => {
+    slider.addEventListener('input', () => {
       valueDisplay.textContent = `${slider.value}${unit}`;
     });
 
@@ -404,12 +389,8 @@ export function createAnnotationConfigDialog(
   /**
    * Create action buttons
    */
-  function createButtons(
-    saveLabel: string,
-    onSaveClick: () => void,
-    onCancelClick: () => void,
-  ): HTMLDivElement {
-    const container = document.createElement("div");
+  function createButtons(saveLabel: string, onSaveClick: () => void, onCancelClick: () => void): HTMLDivElement {
+    const container = document.createElement('div');
     container.style.cssText = `
       display: flex;
       justify-content: flex-end;
@@ -417,9 +398,9 @@ export function createAnnotationConfigDialog(
       margin-top: 24px;
     `;
 
-    const cancelBtn = document.createElement("button");
-    cancelBtn.type = "button";
-    cancelBtn.textContent = "Cancel";
+    const cancelBtn = document.createElement('button');
+    cancelBtn.type = 'button';
+    cancelBtn.textContent = 'Cancel';
     cancelBtn.style.cssText = `
       padding: 8px 16px;
       background: transparent;
@@ -430,16 +411,16 @@ export function createAnnotationConfigDialog(
       cursor: pointer;
       transition: background 0.15s;
     `;
-    cancelBtn.addEventListener("mouseenter", () => {
-      cancelBtn.style.background = "#2a2a3e";
+    cancelBtn.addEventListener('mouseenter', () => {
+      cancelBtn.style.background = '#2a2a3e';
     });
-    cancelBtn.addEventListener("mouseleave", () => {
-      cancelBtn.style.background = "transparent";
+    cancelBtn.addEventListener('mouseleave', () => {
+      cancelBtn.style.background = 'transparent';
     });
-    cancelBtn.addEventListener("click", onCancelClick);
+    cancelBtn.addEventListener('click', onCancelClick);
 
-    const saveBtn = document.createElement("button");
-    saveBtn.type = "button";
+    const saveBtn = document.createElement('button');
+    saveBtn.type = 'button';
     saveBtn.textContent = saveLabel;
     saveBtn.style.cssText = `
       padding: 8px 16px;
@@ -452,13 +433,13 @@ export function createAnnotationConfigDialog(
       cursor: pointer;
       transition: background 0.15s;
     `;
-    saveBtn.addEventListener("mouseenter", () => {
-      saveBtn.style.background = "#3a3a4e";
+    saveBtn.addEventListener('mouseenter', () => {
+      saveBtn.style.background = '#3a3a4e';
     });
-    saveBtn.addEventListener("mouseleave", () => {
-      saveBtn.style.background = "#2a2a3e";
+    saveBtn.addEventListener('mouseleave', () => {
+      saveBtn.style.background = '#2a2a3e';
     });
-    saveBtn.addEventListener("click", onSaveClick);
+    saveBtn.addEventListener('click', onSaveClick);
 
     container.appendChild(cancelBtn);
     container.appendChild(saveBtn);
@@ -470,39 +451,29 @@ export function createAnnotationConfigDialog(
    * Build form for line annotations (lineX/lineY)
    */
   function buildLineForm(defaults: Partial<AnnotationConfig>): HTMLDivElement {
-    const form = document.createElement("div");
+    const form = document.createElement('div');
 
     // Extract label text from label object (if it exists)
-    const defaultLabelText = (defaults as any).label?.text ?? "";
-    const labelInput = createTextInput("Line label", 100, defaultLabelText);
+    const defaultLabelText = (defaults as any).label?.text ?? '';
+    const labelInput = createTextInput('Line label', 100, defaultLabelText);
     const colorPicker = createColorPicker(defaults.style?.color ?? palette[0]);
     const lineStyleDropdown = createDropdown(
       [
-        { label: "Solid", value: "solid" },
-        { label: "Dashed", value: "dashed" },
-        { label: "Dotted", value: "dotted" },
+        { label: 'Solid', value: 'solid' },
+        { label: 'Dashed', value: 'dashed' },
+        { label: 'Dotted', value: 'dotted' },
       ],
-      defaults.style?.lineDash
-        ? defaults.style.lineDash.length === 4
-          ? "dashed"
-          : "dotted"
-        : "solid",
+      defaults.style?.lineDash ? (defaults.style.lineDash.length === 4 ? 'dashed' : 'dotted') : 'solid'
     );
-    const lineWidthSlider = createSlider(
-      1,
-      8,
-      1,
-      defaults.style?.lineWidth ?? 2,
-      "px",
-    );
+    const lineWidthSlider = createSlider(1, 8, 1, defaults.style?.lineWidth ?? 2, 'px');
 
-    form.appendChild(createField("Label (optional)", labelInput));
-    form.appendChild(createField("Color", colorPicker.container));
-    form.appendChild(createField("Line Style", lineStyleDropdown.container));
-    form.appendChild(createField("Line Width", lineWidthSlider.container));
+    form.appendChild(createField('Label (optional)', labelInput));
+    form.appendChild(createField('Color', colorPicker.container));
+    form.appendChild(createField('Line Style', lineStyleDropdown.container));
+    form.appendChild(createField('Line Width', lineWidthSlider.container));
 
     const buttons = createButtons(
-      mode === "create" ? "Create" : "Save",
+      mode === 'create' ? 'Create' : 'Save',
       () => {
         const lineDashMap: Record<string, number[] | undefined> = {
           solid: undefined,
@@ -529,7 +500,7 @@ export function createAnnotationConfigDialog(
 
         handleSave(config);
       },
-      () => handleCancel(),
+      () => handleCancel()
     );
 
     form.appendChild(buttons);
@@ -541,22 +512,22 @@ export function createAnnotationConfigDialog(
    * Build form for text annotations
    */
   function buildTextForm(defaults: Partial<AnnotationConfig>): HTMLDivElement {
-    const form = document.createElement("div");
+    const form = document.createElement('div');
 
     // Extract text from text annotation
-    const defaultText = (defaults as any).text ?? "";
-    const textArea = createTextArea("Text content", 500, defaultText);
+    const defaultText = (defaults as any).text ?? '';
+    const textArea = createTextArea('Text content', 500, defaultText);
     const colorPicker = createColorPicker(defaults.style?.color ?? palette[0]);
 
-    form.appendChild(createField("Text", textArea));
-    form.appendChild(createField("Color", colorPicker.container));
+    form.appendChild(createField('Text', textArea));
+    form.appendChild(createField('Color', colorPicker.container));
 
     const buttons = createButtons(
-      mode === "create" ? "Create" : "Save",
+      mode === 'create' ? 'Create' : 'Save',
       () => {
         const text = textArea.value.trim();
         if (!text) {
-          textArea.style.borderColor = "#ef4444";
+          textArea.style.borderColor = '#ef4444';
           textArea.focus();
           return;
         }
@@ -572,7 +543,7 @@ export function createAnnotationConfigDialog(
 
         handleSave(config);
       },
-      () => handleCancel(),
+      () => handleCancel()
     );
 
     form.appendChild(buttons);
@@ -584,26 +555,23 @@ export function createAnnotationConfigDialog(
    * Build form for point annotations
    */
   function buildPointForm(defaults: Partial<AnnotationConfig>): HTMLDivElement {
-    const form = document.createElement("div");
+    const form = document.createElement('div');
 
     // Extract label text from label object (if it exists)
-    const defaultLabelText = (defaults as any).label?.text ?? "";
-    const labelInput = createTextInput("Point label", 100, defaultLabelText);
+    const defaultLabelText = (defaults as any).label?.text ?? '';
+    const labelInput = createTextInput('Point label', 100, defaultLabelText);
     const colorPicker = createColorPicker(defaults.style?.color ?? palette[0]);
 
     // For point annotations, marker style might be in marker.style or just style
-    const defaultMarkerSize =
-      (defaults as any).marker?.size ??
-      (defaults as any).marker?.style?.markerSize ??
-      8;
-    const markerSizeSlider = createSlider(4, 16, 1, defaultMarkerSize, "px");
+    const defaultMarkerSize = (defaults as any).marker?.size ?? (defaults as any).marker?.style?.markerSize ?? 8;
+    const markerSizeSlider = createSlider(4, 16, 1, defaultMarkerSize, 'px');
 
-    form.appendChild(createField("Label (optional)", labelInput));
-    form.appendChild(createField("Color", colorPicker.container));
-    form.appendChild(createField("Marker Size", markerSizeSlider.container));
+    form.appendChild(createField('Label (optional)', labelInput));
+    form.appendChild(createField('Color', colorPicker.container));
+    form.appendChild(createField('Marker Size', markerSizeSlider.container));
 
     const buttons = createButtons(
-      mode === "create" ? "Create" : "Save",
+      mode === 'create' ? 'Create' : 'Save',
       () => {
         const labelText = labelInput.value.trim();
         const config: Partial<AnnotationConfig> = {
@@ -626,7 +594,7 @@ export function createAnnotationConfigDialog(
 
         handleSave(config);
       },
-      () => handleCancel(),
+      () => handleCancel()
     );
 
     form.appendChild(buttons);
@@ -658,7 +626,7 @@ export function createAnnotationConfigDialog(
    * Handle keyboard events
    */
   function handleKeyDown(e: KeyboardEvent): void {
-    if (e.key === "Escape") {
+    if (e.key === 'Escape') {
       e.preventDefault();
       handleCancel();
     }
@@ -668,20 +636,20 @@ export function createAnnotationConfigDialog(
    * Show dialog for creating a new annotation
    */
   function showCreate(
-    type: "lineX" | "lineY" | "text" | "point",
+    type: 'lineX' | 'lineY' | 'text' | 'point',
     defaults: Partial<AnnotationConfig>,
     onSave: (config: AnnotationConfig) => void,
-    onCancel: () => void,
+    onCancel: () => void
   ): void {
-    mode = "create";
+    mode = 'create';
     currentOnSave = onSave;
     currentOnCancel = onCancel;
 
     overlay = createOverlay();
     dialog = createDialog();
 
-    const title = document.createElement("h3");
-    title.textContent = `Add ${type === "lineX" ? "Vertical Line" : type === "lineY" ? "Horizontal Line" : type === "text" ? "Text Note" : "Point Marker"}`;
+    const title = document.createElement('h3');
+    title.textContent = `Add ${type === 'lineX' ? 'Vertical Line' : type === 'lineY' ? 'Horizontal Line' : type === 'text' ? 'Text Note' : 'Point Marker'}`;
     title.style.cssText = `
       margin: 0 0 20px 0;
       font-size: 16px;
@@ -691,9 +659,9 @@ export function createAnnotationConfigDialog(
     dialog.appendChild(title);
 
     let form: HTMLDivElement;
-    if (type === "lineX" || type === "lineY") {
+    if (type === 'lineX' || type === 'lineY') {
       form = buildLineForm(defaults);
-    } else if (type === "text") {
+    } else if (type === 'text') {
       form = buildTextForm(defaults);
     } else {
       form = buildPointForm(defaults);
@@ -703,10 +671,10 @@ export function createAnnotationConfigDialog(
     overlay.appendChild(dialog);
     container.appendChild(overlay);
 
-    document.addEventListener("keydown", handleKeyDown);
+    document.addEventListener('keydown', handleKeyDown);
 
     // Focus first input
-    const firstInput = dialog.querySelector("input, textarea") as HTMLElement;
+    const firstInput = dialog.querySelector('input, textarea') as HTMLElement;
     if (firstInput) {
       setTimeout(() => firstInput.focus(), 50);
     }
@@ -718,17 +686,17 @@ export function createAnnotationConfigDialog(
   function showEdit(
     annotation: AnnotationConfig,
     onSave: (updates: Partial<AnnotationConfig>) => void,
-    onCancel: () => void,
+    onCancel: () => void
   ): void {
-    mode = "edit";
+    mode = 'edit';
     currentOnSave = onSave;
     currentOnCancel = onCancel;
 
     overlay = createOverlay();
     dialog = createDialog();
 
-    const title = document.createElement("h3");
-    title.textContent = "Edit Annotation";
+    const title = document.createElement('h3');
+    title.textContent = 'Edit Annotation';
     title.style.cssText = `
       margin: 0 0 20px 0;
       font-size: 16px;
@@ -738,9 +706,9 @@ export function createAnnotationConfigDialog(
     dialog.appendChild(title);
 
     let form: HTMLDivElement;
-    if (annotation.type === "lineX" || annotation.type === "lineY") {
+    if (annotation.type === 'lineX' || annotation.type === 'lineY') {
       form = buildLineForm(annotation);
-    } else if (annotation.type === "text") {
+    } else if (annotation.type === 'text') {
       form = buildTextForm(annotation);
     } else {
       form = buildPointForm(annotation);
@@ -750,10 +718,10 @@ export function createAnnotationConfigDialog(
     overlay.appendChild(dialog);
     container.appendChild(overlay);
 
-    document.addEventListener("keydown", handleKeyDown);
+    document.addEventListener('keydown', handleKeyDown);
 
     // Focus first input
-    const firstInput = dialog.querySelector("input, textarea") as HTMLElement;
+    const firstInput = dialog.querySelector('input, textarea') as HTMLElement;
     if (firstInput) {
       setTimeout(() => firstInput.focus(), 50);
     }
@@ -771,7 +739,7 @@ export function createAnnotationConfigDialog(
     currentOnSave = null;
     currentOnCancel = null;
 
-    document.removeEventListener("keydown", handleKeyDown);
+    document.removeEventListener('keydown', handleKeyDown);
   }
 
   /**

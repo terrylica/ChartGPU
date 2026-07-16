@@ -10,8 +10,8 @@
  * @module textureManager
  */
 
-import { createRenderPipeline } from "../../../renderers/rendererUtils";
-import type { PipelineCache } from "../../PipelineCache";
+import { createRenderPipeline } from '../../../renderers/rendererUtils';
+import type { PipelineCache } from '../../PipelineCache';
 
 /**
  * MSAA sample count for the main scene render pass.
@@ -154,9 +154,7 @@ function destroyTexture(tex: GPUTexture | null): void {
  * @param config - Configuration with device and target format
  * @returns Texture manager instance
  */
-export function createTextureManager(
-  config: TextureManagerConfig,
-): TextureManager {
+export function createTextureManager(config: TextureManagerConfig): TextureManager {
   const { device, targetFormat } = config;
 
   // Internal mutable state
@@ -179,7 +177,7 @@ export function createTextureManager(
       {
         binding: 0,
         visibility: GPUShaderStage.FRAGMENT,
-        texture: { sampleType: "float", viewDimension: "2d" },
+        texture: { sampleType: 'float', viewDimension: '2d' },
       },
     ],
   });
@@ -188,38 +186,31 @@ export function createTextureManager(
   const overlayBlitPipeline = createRenderPipeline(
     device,
     {
-      label: "textureManager/overlayBlitPipeline",
+      label: 'textureManager/overlayBlitPipeline',
       bindGroupLayouts: [overlayBlitBindGroupLayout],
       vertex: {
         code: OVERLAY_BLIT_WGSL,
-        label: "textureManager/overlayBlit.wgsl",
+        label: 'textureManager/overlayBlit.wgsl',
       },
       fragment: {
         code: OVERLAY_BLIT_WGSL,
-        label: "textureManager/overlayBlit.wgsl",
+        label: 'textureManager/overlayBlit.wgsl',
         formats: targetFormat,
       },
-      primitive: { topology: "triangle-list", cullMode: "none" },
+      primitive: { topology: 'triangle-list', cullMode: 'none' },
       multisample: { count: ANNOTATION_OVERLAY_MSAA_SAMPLE_COUNT },
     },
-    config.pipelineCache,
+    config.pipelineCache
   );
 
   /**
    * Ensures overlay textures are allocated for the given dimensions.
    * Reallocates if size or format changes.
    */
-  function ensureTextures(
-    canvasWidthDevicePx: number,
-    canvasHeightDevicePx: number,
-  ): void {
+  function ensureTextures(canvasWidthDevicePx: number, canvasHeightDevicePx: number): void {
     // Clamp dimensions to valid range [1, infinity)
-    const w = Number.isFinite(canvasWidthDevicePx)
-      ? Math.max(1, Math.floor(canvasWidthDevicePx))
-      : 1;
-    const h = Number.isFinite(canvasHeightDevicePx)
-      ? Math.max(1, Math.floor(canvasHeightDevicePx))
-      : 1;
+    const w = Number.isFinite(canvasWidthDevicePx) ? Math.max(1, Math.floor(canvasWidthDevicePx)) : 1;
+    const h = Number.isFinite(canvasHeightDevicePx) ? Math.max(1, Math.floor(canvasHeightDevicePx)) : 1;
 
     // Check if textures are already allocated with correct dimensions and format
     if (
@@ -242,7 +233,7 @@ export function createTextureManager(
     // Allocate main color texture (MSAA render target).
     // RENDER_ATTACHMENT only — multisampled textures cannot have TEXTURE_BINDING.
     state.mainColorTexture = device.createTexture({
-      label: "textureManager/mainColorTexture",
+      label: 'textureManager/mainColorTexture',
       size: { width: w, height: h },
       sampleCount: MAIN_SCENE_MSAA_SAMPLE_COUNT,
       format: targetFormat,
@@ -253,17 +244,16 @@ export function createTextureManager(
     // Allocate single-sample resolve target for the MSAA main pass.
     // This receives the resolved result and is read by the overlay blit pipeline.
     state.mainResolveTexture = device.createTexture({
-      label: "textureManager/mainResolveTexture",
+      label: 'textureManager/mainResolveTexture',
       size: { width: w, height: h },
       format: targetFormat,
-      usage:
-        GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
     });
     state.mainResolveView = state.mainResolveTexture.createView();
 
     // Allocate MSAA overlay texture (multi-sample)
     state.overlayMsaaTexture = device.createTexture({
-      label: "textureManager/annotationOverlayMsaaTexture",
+      label: 'textureManager/annotationOverlayMsaaTexture',
       size: { width: w, height: h },
       sampleCount: ANNOTATION_OVERLAY_MSAA_SAMPLE_COUNT,
       format: targetFormat,
@@ -273,7 +263,7 @@ export function createTextureManager(
 
     // Create bind group for blit pipeline — reads from the resolved (single-sample) texture.
     state.overlayBlitBindGroup = device.createBindGroup({
-      label: "textureManager/overlayBlitBindGroup",
+      label: 'textureManager/overlayBlitBindGroup',
       layout: overlayBlitBindGroupLayout,
       entries: [{ binding: 0, resource: state.mainResolveView }],
     });

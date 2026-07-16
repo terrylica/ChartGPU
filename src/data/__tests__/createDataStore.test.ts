@@ -4,7 +4,7 @@
  * Unit tests for DataStore — content hash (WG-P0-2 plumbing) and staging reuse (WG-P1-9).
  */
 
-import { describe, it, expect, beforeAll, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
 
 beforeAll(() => {
   // @ts-ignore
@@ -22,11 +22,10 @@ beforeAll(() => {
   };
 });
 
-import { createDataStore } from "../createDataStore";
+import { createDataStore } from '../createDataStore';
 
 function createMockDevice() {
-  const buffers: Array<{ size: number; destroy: ReturnType<typeof vi.fn> }> =
-    [];
+  const buffers: Array<{ size: number; destroy: ReturnType<typeof vi.fn> }> = [];
   const device = {
     limits: {
       maxBufferSize: 268435456,
@@ -36,29 +35,41 @@ function createMockDevice() {
       writeBuffer: vi.fn(),
       submit: vi.fn(),
     },
+    createCommandEncoder: vi.fn(() => {
+      const encoder = {
+        copyBufferToBuffer: vi.fn(),
+        finish: vi.fn(() => ({})),
+      };
+      (device as any).__lastEncoder = encoder;
+      return encoder;
+    }),
     createBuffer: vi.fn((desc?: GPUBufferDescriptor) => {
       const b = {
         size: desc?.size ?? 0,
-        label: desc?.label ?? "",
+        label: desc?.label ?? '',
+        usage: desc?.usage ?? 0,
         destroy: vi.fn(),
       };
       buffers.push(b);
       return b as unknown as GPUBuffer;
     }),
-  } as unknown as GPUDevice & { __buffers: typeof buffers };
+  } as unknown as GPUDevice & {
+    __buffers: typeof buffers;
+    __lastEncoder?: { copyBufferToBuffer: ReturnType<typeof vi.fn> };
+  };
   (device as any).__buffers = buffers;
   return device;
 }
 
-describe("createDataStore", () => {
+describe('createDataStore', () => {
   let device: ReturnType<typeof createMockDevice>;
 
   beforeEach(() => {
     device = createMockDevice();
   });
 
-  describe("getSeriesContentHash (WG-P0-2)", () => {
-    it("changes when the same-N payload is rewritten into the same buffer", () => {
+  describe('getSeriesContentHash (WG-P0-2)', () => {
+    it('changes when the same-N payload is rewritten into the same buffer', () => {
       const store = createDataStore(device);
       const dataA: Array<[number, number]> = [
         [0, 1],
@@ -84,7 +95,7 @@ describe("createDataStore", () => {
       expect(hashB).not.toBe(hashA);
     });
 
-    it("stays stable when setSeries is called with identical content", () => {
+    it('stays stable when setSeries is called with identical content', () => {
       const store = createDataStore(device);
       const data: Array<[number, number]> = [
         [10, 1],
@@ -99,7 +110,7 @@ describe("createDataStore", () => {
       expect(store.getSeriesContentHash(0)).toBe(hash1);
     });
 
-    it("y-only rewrite reuses buffer and updates y floats (group 4)", () => {
+    it('y-only rewrite reuses buffer and updates y floats (group 4)', () => {
       const store = createDataStore(device);
       store.setSeries(0, [
         [0, 1],
@@ -127,7 +138,7 @@ describe("createDataStore", () => {
       expect(stagingA[5]).toBe(30);
     });
 
-    it("does not take y-only path when x also changes (group 2 Brownian)", () => {
+    it('does not take y-only path when x also changes (group 2 Brownian)', () => {
       const store = createDataStore(device);
       store.setSeries(0, [
         [0, 1],
@@ -151,8 +162,8 @@ describe("createDataStore", () => {
     });
   });
 
-  describe("staging buffer reuse (WG-P1-9)", () => {
-    it("reuses the same staging Float32Array when capacity does not grow", () => {
+  describe('staging buffer reuse (WG-P1-9)', () => {
+    it('reuses the same staging Float32Array when capacity does not grow', () => {
       const store = createDataStore(device);
       store.setSeries(0, [
         [0, 1],
@@ -178,7 +189,7 @@ describe("createDataStore", () => {
       expect(staging2[7]).toBe(40);
     });
 
-    it("allocates a larger staging buffer only when capacity grows", () => {
+    it('allocates a larger staging buffer only when capacity grows', () => {
       const store = createDataStore(device);
       store.setSeries(0, [
         [0, 1],
@@ -198,8 +209,8 @@ describe("createDataStore", () => {
     });
   });
 
-  describe("appendSeries with maxPoints (fixed-capacity ring FIFO)", () => {
-    it("fill phase under capacity uses pure ranged append (linear layout)", () => {
+  describe('appendSeries with maxPoints (fixed-capacity ring FIFO)', () => {
+    it('fill phase under capacity uses pure ranged append (linear layout)', () => {
       const store = createDataStore(device);
       // Pre-grow capacity so pure append does not realloc.
       const seed: Array<[number, number]> = [];
@@ -221,7 +232,7 @@ describe("createDataStore", () => {
           [4, 4],
           [5, 5],
         ],
-        { maxPoints: 8 },
+        { maxPoints: 8 }
       );
 
       expect(store.getSeriesPointCount(0)).toBe(6);
@@ -233,7 +244,7 @@ describe("createDataStore", () => {
       expect(writes.mock.calls[0]![1]).toBe(32);
     });
 
-    it("ring wrap overwrites oldest slots without full retained rewrite", () => {
+    it('ring wrap overwrites oldest slots without full retained rewrite', () => {
       const store = createDataStore(device);
       const seed: Array<[number, number]> = [];
       for (let i = 0; i < 64; i++) seed.push([i, i]);
@@ -274,7 +285,7 @@ describe("createDataStore", () => {
       expect(staging[6]).toBe(3);
     });
 
-    it("ring wrap that straddles capacity end splits into two writeBuffer calls", () => {
+    it('ring wrap that straddles capacity end splits into two writeBuffer calls', () => {
       const store = createDataStore(device);
       const seed: Array<[number, number]> = [];
       for (let i = 0; i < 64; i++) seed.push([i, i]);
@@ -305,7 +316,7 @@ describe("createDataStore", () => {
           [21, 21],
           [22, 22],
         ],
-        { maxPoints: 4 },
+        { maxPoints: 4 }
       );
       expect(store.getSeriesPointCount(0)).toBe(4);
       expect(store.getSeriesRingLayout(0)).toEqual({ start: 1, capacity: 4 });
@@ -314,7 +325,7 @@ describe("createDataStore", () => {
       expect(writes.mock.calls.length).toBeGreaterThanOrEqual(2);
     });
 
-    it("pure append without maxPoints still ranged-writes only new bytes", () => {
+    it('pure append without maxPoints still ranged-writes only new bytes', () => {
       const store = createDataStore(device);
       // Pre-grow capacity (setSeries does not shrink) so append fits without realloc.
       const seed: Array<[number, number]> = [];
@@ -337,7 +348,7 @@ describe("createDataStore", () => {
       expect(writes.mock.calls[0]![4]).toBe(8);
     });
 
-    it("when newPoints alone exceed maxPoints, keeps only the tail", () => {
+    it('when newPoints alone exceed maxPoints, keeps only the tail', () => {
       const store = createDataStore(device);
       store.setSeries(0, [
         [0, 0],
@@ -351,7 +362,7 @@ describe("createDataStore", () => {
           [12, 12],
           [13, 13],
         ],
-        { maxPoints: 3 },
+        { maxPoints: 3 }
       );
       expect(store.getSeriesPointCount(0)).toBe(3);
       expect(store.getSeriesRingLayout(0)).toEqual({ start: 0, capacity: 0 });
@@ -364,7 +375,7 @@ describe("createDataStore", () => {
       expect(staging[5]).toBe(13);
     });
 
-    it("strict-replaces when newCount === maxPoints (FIFO 100/100 shape)", () => {
+    it('strict-replaces when newCount === maxPoints (FIFO 100/100 shape)', () => {
       const store = createDataStore(device);
       store.setSeries(0, [
         [0, 0],
@@ -380,7 +391,7 @@ describe("createDataStore", () => {
           [12, 12],
           [13, 13],
         ],
-        { maxPoints: 4 },
+        { maxPoints: 4 }
       );
       expect(store.getSeriesPointCount(0)).toBe(4);
       const staging = store.getSeriesStagingBuffer(0);
@@ -391,14 +402,19 @@ describe("createDataStore", () => {
       expect(staging[7]).toBe(13);
     });
 
-    it("growth without pre-grow full-uploads retained + new points", () => {
+    it('growth GPU-copies retained prefix and ranged-writes only new points (1.1 A)', () => {
       const store = createDataStore(device);
       // Tiny seed → buffer sized for 2 points only.
       store.setSeries(0, [
         [0, 0],
         [1, 1],
       ]);
+      const oldBuffer = store.getSeriesBuffer(0) as unknown as {
+        destroy: ReturnType<typeof vi.fn>;
+      };
       (device.queue.writeBuffer as ReturnType<typeof vi.fn>).mockClear();
+      (device.queue.submit as ReturnType<typeof vi.fn>).mockClear();
+      (device.createCommandEncoder as ReturnType<typeof vi.fn>).mockClear();
 
       // Append enough to force geometric growth.
       const batch: Array<[number, number]> = [];
@@ -406,12 +422,33 @@ describe("createDataStore", () => {
       store.appendSeries(0, batch);
 
       expect(store.getSeriesPointCount(0)).toBe(102);
+      expect(store.getSeriesBuffer(0)).not.toBe(oldBuffer);
+      expect(oldBuffer.destroy).toHaveBeenCalled();
+
+      // Option A: GPU copy of retained 2 points, not a full CPU re-upload of N.
+      expect(device.createCommandEncoder).toHaveBeenCalled();
+      const encoder = (device as any).__lastEncoder as {
+        copyBufferToBuffer: ReturnType<typeof vi.fn>;
+      };
+      expect(encoder.copyBufferToBuffer).toHaveBeenCalled();
+      const copyArgs = encoder.copyBufferToBuffer.mock.calls[0]!;
+      // src, srcOffset, dst, dstOffset, size — retained prefix = 2 * 8 bytes
+      expect(copyArgs[1]).toBe(0);
+      expect(copyArgs[3]).toBe(0);
+      expect(copyArgs[4]).toBe(2 * 8);
+      expect(device.queue.submit).toHaveBeenCalled();
+
       const writes = device.queue.writeBuffer as ReturnType<typeof vi.fn>;
-      // At least one full upload covering the retained window (byteOffset 0).
-      const fullUpload = writes.mock.calls.some(
-        (c) => c[1] === 0 && (c[4] as number) >= 102 * 8,
-      );
-      expect(fullUpload).toBe(true);
+      // New points only: offset at retained*8, size = 100*8 (not full 102*8 at 0).
+      const newOnly = writes.mock.calls.some((c) => c[1] === 2 * 8 && (c[4] as number) === 100 * 8);
+      expect(newOnly).toBe(true);
+      const fullRetainedReupload = writes.mock.calls.some((c) => c[1] === 0 && (c[4] as number) >= 102 * 8);
+      expect(fullRetainedReupload).toBe(false);
+
+      // Series buffer includes COPY_SRC for future growth.
+      const lastBuf = (device as any).__buffers[(device as any).__buffers.length - 1];
+      expect(lastBuf.usage & GPUBufferUsage.COPY_SRC).toBeTruthy();
+
       const staging = store.getSeriesStagingBuffer(0);
       expect(staging[0]).toBe(0);
       expect(staging[1]).toBe(0);
@@ -419,7 +456,125 @@ describe("createDataStore", () => {
       expect(staging[203]).toBe(101);
     });
 
-    it("first ring activation with prevCount > maxPoints keeps planned tail", () => {
+    it('growth after modular wrap dual-copies retained points (1.1 A)', () => {
+      const store = createDataStore(device);
+      store.setSeries(0, [
+        [0, 0],
+        [1, 1],
+        [2, 2],
+        [3, 3],
+      ]);
+      // Wrap once → start=1, capacity=4, logical [1,2,3,10]
+      store.appendSeries(0, [[10, 10]], { maxPoints: 4 });
+      expect(store.getSeriesRingLayout(0)).toEqual({ start: 1, capacity: 4 });
+      const oldBuffer = store.getSeriesBuffer(0) as unknown as {
+        destroy: ReturnType<typeof vi.fn>;
+      };
+
+      (device.queue.writeBuffer as ReturnType<typeof vi.fn>).mockClear();
+      (device.queue.submit as ReturnType<typeof vi.fn>).mockClear();
+      (device.createCommandEncoder as ReturnType<typeof vi.fn>).mockClear();
+
+      // Leave-ring + large append forces growth; pure unbounded → dual modular GPU copy.
+      const batch: Array<[number, number]> = [];
+      for (let i = 0; i < 100; i++) batch.push([20 + i, 20 + i]);
+      store.appendSeries(0, batch); // no maxPoints → leave-ring
+
+      expect(store.getSeriesPointCount(0)).toBe(104); // 4 retained + 100
+      expect(oldBuffer.destroy).toHaveBeenCalled();
+      const encoder = (device as any).__lastEncoder as {
+        copyBufferToBuffer: ReturnType<typeof vi.fn>;
+      };
+      // Dual copy: first from ringStart, rest from 0.
+      expect(encoder.copyBufferToBuffer.mock.calls.length).toBe(2);
+      const c0 = encoder.copyBufferToBuffer.mock.calls[0]!;
+      const c1 = encoder.copyBufferToBuffer.mock.calls[1]!;
+      // first = min(4, 4-1) = 3 points from phys start 1
+      expect(c0[1]).toBe(1 * 8); // src offset
+      expect(c0[3]).toBe(0); // dst offset
+      expect(c0[4]).toBe(3 * 8);
+      // rest = 1 point from phys 0
+      expect(c1[1]).toBe(0);
+      expect(c1[3]).toBe(3 * 8);
+      expect(c1[4]).toBe(1 * 8);
+      expect(device.queue.submit).toHaveBeenCalled();
+    });
+
+    it('isSeriesRingMode true during pre-wrap fill while layout.capacity is 0', () => {
+      const store = createDataStore(device);
+      store.setSeries(0, [
+        [0, 0],
+        [1, 1],
+      ]);
+      // First activation under maxPoints without wrap yet.
+      store.appendSeries(0, [[2, 2]], { maxPoints: 8 });
+      expect(store.getSeriesPointCount(0)).toBe(3);
+      expect(store.isSeriesRingMode(0)).toBe(true);
+      // Decimation layout still reports linear until wrap.
+      expect(store.getSeriesRingLayout(0)).toEqual({ start: 0, capacity: 0 });
+    });
+
+    it('y-only identical content does not writeBuffer and keeps hash (2.1)', () => {
+      const store = createDataStore(device);
+      store.setSeries(0, [
+        [0, 1],
+        [1, 2],
+        [2, 3],
+      ]);
+      const hash = store.getSeriesContentHash(0);
+      (device.queue.writeBuffer as ReturnType<typeof vi.fn>).mockClear();
+      store.setSeries(0, [
+        [0, 1],
+        [1, 2],
+        [2, 3],
+      ]);
+      expect(store.getSeriesContentHash(0)).toBe(hash);
+      expect(device.queue.writeBuffer).not.toHaveBeenCalled();
+    });
+
+    it('y-only changed content stamps hash and writes without full FNV path (2.1)', () => {
+      const store = createDataStore(device);
+      store.setSeries(0, [
+        [0, 1],
+        [1, 2],
+        [2, 3],
+      ]);
+      const hashA = store.getSeriesContentHash(0);
+      (device.queue.writeBuffer as ReturnType<typeof vi.fn>).mockClear();
+      store.setSeries(0, [
+        [0, 10],
+        [1, 20],
+        [2, 30],
+      ]);
+      expect(store.getSeriesContentHash(0)).not.toBe(hashA);
+      expect(device.queue.writeBuffer).toHaveBeenCalled();
+      const staging = store.getSeriesStagingBuffer(0);
+      expect(staging[1]).toBe(10);
+    });
+
+    it('skipContentHash stamps and writes without full FNV short-circuit (2.6)', () => {
+      const store = createDataStore(device);
+      store.setSeries(0, [
+        [0, 1],
+        [1, 2],
+      ]);
+      const hashA = store.getSeriesContentHash(0);
+      (device.queue.writeBuffer as ReturnType<typeof vi.fn>).mockClear();
+      // x also changes so y-only early-return does not apply; skipContentHash
+      // forces stamp (no FNV early-return) and full write.
+      store.setSeries(
+        0,
+        [
+          [5, 1],
+          [6, 2],
+        ],
+        { skipContentHash: true }
+      );
+      expect(store.getSeriesContentHash(0)).not.toBe(hashA);
+      expect(device.queue.writeBuffer).toHaveBeenCalled();
+    });
+
+    it('first ring activation with prevCount > maxPoints keeps planned tail', () => {
       const store = createDataStore(device);
       // Seed 10 points unbounded.
       const seed: Array<[number, number]> = [];
@@ -440,7 +595,7 @@ describe("createDataStore", () => {
       expect(staging[7]).toBe(999);
     });
 
-    it("leave-ring after wrap linearizes chronological order", () => {
+    it('leave-ring after wrap linearizes chronological order', () => {
       const store = createDataStore(device);
       const seed: Array<[number, number]> = [];
       for (let i = 0; i < 64; i++) seed.push([i, i]);
@@ -468,7 +623,7 @@ describe("createDataStore", () => {
       expect(staging[8]).toBe(20);
     });
 
-    it("multi-wrap keeps chronological logical order in staging physical slots", () => {
+    it('multi-wrap keeps chronological logical order in staging physical slots', () => {
       const store = createDataStore(device);
       const seed: Array<[number, number]> = [];
       for (let i = 0; i < 64; i++) seed.push([i, i]);
@@ -493,7 +648,7 @@ describe("createDataStore", () => {
       expect(st[4]).toBe(12);
     });
 
-    it("strict-after-wrap resets layout to linear start=0", () => {
+    it('strict-after-wrap resets layout to linear start=0', () => {
       const store = createDataStore(device);
       const seed: Array<[number, number]> = [];
       for (let i = 0; i < 64; i++) seed.push([i, i]);
@@ -514,7 +669,7 @@ describe("createDataStore", () => {
           [22, 22],
           [23, 23],
         ],
-        { maxPoints: 4 },
+        { maxPoints: 4 }
       );
       expect(store.getSeriesPointCount(0)).toBe(4);
       expect(store.getSeriesRingLayout(0)).toEqual({ start: 0, capacity: 0 });
@@ -523,7 +678,7 @@ describe("createDataStore", () => {
       expect(st[6]).toBe(23);
     });
 
-    it("split writeBuffer uses phys*8 and 0 offsets with correct sizes", () => {
+    it('split writeBuffer uses phys*8 and 0 offsets with correct sizes', () => {
       const store = createDataStore(device);
       const seed: Array<[number, number]> = [];
       for (let i = 0; i < 64; i++) seed.push([i, i]);
@@ -545,7 +700,7 @@ describe("createDataStore", () => {
           [21, 21],
           [22, 22],
         ],
-        { maxPoints: 4 },
+        { maxPoints: 4 }
       );
       const writes = device.queue.writeBuffer as ReturnType<typeof vi.fn>;
       expect(writes.mock.calls.length).toBeGreaterThanOrEqual(2);
@@ -557,7 +712,7 @@ describe("createDataStore", () => {
       expect(writes.mock.calls[1]![4]).toBe(8);
     });
 
-    it("maxPoints=1 keeps single point on DataStore", () => {
+    it('maxPoints=1 keeps single point on DataStore', () => {
       const store = createDataStore(device);
       store.setSeries(0, [
         [0, 0],

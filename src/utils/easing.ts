@@ -1,8 +1,8 @@
 export type EasingFunction = (t: number) => number;
 
-import type { AnimationConfig } from "../config/types";
+import type { AnimationConfig } from '../config/types';
 
-export type EasingName = NonNullable<AnimationConfig["easing"]>;
+export type EasingName = NonNullable<AnimationConfig['easing']>;
 
 const clamp01 = (t: number): number => {
   if (Number.isNaN(t)) return 0;
@@ -53,17 +53,15 @@ export function easeBounceOut(t: number): number {
   return n1 * a * a + 0.984375;
 }
 
-export function getEasing(
-  name: AnimationConfig["easing"] | null | undefined,
-): EasingFunction {
+export function getEasing(name: AnimationConfig['easing'] | null | undefined): EasingFunction {
   switch (name) {
-    case "linear":
+    case 'linear':
       return easeLinear;
-    case "cubicOut":
+    case 'cubicOut':
       return easeCubicOut;
-    case "cubicInOut":
+    case 'cubicInOut':
       return easeCubicInOut;
-    case "bounceOut":
+    case 'bounceOut':
       return easeBounceOut;
     default:
       return easeLinear;

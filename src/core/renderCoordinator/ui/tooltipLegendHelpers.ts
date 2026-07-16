@@ -8,10 +8,10 @@
  * @module tooltipLegendHelpers
  */
 
-import type { OHLCDataPoint } from "../../../config/types";
-import type { LinearScale } from "../../../utils/scales";
-import { clipXToCanvasCssPx, clipYToCanvasCssPx } from "../utils/axisUtils";
-import { isTupleOHLCDataPoint } from "../utils/dataPointUtils";
+import type { OHLCDataPoint } from '../../../config/types';
+import type { LinearScale } from '../../../utils/scales';
+import { clipXToCanvasCssPx, clipYToCanvasCssPx } from '../utils/axisUtils';
+import { isTupleOHLCDataPoint } from '../utils/dataPointUtils';
 
 /**
  * Tooltip anchor position in canvas-local CSS pixels.
@@ -58,12 +58,7 @@ export function createTooltipCache(): TooltipCache {
  * @param y - New Y position in CSS pixels
  * @returns True if update is needed (values differ from cache)
  */
-export function shouldUpdateTooltip(
-  cache: TooltipCache,
-  content: string,
-  x: number,
-  y: number,
-): boolean {
+export function shouldUpdateTooltip(cache: TooltipCache, content: string, x: number, y: number): boolean {
   return cache.content !== content || cache.x !== x || cache.y !== y;
 }
 
@@ -77,12 +72,7 @@ export function shouldUpdateTooltip(
  * @param x - New X position that was set
  * @param y - New Y position that was set
  */
-export function updateTooltipCache(
-  cache: TooltipCache,
-  content: string,
-  x: number,
-  y: number,
-): void {
+export function updateTooltipCache(cache: TooltipCache, content: string, x: number, y: number): void {
   cache.content = content;
   cache.x = x;
   cache.y = y;
@@ -133,7 +123,7 @@ export function computeCandlestickTooltipAnchor(
   canvasCssWidth: number,
   canvasCssHeight: number,
   offsetX: number = 0,
-  offsetY: number = 0,
+  offsetY: number = 0
 ): TooltipAnchor | null {
   // Extract coordinates from data point (supports both tuple and object formats)
   let timestamp: number;
@@ -151,11 +141,7 @@ export function computeCandlestickTooltipAnchor(
   }
 
   // Validate extracted values
-  if (
-    !Number.isFinite(timestamp) ||
-    !Number.isFinite(open) ||
-    !Number.isFinite(close)
-  ) {
+  if (!Number.isFinite(timestamp) || !Number.isFinite(open) || !Number.isFinite(close)) {
     return null;
   }
 
@@ -195,14 +181,8 @@ export function isOHLCDataPoint(point: any): point is OHLCDataPoint {
   if (Array.isArray(point)) {
     return point.length === 5;
   }
-  if (point && typeof point === "object") {
-    return (
-      "timestamp" in point &&
-      "open" in point &&
-      "close" in point &&
-      "low" in point &&
-      "high" in point
-    );
+  if (point && typeof point === 'object') {
+    return 'timestamp' in point && 'open' in point && 'close' in point && 'low' in point && 'high' in point;
   }
   return false;
 }

@@ -5,29 +5,20 @@
  * with undo/redo, JSON export, drag-to-reposition, and editing capabilities.
  */
 
-import type { ChartGPUInstance, ChartGPUHitTestResult } from "../ChartGPU";
-import type {
-  AnnotationConfig,
-  DataPoint,
-  DataPointTuple,
-  OHLCDataPoint,
-  OHLCDataPointTuple,
-} from "../config/types";
-import { defaultGrid } from "../config/defaults";
-import { createAnnotationHitTester } from "./createAnnotationHitTester";
-import { createAnnotationDragHandler } from "./createAnnotationDragHandler";
-import { createAnnotationConfigDialog } from "../components/createAnnotationConfigDialog";
+import type { ChartGPUInstance, ChartGPUHitTestResult } from '../ChartGPU';
+import type { AnnotationConfig, DataPoint, DataPointTuple, OHLCDataPoint, OHLCDataPointTuple } from '../config/types';
+import { defaultGrid } from '../config/defaults';
+import { createAnnotationHitTester } from './createAnnotationHitTester';
+import { createAnnotationDragHandler } from './createAnnotationDragHandler';
+import { createAnnotationConfigDialog } from '../components/createAnnotationConfigDialog';
 
 // Type guards and helpers
-const isTupleDataPoint = (p: DataPoint): p is DataPointTuple =>
-  Array.isArray(p);
-const isTupleOHLCDataPoint = (p: OHLCDataPoint): p is OHLCDataPointTuple =>
-  Array.isArray(p);
+const isTupleDataPoint = (p: DataPoint): p is DataPointTuple => Array.isArray(p);
+const isTupleOHLCDataPoint = (p: OHLCDataPoint): p is OHLCDataPointTuple => Array.isArray(p);
 
 const getPointX = (p: DataPoint): number => (isTupleDataPoint(p) ? p[0] : p.x);
 const getPointY = (p: DataPoint): number => (isTupleDataPoint(p) ? p[1] : p.y);
-const getOHLCTimestamp = (p: OHLCDataPoint): number =>
-  isTupleOHLCDataPoint(p) ? p[0] : p.timestamp;
+const getOHLCTimestamp = (p: OHLCDataPoint): number => (isTupleOHLCDataPoint(p) ? p[0] : p.timestamp);
 
 /**
  * Configuration options for annotation authoring.
@@ -63,12 +54,7 @@ export interface AnnotationAuthoringInstance {
    * @param text - Annotation text content
    * @param space - Coordinate space: 'data' (default) or 'plot'
    */
-  addTextNote(
-    x: number,
-    y: number,
-    text: string,
-    space?: "data" | "plot",
-  ): void;
+  addTextNote(x: number, y: number, text: string, space?: 'data' | 'plot'): void;
   /**
    * Undo the last annotation change.
    *
@@ -148,22 +134,18 @@ interface HistoryEntry {
 export function createAnnotationAuthoring(
   container: HTMLElement,
   chart: ChartGPUInstance,
-  options: AnnotationAuthoringOptions = {},
+  options: AnnotationAuthoringOptions = {}
 ): AnnotationAuthoringInstance {
   const { menuZIndex = 1000, enableContextMenu = true } = options;
 
   // Find the canvas element
-  const canvas = container.querySelector("canvas");
+  const canvas = container.querySelector('canvas');
   if (!canvas) {
-    throw new Error(
-      "createAnnotationAuthoring: canvas element not found in container",
-    );
+    throw new Error('createAnnotationAuthoring: canvas element not found in container');
   }
 
   // History management
-  let history: HistoryEntry[] = [
-    { annotations: chart.options.annotations ?? [] },
-  ];
+  let history: HistoryEntry[] = [{ annotations: chart.options.annotations ?? [] }];
   let historyIndex = 0;
   let disposed = false;
 
@@ -182,17 +164,13 @@ export function createAnnotationAuthoring(
     onDragMove: (index, updates) => {
       // Optimistic update without history
       const current = getCurrentAnnotations();
-      const next = current.map((a, i) =>
-        i === index ? ({ ...a, ...updates } as AnnotationConfig) : a,
-      );
+      const next = current.map((a, i) => (i === index ? ({ ...a, ...updates } as AnnotationConfig) : a));
       applyAnnotations(next);
     },
     onDragEnd: (index, updates) => {
       // Final position with history push
       const current = getCurrentAnnotations();
-      const next = current.map((a, i) =>
-        i === index ? ({ ...a, ...updates } as AnnotationConfig) : a,
-      );
+      const next = current.map((a, i) => (i === index ? ({ ...a, ...updates } as AnnotationConfig) : a));
       applyAnnotations(next);
       pushHistory(next);
     },
@@ -238,43 +216,39 @@ export function createAnnotationAuthoring(
   let contextMenu: HTMLDivElement | null = null;
 
   const createContextMenu = (): HTMLDivElement => {
-    const menu = document.createElement("div");
-    menu.style.position = "fixed";
-    menu.style.display = "none";
-    menu.style.backgroundColor = "#1a1a2e";
-    menu.style.border = "1px solid #333";
-    menu.style.borderRadius = "8px";
-    menu.style.boxShadow = "0 4px 12px rgba(0, 0, 0, 0.5)";
+    const menu = document.createElement('div');
+    menu.style.position = 'fixed';
+    menu.style.display = 'none';
+    menu.style.backgroundColor = '#1a1a2e';
+    menu.style.border = '1px solid #333';
+    menu.style.borderRadius = '8px';
+    menu.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.5)';
     menu.style.zIndex = String(menuZIndex);
-    menu.style.minWidth = "180px";
-    menu.style.padding = "6px 0";
-    menu.style.fontFamily =
-      '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-    menu.style.fontSize = "14px";
-    menu.style.color = "#e0e0e0";
+    menu.style.minWidth = '180px';
+    menu.style.padding = '6px 0';
+    menu.style.fontFamily = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    menu.style.fontSize = '14px';
+    menu.style.color = '#e0e0e0';
 
     document.body.appendChild(menu);
     return menu;
   };
 
-  const createMenuItem = (
-    text: string,
-    onClick: () => void,
-  ): HTMLDivElement => {
-    const item = document.createElement("div");
+  const createMenuItem = (text: string, onClick: () => void): HTMLDivElement => {
+    const item = document.createElement('div');
     item.textContent = text;
-    item.style.padding = "8px 16px";
-    item.style.cursor = "pointer";
-    item.style.transition = "background-color 0.15s";
-    item.style.userSelect = "none";
+    item.style.padding = '8px 16px';
+    item.style.cursor = 'pointer';
+    item.style.transition = 'background-color 0.15s';
+    item.style.userSelect = 'none';
 
-    item.addEventListener("mouseenter", () => {
-      item.style.backgroundColor = "#2a2a3e";
+    item.addEventListener('mouseenter', () => {
+      item.style.backgroundColor = '#2a2a3e';
     });
-    item.addEventListener("mouseleave", () => {
-      item.style.backgroundColor = "transparent";
+    item.addEventListener('mouseleave', () => {
+      item.style.backgroundColor = 'transparent';
     });
-    item.addEventListener("click", () => {
+    item.addEventListener('click', () => {
       onClick();
       hideContextMenu();
     });
@@ -283,64 +257,40 @@ export function createAnnotationAuthoring(
   };
 
   const createMenuSeparator = (): HTMLDivElement => {
-    const separator = document.createElement("div");
-    separator.style.height = "1px";
-    separator.style.backgroundColor = "#333";
-    separator.style.margin = "6px 0";
+    const separator = document.createElement('div');
+    separator.style.height = '1px';
+    separator.style.backgroundColor = '#333';
+    separator.style.margin = '6px 0';
     return separator;
   };
 
   const populateContextMenuForAnnotation = (
     menu: HTMLDivElement,
     annotationIndex: number,
-    annotation: AnnotationConfig,
+    annotation: AnnotationConfig
   ): void => {
     // Clear existing items
-    menu.innerHTML = "";
+    menu.innerHTML = '';
 
     // Edit and delete for the annotation
-    menu.appendChild(
-      createMenuItem("Edit annotation...", () =>
-        handleEditAnnotation(annotationIndex, annotation),
-      ),
-    );
-    menu.appendChild(
-      createMenuItem("Delete annotation", () =>
-        handleDeleteAnnotation(annotationIndex),
-      ),
-    );
+    menu.appendChild(createMenuItem('Edit annotation...', () => handleEditAnnotation(annotationIndex, annotation)));
+    menu.appendChild(createMenuItem('Delete annotation', () => handleDeleteAnnotation(annotationIndex)));
     menu.appendChild(createMenuSeparator());
 
     // Add new annotations
-    menu.appendChild(
-      createMenuItem("Add vertical line here", () => handleAddVerticalLine()),
-    );
-    menu.appendChild(
-      createMenuItem("Add horizontal line here", () =>
-        handleAddHorizontalLine(),
-      ),
-    );
-    menu.appendChild(
-      createMenuItem("Add text note here", () => handleAddTextNote()),
-    );
+    menu.appendChild(createMenuItem('Add vertical line here', () => handleAddVerticalLine()));
+    menu.appendChild(createMenuItem('Add horizontal line here', () => handleAddHorizontalLine()));
+    menu.appendChild(createMenuItem('Add text note here', () => handleAddTextNote()));
   };
 
   const populateContextMenuForEmptySpace = (menu: HTMLDivElement): void => {
     // Clear existing items
-    menu.innerHTML = "";
+    menu.innerHTML = '';
 
     // Add new annotations
-    menu.appendChild(
-      createMenuItem("Add vertical line here", () => handleAddVerticalLine()),
-    );
-    menu.appendChild(
-      createMenuItem("Add horizontal line here", () =>
-        handleAddHorizontalLine(),
-      ),
-    );
-    menu.appendChild(
-      createMenuItem("Add text note here", () => handleAddTextNote()),
-    );
+    menu.appendChild(createMenuItem('Add vertical line here', () => handleAddVerticalLine()));
+    menu.appendChild(createMenuItem('Add horizontal line here', () => handleAddHorizontalLine()));
+    menu.appendChild(createMenuItem('Add text note here', () => handleAddTextNote()));
   };
 
   // Toolbar removed - UI decluttering
@@ -361,23 +311,19 @@ export function createAnnotationAuthoring(
 
     if (annotationHit) {
       // Right-clicked on an annotation - show edit/delete menu
-      populateContextMenuForAnnotation(
-        contextMenu,
-        annotationHit.annotationIndex,
-        annotationHit.annotation,
-      );
+      populateContextMenuForAnnotation(contextMenu, annotationHit.annotationIndex, annotationHit.annotation);
     } else {
       // Right-clicked on empty space - show add menu
       populateContextMenuForEmptySpace(contextMenu);
     }
 
-    contextMenu.style.display = "block";
+    contextMenu.style.display = 'block';
     contextMenu.style.left = `${e.clientX}px`;
     contextMenu.style.top = `${e.clientY}px`;
 
     // Adjust position if menu goes off-screen (check both viewport bounds)
     requestAnimationFrame(() => {
-      if (!contextMenu || contextMenu.style.display !== "block") return;
+      if (!contextMenu || contextMenu.style.display !== 'block') return;
 
       const menuRect = contextMenu.getBoundingClientRect();
       let adjustedX = e.clientX;
@@ -403,7 +349,7 @@ export function createAnnotationAuthoring(
 
   const hideContextMenu = (): void => {
     if (!contextMenu) return;
-    contextMenu.style.display = "none";
+    contextMenu.style.display = 'none';
     lastHitTestResult = null;
   };
 
@@ -422,9 +368,9 @@ export function createAnnotationAuthoring(
       let dataXMax = Number.NEGATIVE_INFINITY;
 
       for (const s of series) {
-        if (s.type === "pie") continue;
+        if (s.type === 'pie') continue;
 
-        if (s.type === "candlestick") {
+        if (s.type === 'candlestick') {
           // Candlestick uses timestamp (first element)
           const data = s.data;
           for (const p of data) {
@@ -475,9 +421,9 @@ export function createAnnotationAuthoring(
       let dataYMax = Number.NEGATIVE_INFINITY;
 
       for (const s of series) {
-        if (s.type === "pie") continue;
+        if (s.type === 'pie') continue;
 
-        if (s.type === "candlestick") {
+        if (s.type === 'candlestick') {
           // Candlestick uses low/high
           const data = s.data;
           for (const p of data) {
@@ -509,10 +455,7 @@ export function createAnnotationAuthoring(
   const gridXToDataX = (gridX: number): number => {
     const rect = canvas.getBoundingClientRect();
     const grid = chart.options.grid ?? defaultGrid;
-    const plotWidthCss =
-      rect.width -
-      (grid.left ?? defaultGrid.left) -
-      (grid.right ?? defaultGrid.right);
+    const plotWidthCss = rect.width - (grid.left ?? defaultGrid.left) - (grid.right ?? defaultGrid.right);
 
     const xDomain = computeVisibleXDomain();
     const t = plotWidthCss > 0 ? gridX / plotWidthCss : 0;
@@ -520,20 +463,11 @@ export function createAnnotationAuthoring(
   };
 
   // Convert grid-space coordinates to plot-space [0-1]
-  const gridToPlotSpace = (
-    gridX: number,
-    gridY: number,
-  ): { x: number; y: number } => {
+  const gridToPlotSpace = (gridX: number, gridY: number): { x: number; y: number } => {
     const rect = canvas.getBoundingClientRect();
     const grid = chart.options.grid ?? defaultGrid;
-    const plotWidthCss =
-      rect.width -
-      (grid.left ?? defaultGrid.left) -
-      (grid.right ?? defaultGrid.right);
-    const plotHeightCss =
-      rect.height -
-      (grid.top ?? defaultGrid.top) -
-      (grid.bottom ?? defaultGrid.bottom);
+    const plotWidthCss = rect.width - (grid.left ?? defaultGrid.left) - (grid.right ?? defaultGrid.right);
+    const plotHeightCss = rect.height - (grid.top ?? defaultGrid.top) - (grid.bottom ?? defaultGrid.bottom);
 
     const px = plotWidthCss > 0 ? gridX / plotWidthCss : 0;
     const py = plotHeightCss > 0 ? gridY / plotHeightCss : 0;
@@ -559,13 +493,13 @@ export function createAnnotationAuthoring(
 
     // Show configuration dialog
     configDialog.showCreate(
-      "lineX",
+      'lineX',
       {
-        type: "lineX",
+        type: 'lineX',
         x,
-        layer: "aboveSeries",
+        layer: 'aboveSeries',
         style: {
-          color: "#ffa500",
+          color: '#ffa500',
           lineWidth: 2,
         },
       },
@@ -577,7 +511,7 @@ export function createAnnotationAuthoring(
       },
       () => {
         // Cancelled - do nothing
-      },
+      }
     );
   };
 
@@ -595,10 +529,7 @@ export function createAnnotationAuthoring(
       // Compute y from grid position using actual visible Y domain
       const rect = canvas.getBoundingClientRect();
       const grid = chart.options.grid ?? defaultGrid;
-      const plotHeightCss =
-        rect.height -
-        (grid.top ?? defaultGrid.top) -
-        (grid.bottom ?? defaultGrid.bottom);
+      const plotHeightCss = rect.height - (grid.top ?? defaultGrid.top) - (grid.bottom ?? defaultGrid.bottom);
 
       // Get actual visible Y domain (not hardcoded defaults!)
       const yDomain = computeVisibleYDomain();
@@ -612,13 +543,13 @@ export function createAnnotationAuthoring(
 
     // Show configuration dialog
     configDialog.showCreate(
-      "lineY",
+      'lineY',
       {
-        type: "lineY",
+        type: 'lineY',
         y,
-        layer: "aboveSeries",
+        layer: 'aboveSeries',
         style: {
-          color: "#ffa500",
+          color: '#ffa500',
           lineWidth: 2,
         },
       },
@@ -630,7 +561,7 @@ export function createAnnotationAuthoring(
       },
       () => {
         // Cancelled - do nothing
-      },
+      }
     );
   };
 
@@ -640,19 +571,19 @@ export function createAnnotationAuthoring(
 
     const { match, isInGrid, gridX, gridY } = lastHitTestResult;
 
-    let space: "data" | "plot";
+    let space: 'data' | 'plot';
     let x: number;
     let y: number;
 
     if (match) {
       // Use data-space position
-      space = "data";
+      space = 'data';
       x = match.value[0];
       y = match.value[1];
     } else if (isInGrid) {
       // Use plot-space position
       const plotPos = gridToPlotSpace(gridX, gridY);
-      space = "plot";
+      space = 'plot';
       x = plotPos.x;
       y = plotPos.y;
     } else {
@@ -661,14 +592,14 @@ export function createAnnotationAuthoring(
 
     // Show configuration dialog
     configDialog.showCreate(
-      "text",
+      'text',
       {
-        type: "text",
+        type: 'text',
         position: { space, x, y },
-        text: "Note",
-        layer: "aboveSeries",
+        text: 'Note',
+        layer: 'aboveSeries',
         style: {
-          color: "#00d4ff",
+          color: '#00d4ff',
         },
       },
       (config) => {
@@ -679,28 +610,23 @@ export function createAnnotationAuthoring(
       },
       () => {
         // Cancelled - do nothing
-      },
+      }
     );
   };
 
   // Handle "Edit annotation..."
-  const handleEditAnnotation = (
-    index: number,
-    annotation: AnnotationConfig,
-  ): void => {
+  const handleEditAnnotation = (index: number, annotation: AnnotationConfig): void => {
     configDialog.showEdit(
       annotation,
       (updates) => {
         const current = getCurrentAnnotations();
-        const next = current.map((a, i) =>
-          i === index ? ({ ...a, ...updates } as AnnotationConfig) : a,
-        );
+        const next = current.map((a, i) => (i === index ? ({ ...a, ...updates } as AnnotationConfig) : a));
         applyAnnotations(next);
         pushHistory(next);
       },
       () => {
         // Cancelled - do nothing
-      },
+      }
     );
   };
 
@@ -726,12 +652,7 @@ export function createAnnotationAuthoring(
       e.preventDefault();
       // Don't set pointer capture here - let drag handler manage window-level events
 
-      dragHandler.startDrag(
-        annotationHit.annotationIndex,
-        annotationHit.annotation,
-        e.clientX,
-        e.clientY,
-      );
+      dragHandler.startDrag(annotationHit.annotationIndex, annotationHit.annotation, e.clientX, e.clientY);
     }
   };
 
@@ -754,11 +675,7 @@ export function createAnnotationAuthoring(
   // Escape to close context menu
   const onDocumentKeyDown = (e: KeyboardEvent): void => {
     if (disposed) return;
-    if (
-      e.key === "Escape" &&
-      contextMenu &&
-      contextMenu.style.display === "block"
-    ) {
+    if (e.key === 'Escape' && contextMenu && contextMenu.style.display === 'block') {
       hideContextMenu();
     }
   };
@@ -766,7 +683,7 @@ export function createAnnotationAuthoring(
   // Scroll/resize to close context menu (prevents menu from floating at wrong position)
   const onWindowScrollOrResize = (): void => {
     if (disposed) return;
-    if (contextMenu && contextMenu.style.display === "block") {
+    if (contextMenu && contextMenu.style.display === 'block') {
       hideContextMenu();
     }
   };
@@ -775,11 +692,11 @@ export function createAnnotationAuthoring(
   const addVerticalLine = (x: number): void => {
     const current = getCurrentAnnotations();
     const newAnnotation: AnnotationConfig = {
-      type: "lineX",
+      type: 'lineX',
       x,
-      layer: "aboveSeries",
+      layer: 'aboveSeries',
       style: {
-        color: "#ffa500",
+        color: '#ffa500',
         lineWidth: 2,
         opacity: 0.9,
       },
@@ -789,20 +706,15 @@ export function createAnnotationAuthoring(
     pushHistory(next);
   };
 
-  const addTextNote = (
-    x: number,
-    y: number,
-    text: string,
-    space: "data" | "plot" = "data",
-  ): void => {
+  const addTextNote = (x: number, y: number, text: string, space: 'data' | 'plot' = 'data'): void => {
     const current = getCurrentAnnotations();
     const newAnnotation: AnnotationConfig = {
-      type: "text",
+      type: 'text',
       position: { space, x, y },
       text,
-      layer: "aboveSeries",
+      layer: 'aboveSeries',
       style: {
-        color: "#00d4ff",
+        color: '#00d4ff',
         opacity: 1,
       },
     };
@@ -842,12 +754,12 @@ export function createAnnotationAuthoring(
     if (disposed) return;
     disposed = true;
 
-    canvas.removeEventListener("pointerdown", onPointerDown);
-    canvas.removeEventListener("contextmenu", onContextMenu);
-    document.removeEventListener("click", onDocumentClick);
-    document.removeEventListener("keydown", onDocumentKeyDown);
-    window.removeEventListener("scroll", onWindowScrollOrResize, true);
-    window.removeEventListener("resize", onWindowScrollOrResize);
+    canvas.removeEventListener('pointerdown', onPointerDown);
+    canvas.removeEventListener('contextmenu', onContextMenu);
+    document.removeEventListener('click', onDocumentClick);
+    document.removeEventListener('keydown', onDocumentKeyDown);
+    window.removeEventListener('scroll', onWindowScrollOrResize, true);
+    window.removeEventListener('resize', onWindowScrollOrResize);
 
     contextMenu?.remove();
     contextMenu = null;
@@ -862,16 +774,16 @@ export function createAnnotationAuthoring(
   // Initialize
   if (enableContextMenu) {
     contextMenu = createContextMenu();
-    canvas.addEventListener("contextmenu", onContextMenu);
-    document.addEventListener("click", onDocumentClick);
-    document.addEventListener("keydown", onDocumentKeyDown);
+    canvas.addEventListener('contextmenu', onContextMenu);
+    document.addEventListener('click', onDocumentClick);
+    document.addEventListener('keydown', onDocumentKeyDown);
     // Capture phase for scroll to handle all scrollable ancestors
-    window.addEventListener("scroll", onWindowScrollOrResize, true);
-    window.addEventListener("resize", onWindowScrollOrResize);
+    window.addEventListener('scroll', onWindowScrollOrResize, true);
+    window.addEventListener('resize', onWindowScrollOrResize);
   }
 
   // Attach pointer event for dragging (always enabled)
-  canvas.addEventListener("pointerdown", onPointerDown);
+  canvas.addEventListener('pointerdown', onPointerDown);
 
   return {
     addVerticalLine,

@@ -1,11 +1,9 @@
 // area.wgsl
-// Minimal area-fill shader (triangle-strip):
-// - Vertex input: vec2<f32> position in data coords
-// - Uniforms: clip-space transform + baseline value + solid RGBA color
-// - Topology: triangle-strip
-// - CPU duplicates vertices as p0,p0,p1,p1,... and we use vertex_index parity:
-//   even index -> "top" vertex (original y)
-//   odd index  -> "baseline" vertex (uniform baseline)
+// Area-fill from a storage buffer of domain points (shared with line stroke):
+// - points[i] = vec2(x, y) in data coords (optionally x - xOffset packed)
+// - Draw triangle-strip with vertexCount = pointCount * 2
+// - vertex_index / 2 selects the point; parity selects top (y) vs baseline
+// - Null/NaN points collapse to a degenerate position (zero-area strip breaks)
 
 struct VSUniforms {
   transform: mat4x4<f32>,
@@ -22,20 +20,27 @@ struct FSUniforms {
 
 @group(0) @binding(1) var<uniform> fsUniforms: FSUniforms;
 
-struct VSIn {
-  @location(0) position: vec2<f32>,
-};
+@group(0) @binding(2) var<storage, read> points: array<vec2<f32>>;
 
 struct VSOut {
   @builtin(position) clipPosition: vec4<f32>,
 };
 
 @vertex
-fn vsMain(in: VSIn, @builtin(vertex_index) vertexIndex: u32) -> VSOut {
+fn vsMain(@builtin(vertex_index) vertexIndex: u32) -> VSOut {
   var out: VSOut;
+  let pointIndex = vertexIndex / 2u;
   let useBaseline = (vertexIndex & 1u) == 1u;
-  let y = select(in.position.y, vsUniforms.baseline, useBaseline);
-  let pos = vec2<f32>(in.position.x, y);
+  let p = points[pointIndex];
+
+  // Gap detection: NaN != NaN (same contract as line.wgsl).
+  if (p.x != p.x || p.y != p.y) {
+    out.clipPosition = vec4<f32>(0.0, 0.0, 0.0, 0.0);
+    return out;
+  }
+
+  let y = select(p.y, vsUniforms.baseline, useBaseline);
+  let pos = vec2<f32>(p.x, y);
   out.clipPosition = vsUniforms.transform * vec4<f32>(pos, 0.0, 1.0);
   return out;
 }
@@ -44,4 +49,3 @@ fn vsMain(in: VSIn, @builtin(vertex_index) vertexIndex: u32) -> VSOut {
 fn fsMain() -> @location(0) vec4<f32> {
   return fsUniforms.color;
 }
-

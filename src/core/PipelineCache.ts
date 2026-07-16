@@ -54,16 +54,12 @@ export interface PipelineCache {
   /**
    * Render pipeline dedupe keyed by identity-defining fields.
    */
-  getOrCreateRenderPipeline(
-    descriptor: GPURenderPipelineDescriptor,
-  ): GPURenderPipeline;
+  getOrCreateRenderPipeline(descriptor: GPURenderPipelineDescriptor): GPURenderPipeline;
 
   /**
    * Compute pipeline dedupe keyed by identity-defining fields.
    */
-  getOrCreateComputePipeline(
-    descriptor: GPUComputePipelineDescriptor,
-  ): GPUComputePipeline;
+  getOrCreateComputePipeline(descriptor: GPUComputePipelineDescriptor): GPUComputePipeline;
 }
 
 const FNV1A_64_OFFSET = 0xcbf29ce484222325n;
@@ -77,7 +73,7 @@ const fnv1a64Hex = (s: string): string => {
     h ^= BigInt(s.charCodeAt(i));
     h = BigInt(h * FNV1A_64_PRIME) & U64_MASK;
   }
-  return h.toString(16).padStart(16, "0");
+  return h.toString(16).padStart(16, '0');
 };
 
 // Fast, deterministic render pipeline key generation.
@@ -93,41 +89,38 @@ const fnv1a64Hex = (s: string): string => {
 const DEFAULT_WRITE_MASK_ALL = 0xf;
 
 const pushTag = (parts: string[], tag: string): void => {
-  parts.push(tag, "|");
+  parts.push(tag, '|');
 };
 
 const pushStr = (parts: string[], s: string): void => {
   // Length-prefix prevents delimiter collisions without JSON escaping overhead.
-  parts.push("s", String(s.length), ":", s, "|");
+  parts.push('s', String(s.length), ':', s, '|');
 };
 
 const pushNum = (parts: string[], n: number): void => {
-  parts.push("n", String(n), "|");
+  parts.push('n', String(n), '|');
 };
 
 const pushBool = (parts: string[], b: boolean): void => {
-  parts.push(b ? "t|" : "f|");
+  parts.push(b ? 't|' : 'f|');
 };
 
 const pushNull = (parts: string[]): void => {
-  parts.push("0|");
+  parts.push('0|');
 };
 
-const pushConstants = (
-  parts: string[],
-  constants: Record<string, GPUPipelineConstantValue> | undefined,
-): void => {
+const pushConstants = (parts: string[], constants: Record<string, GPUPipelineConstantValue> | undefined): void => {
   if (!constants) {
-    pushTag(parts, "C0");
+    pushTag(parts, 'C0');
     return;
   }
   const keys = Object.keys(constants);
   if (keys.length === 0) {
-    pushTag(parts, "C0");
+    pushTag(parts, 'C0');
     return;
   }
   keys.sort();
-  pushTag(parts, "C1");
+  pushTag(parts, 'C1');
   pushNum(parts, keys.length);
   for (let i = 0; i < keys.length; i++) {
     const k = keys[i]!;
@@ -138,15 +131,14 @@ const pushConstants = (
   }
 };
 
-const cmpString = (a: string, b: string): number =>
-  a < b ? -1 : a > b ? 1 : 0;
+const cmpString = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 
 const pushVertexBuffers = (
   parts: string[],
-  buffers: readonly (GPUVertexBufferLayout | null | undefined)[] | undefined,
+  buffers: readonly (GPUVertexBufferLayout | null | undefined)[] | undefined
 ): void => {
   if (!buffers || buffers.length === 0) {
-    pushTag(parts, "B0");
+    pushTag(parts, 'B0');
     return;
   }
 
@@ -156,11 +148,11 @@ const pushVertexBuffers = (
     if (buffers[i]) count++;
   }
   if (count === 0) {
-    pushTag(parts, "B0");
+    pushTag(parts, 'B0');
     return;
   }
 
-  pushTag(parts, "B1");
+  pushTag(parts, 'B1');
   pushNum(parts, count);
 
   for (let i = 0; i < buffers.length; i++) {
@@ -168,24 +160,20 @@ const pushVertexBuffers = (
     if (!b) continue;
 
     pushNum(parts, b.arrayStride);
-    pushStr(parts, (b.stepMode ?? "vertex") as string);
+    pushStr(parts, (b.stepMode ?? 'vertex') as string);
 
     const attrs = Array.from(b.attributes ?? []);
     if (attrs.length === 0) {
-      pushTag(parts, "A0");
+      pushTag(parts, 'A0');
       continue;
     }
     attrs.sort((a: GPUVertexAttribute, c: GPUVertexAttribute) => {
-      if (a.shaderLocation !== c.shaderLocation)
-        return a.shaderLocation - c.shaderLocation;
+      if (a.shaderLocation !== c.shaderLocation) return a.shaderLocation - c.shaderLocation;
       if (a.offset !== c.offset) return a.offset - c.offset;
-      return cmpString(
-        a.format as unknown as string,
-        c.format as unknown as string,
-      );
+      return cmpString(a.format as unknown as string, c.format as unknown as string);
     });
 
-    pushTag(parts, "A1");
+    pushTag(parts, 'A1');
     pushNum(parts, attrs.length);
     for (let j = 0; j < attrs.length; j++) {
       const a = attrs[j]!;
@@ -198,10 +186,10 @@ const pushVertexBuffers = (
 
 const pushBlend = (parts: string[], blend: GPUBlendState | undefined): void => {
   if (!blend) {
-    pushTag(parts, "BL0");
+    pushTag(parts, 'BL0');
     return;
   }
-  pushTag(parts, "BL1");
+  pushTag(parts, 'BL1');
   pushStr(parts, blend.color.operation as unknown as string);
   pushStr(parts, blend.color.srcFactor as unknown as string);
   pushStr(parts, blend.color.dstFactor as unknown as string);
@@ -212,13 +200,13 @@ const pushBlend = (parts: string[], blend: GPUBlendState | undefined): void => {
 
 const pushTargets = (
   parts: string[],
-  targets: readonly (GPUColorTargetState | null | undefined)[] | undefined,
+  targets: readonly (GPUColorTargetState | null | undefined)[] | undefined
 ): void => {
   if (!targets || targets.length === 0) {
-    pushTag(parts, "T0");
+    pushTag(parts, 'T0');
     return;
   }
-  pushTag(parts, "T1");
+  pushTag(parts, 'T1');
   pushNum(parts, targets.length);
   for (let i = 0; i < targets.length; i++) {
     const t = targets[i];
@@ -228,22 +216,16 @@ const pushTargets = (
     }
     pushStr(parts, t.format as unknown as string);
     pushBlend(parts, t.blend);
-    const writeMask =
-      (t.writeMask as unknown as number | undefined) ?? DEFAULT_WRITE_MASK_ALL;
+    const writeMask = (t.writeMask as unknown as number | undefined) ?? DEFAULT_WRITE_MASK_ALL;
     pushNum(parts, writeMask);
   }
 };
 
-const pushPrimitive = (
-  parts: string[],
-  p: GPUPrimitiveState | undefined,
-): void => {
-  const topology = (p?.topology ?? "triangle-list") as string;
-  const stripIndexFormat = (p?.stripIndexFormat ?? null) as unknown as
-    | string
-    | null;
-  const frontFace = (p?.frontFace ?? "ccw") as string;
-  const cullMode = (p?.cullMode ?? "none") as string;
+const pushPrimitive = (parts: string[], p: GPUPrimitiveState | undefined): void => {
+  const topology = (p?.topology ?? 'triangle-list') as string;
+  const stripIndexFormat = (p?.stripIndexFormat ?? null) as unknown as string | null;
+  const frontFace = (p?.frontFace ?? 'ccw') as string;
+  const cullMode = (p?.cullMode ?? 'none') as string;
   const unclippedDepth = p?.unclippedDepth ?? false;
 
   pushStr(parts, topology);
@@ -254,10 +236,7 @@ const pushPrimitive = (
   pushBool(parts, unclippedDepth);
 };
 
-const pushMultisample = (
-  parts: string[],
-  m: GPUMultisampleState | undefined,
-): void => {
+const pushMultisample = (parts: string[], m: GPUMultisampleState | undefined): void => {
   const count = m?.count ?? 1;
   const mask = (m?.mask as unknown as number | undefined) ?? 0xffffffff;
   const alphaToCoverageEnabled = m?.alphaToCoverageEnabled ?? false;
@@ -266,43 +245,31 @@ const pushMultisample = (
   pushBool(parts, alphaToCoverageEnabled);
 };
 
-const pushStencilFace = (
-  parts: string[],
-  face: GPUStencilFaceState | undefined,
-): void => {
+const pushStencilFace = (parts: string[], face: GPUStencilFaceState | undefined): void => {
   if (!face) {
-    pushTag(parts, "SF0");
+    pushTag(parts, 'SF0');
     return;
   }
-  pushTag(parts, "SF1");
+  pushTag(parts, 'SF1');
   pushStr(parts, face.compare as unknown as string);
   pushStr(parts, face.failOp as unknown as string);
   pushStr(parts, face.depthFailOp as unknown as string);
   pushStr(parts, face.passOp as unknown as string);
 };
 
-const pushDepthStencil = (
-  parts: string[],
-  d: GPUDepthStencilState | undefined,
-): void => {
+const pushDepthStencil = (parts: string[], d: GPUDepthStencilState | undefined): void => {
   if (!d) {
-    pushTag(parts, "DS0");
+    pushTag(parts, 'DS0');
     return;
   }
-  pushTag(parts, "DS1");
+  pushTag(parts, 'DS1');
   pushStr(parts, d.format as unknown as string);
   pushBool(parts, d.depthWriteEnabled ?? false);
-  pushStr(parts, (d.depthCompare ?? "always") as unknown as string);
+  pushStr(parts, (d.depthCompare ?? 'always') as unknown as string);
   pushStencilFace(parts, d.stencilFront);
   pushStencilFace(parts, d.stencilBack);
-  pushNum(
-    parts,
-    (d.stencilReadMask as unknown as number | undefined) ?? 0xffffffff,
-  );
-  pushNum(
-    parts,
-    (d.stencilWriteMask as unknown as number | undefined) ?? 0xffffffff,
-  );
+  pushNum(parts, (d.stencilReadMask as unknown as number | undefined) ?? 0xffffffff);
+  pushNum(parts, (d.stencilWriteMask as unknown as number | undefined) ?? 0xffffffff);
   pushNum(parts, d.depthBias ?? 0);
   pushNum(parts, d.depthBiasSlopeScale ?? 0);
   pushNum(parts, d.depthBiasClamp ?? 0);
@@ -380,8 +347,8 @@ export function createPipelineCache(device: GPUDevice): PipelineCache {
       .catch((err) => {
         // Device loss promise rejection is unusual; log for debugging.
         // Suppress in test environments where mocks may behave differently.
-        if (typeof err === "object" && err !== null && "message" in err) {
-          console.warn("PipelineCache: device.lost promise rejected:", err);
+        if (typeof err === 'object' && err !== null && 'message' in err) {
+          console.warn('PipelineCache: device.lost promise rejected:', err);
         }
         clear();
       });
@@ -390,10 +357,7 @@ export function createPipelineCache(device: GPUDevice): PipelineCache {
     // Real GPUDevice instances always have device.lost, so this catch is primarily for tests.
   }
 
-  const getOrCreateShaderModule = (
-    code: string,
-    label?: string,
-  ): GPUShaderModule => {
+  const getOrCreateShaderModule = (code: string, label?: string): GPUShaderModule => {
     shaderTotal++;
     const cached = shaderModuleByWgsl.get(code);
     if (cached) {
@@ -409,64 +373,48 @@ export function createPipelineCache(device: GPUDevice): PipelineCache {
     return module;
   };
 
-  const getOrCreateRenderPipeline = (
-    descriptor: GPURenderPipelineDescriptor,
-  ): GPURenderPipeline => {
+  const getOrCreateRenderPipeline = (descriptor: GPURenderPipelineDescriptor): GPURenderPipeline => {
     pipeTotal++;
 
-    const layout = (descriptor.layout ?? "auto") as GPUPipelineLayout | "auto";
-    const layoutKey = layout === "auto" ? "auto" : getOrAssignLayoutId(layout);
+    const layout = (descriptor.layout ?? 'auto') as GPUPipelineLayout | 'auto';
+    const layoutKey = layout === 'auto' ? 'auto' : getOrAssignLayoutId(layout);
 
     const vertex = descriptor.vertex;
     const fragment = descriptor.fragment;
 
     const parts: string[] = [];
     // Version prefix allows evolving the key format without ambiguity.
-    pushTag(parts, "rp1");
+    pushTag(parts, 'rp1');
 
-    pushTag(parts, "L");
+    pushTag(parts, 'L');
     pushStr(parts, layoutKey);
 
-    pushTag(parts, "V");
+    pushTag(parts, 'V');
     pushStr(parts, getOrAssignModuleId(vertex.module));
-    pushStr(parts, vertex.entryPoint ?? "");
+    pushStr(parts, vertex.entryPoint ?? '');
     pushConstants(parts, vertex.constants);
-    pushVertexBuffers(
-      parts,
-      vertex.buffers as unknown as readonly (
-        | GPUVertexBufferLayout
-        | null
-        | undefined
-      )[],
-    );
+    pushVertexBuffers(parts, vertex.buffers as unknown as readonly (GPUVertexBufferLayout | null | undefined)[]);
 
-    pushTag(parts, "F");
+    pushTag(parts, 'F');
     if (!fragment) {
-      pushTag(parts, "F0");
+      pushTag(parts, 'F0');
     } else {
-      pushTag(parts, "F1");
+      pushTag(parts, 'F1');
       pushStr(parts, getOrAssignModuleId(fragment.module));
-      pushStr(parts, fragment.entryPoint ?? "");
+      pushStr(parts, fragment.entryPoint ?? '');
       pushConstants(parts, fragment.constants);
-      pushTargets(
-        parts,
-        fragment.targets as unknown as readonly (
-          | GPUColorTargetState
-          | null
-          | undefined
-        )[],
-      );
+      pushTargets(parts, fragment.targets as unknown as readonly (GPUColorTargetState | null | undefined)[]);
     }
 
-    pushTag(parts, "P");
+    pushTag(parts, 'P');
     pushPrimitive(parts, descriptor.primitive);
 
     pushDepthStencil(parts, descriptor.depthStencil);
 
-    pushTag(parts, "M");
+    pushTag(parts, 'M');
     pushMultisample(parts, descriptor.multisample);
 
-    const cacheKey = parts.join("");
+    const cacheKey = parts.join('');
     const cached = renderPipelineByKey.get(cacheKey);
     if (cached) {
       pipeHits++;
@@ -479,29 +427,27 @@ export function createPipelineCache(device: GPUDevice): PipelineCache {
     return pipeline;
   };
 
-  const getOrCreateComputePipeline = (
-    descriptor: GPUComputePipelineDescriptor,
-  ): GPUComputePipeline => {
+  const getOrCreateComputePipeline = (descriptor: GPUComputePipelineDescriptor): GPUComputePipeline => {
     computeTotal++;
 
-    const layout = (descriptor.layout ?? "auto") as GPUPipelineLayout | "auto";
-    const layoutKey = layout === "auto" ? "auto" : getOrAssignLayoutId(layout);
+    const layout = (descriptor.layout ?? 'auto') as GPUPipelineLayout | 'auto';
+    const layoutKey = layout === 'auto' ? 'auto' : getOrAssignLayoutId(layout);
 
     const compute = descriptor.compute;
 
     const parts: string[] = [];
     // Version prefix allows evolving the key format without ambiguity.
-    pushTag(parts, "cp1");
+    pushTag(parts, 'cp1');
 
-    pushTag(parts, "L");
+    pushTag(parts, 'L');
     pushStr(parts, layoutKey);
 
-    pushTag(parts, "CS");
+    pushTag(parts, 'CS');
     pushStr(parts, getOrAssignModuleId(compute.module));
-    pushStr(parts, compute.entryPoint ?? "");
+    pushStr(parts, compute.entryPoint ?? '');
     pushConstants(parts, compute.constants);
 
-    const cacheKey = parts.join("");
+    const cacheKey = parts.join('');
     const cached = computePipelineByKey.get(cacheKey);
     if (cached) {
       computeHits++;

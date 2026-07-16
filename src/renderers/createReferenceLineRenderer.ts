@@ -1,11 +1,7 @@
-import referenceLineWgsl from "../shaders/referenceLine.wgsl?raw";
-import {
-  createRenderPipeline,
-  createUniformBuffer,
-  writeUniformBuffer,
-} from "./rendererUtils";
-import type { GridArea } from "./createGridRenderer";
-import type { PipelineCache } from "../core/PipelineCache";
+import referenceLineWgsl from '../shaders/referenceLine.wgsl?raw';
+import { createRenderPipeline, createUniformBuffer, writeUniformBuffer } from './rendererUtils';
+import type { GridArea } from './createGridRenderer';
+import type { PipelineCache } from '../core/PipelineCache';
 
 /**
  * Maximum dash entries supported per line instance.
@@ -15,9 +11,9 @@ import type { PipelineCache } from "../core/PipelineCache";
  */
 const MAX_DASH_VALUES = 8;
 
-const DEFAULT_TARGET_FORMAT: GPUTextureFormat = "bgra8unorm";
+const DEFAULT_TARGET_FORMAT: GPUTextureFormat = 'bgra8unorm';
 
-export type ReferenceLineAxis = "vertical" | "horizontal";
+export type ReferenceLineAxis = 'vertical' | 'horizontal';
 
 export interface ReferenceLineInstance {
   /**
@@ -96,21 +92,14 @@ export interface ReferenceLineRenderer {
    * - Line positions are CANVAS-LOCAL CSS pixels.
    * - `gridArea` margins are CSS pixels; `gridArea.canvasWidth/Height` are device pixels.
    */
-  prepare(
-    gridArea: GridArea,
-    lines: ReadonlyArray<ReferenceLineInstance>,
-  ): void;
+  prepare(gridArea: GridArea, lines: ReadonlyArray<ReferenceLineInstance>): void;
   /**
    * Draws all prepared reference lines.
    *
    * Important: This renderer does NOT set scissor state. The render coordinator is expected
    * to set a scissor rect for the plot area before calling `render()`.
    */
-  render(
-    passEncoder: GPURenderPassEncoder,
-    firstInstance?: number,
-    instanceCount?: number,
-  ): void;
+  render(passEncoder: GPURenderPassEncoder, firstInstance?: number, instanceCount?: number): void;
   /** Cleans up GPU resources (best-effort). */
   dispose(): void;
 }
@@ -141,7 +130,7 @@ const normalizeDash = (lineDash?: ReadonlyArray<number>): PackedDash => {
   const cleaned: number[] = [];
   for (let i = 0; i < lineDash.length; i++) {
     const v = lineDash[i];
-    if (typeof v === "number" && Number.isFinite(v) && v > 0) cleaned.push(v);
+    if (typeof v === 'number' && Number.isFinite(v) && v > 0) cleaned.push(v);
   }
 
   if (cleaned.length === 0) {
@@ -153,8 +142,7 @@ const normalizeDash = (lineDash?: ReadonlyArray<number>): PackedDash => {
   }
 
   // CSS behavior: odd-length dash arrays are repeated to make even length.
-  const normalized =
-    cleaned.length % 2 === 1 ? cleaned.concat(cleaned) : cleaned;
+  const normalized = cleaned.length % 2 === 1 ? cleaned.concat(cleaned) : cleaned;
 
   const dashCount = Math.min(MAX_DASH_VALUES, normalized.length);
   const values = new Array<number>(MAX_DASH_VALUES).fill(0);
@@ -177,15 +165,13 @@ const normalizeDash = (lineDash?: ReadonlyArray<number>): PackedDash => {
 
 export function createReferenceLineRenderer(
   device: GPUDevice,
-  options?: ReferenceLineRendererOptions,
+  options?: ReferenceLineRendererOptions
 ): ReferenceLineRenderer {
   let disposed = false;
   const targetFormat = options?.targetFormat ?? DEFAULT_TARGET_FORMAT;
   // Be resilient: coerce invalid values to 1 (no MSAA).
   const sampleCountRaw = options?.sampleCount ?? 1;
-  const sampleCount = Number.isFinite(sampleCountRaw)
-    ? Math.max(1, Math.floor(sampleCountRaw))
-    : 1;
+  const sampleCount = Number.isFinite(sampleCountRaw) ? Math.max(1, Math.floor(sampleCountRaw)) : 1;
   const pipelineCache = options?.pipelineCache;
 
   const bindGroupLayout = device.createBindGroupLayout({
@@ -193,7 +179,7 @@ export function createReferenceLineRenderer(
       {
         binding: 0,
         visibility: GPUShaderStage.VERTEX,
-        buffer: { type: "uniform" },
+        buffer: { type: 'uniform' },
       },
     ],
   });
@@ -205,7 +191,7 @@ export function createReferenceLineRenderer(
   // - devicePixelRatio (f32)
   // - pad (f32)
   const vsUniformBuffer = createUniformBuffer(device, 32, {
-    label: "referenceLineRenderer/vsUniforms",
+    label: 'referenceLineRenderer/vsUniforms',
   });
 
   const bindGroup = device.createBindGroup({
@@ -219,47 +205,47 @@ export function createReferenceLineRenderer(
   const pipeline = createRenderPipeline(
     device,
     {
-      label: "referenceLineRenderer/pipeline",
+      label: 'referenceLineRenderer/pipeline',
       bindGroupLayouts: [bindGroupLayout],
       vertex: {
         code: referenceLineWgsl,
-        label: "referenceLine.wgsl",
+        label: 'referenceLine.wgsl',
         buffers: [
           {
             arrayStride: INSTANCE_STRIDE_BYTES,
-            stepMode: "instance",
+            stepMode: 'instance',
             attributes: [
-              { shaderLocation: 0, format: "float32x2", offset: 0 }, // axisPos
-              { shaderLocation: 1, format: "float32x2", offset: 8 }, // widthDashCount
-              { shaderLocation: 2, format: "float32x2", offset: 16 }, // dashMeta
-              { shaderLocation: 3, format: "float32x4", offset: 24 }, // dash0_3
-              { shaderLocation: 4, format: "float32x4", offset: 40 }, // dash4_7
-              { shaderLocation: 5, format: "float32x4", offset: 56 }, // color
+              { shaderLocation: 0, format: 'float32x2', offset: 0 }, // axisPos
+              { shaderLocation: 1, format: 'float32x2', offset: 8 }, // widthDashCount
+              { shaderLocation: 2, format: 'float32x2', offset: 16 }, // dashMeta
+              { shaderLocation: 3, format: 'float32x4', offset: 24 }, // dash0_3
+              { shaderLocation: 4, format: 'float32x4', offset: 40 }, // dash4_7
+              { shaderLocation: 5, format: 'float32x4', offset: 56 }, // color
             ],
           },
         ],
       },
       fragment: {
         code: referenceLineWgsl,
-        label: "referenceLine.wgsl",
+        label: 'referenceLine.wgsl',
         formats: targetFormat,
         blend: {
           color: {
-            operation: "add",
-            srcFactor: "src-alpha",
-            dstFactor: "one-minus-src-alpha",
+            operation: 'add',
+            srcFactor: 'src-alpha',
+            dstFactor: 'one-minus-src-alpha',
           },
           alpha: {
-            operation: "add",
-            srcFactor: "one",
-            dstFactor: "one-minus-src-alpha",
+            operation: 'add',
+            srcFactor: 'one',
+            dstFactor: 'one-minus-src-alpha',
           },
         },
       },
-      primitive: { topology: "triangle-list", cullMode: "none" },
+      primitive: { topology: 'triangle-list', cullMode: 'none' },
       multisample: { count: sampleCount },
     },
-    pipelineCache,
+    pipelineCache
   );
 
   let instanceBuffer: GPUBuffer | null = null;
@@ -267,42 +253,28 @@ export function createReferenceLineRenderer(
   let instanceCount = 0;
 
   const assertNotDisposed = (): void => {
-    if (disposed) throw new Error("ReferenceLineRenderer is disposed.");
+    if (disposed) throw new Error('ReferenceLineRenderer is disposed.');
   };
 
-  const prepare: ReferenceLineRenderer["prepare"] = (gridArea, lines) => {
+  const prepare: ReferenceLineRenderer['prepare'] = (gridArea, lines) => {
     assertNotDisposed();
 
     if (!Array.isArray(lines)) {
-      throw new Error("ReferenceLineRenderer.prepare: lines must be an array.");
+      throw new Error('ReferenceLineRenderer.prepare: lines must be an array.');
     }
     if (!isFiniteGridArea(gridArea)) {
-      throw new Error(
-        "ReferenceLineRenderer.prepare: gridArea dimensions must be finite numbers.",
-      );
+      throw new Error('ReferenceLineRenderer.prepare: gridArea dimensions must be finite numbers.');
     }
     if (gridArea.canvasWidth <= 0 || gridArea.canvasHeight <= 0) {
-      throw new Error(
-        "ReferenceLineRenderer.prepare: canvas dimensions must be positive.",
-      );
+      throw new Error('ReferenceLineRenderer.prepare: canvas dimensions must be positive.');
     }
-    if (
-      gridArea.left < 0 ||
-      gridArea.right < 0 ||
-      gridArea.top < 0 ||
-      gridArea.bottom < 0
-    ) {
-      throw new Error(
-        "ReferenceLineRenderer.prepare: gridArea margins must be non-negative.",
-      );
+    if (gridArea.left < 0 || gridArea.right < 0 || gridArea.top < 0 || gridArea.bottom < 0) {
+      throw new Error('ReferenceLineRenderer.prepare: gridArea margins must be non-negative.');
     }
 
     // Be resilient: older call sites may omit/incorrectly pass DPR. Defaulting avoids hard crashes.
     const dpr =
-      Number.isFinite(gridArea.devicePixelRatio) &&
-      gridArea.devicePixelRatio > 0
-        ? gridArea.devicePixelRatio
-        : 1;
+      Number.isFinite(gridArea.devicePixelRatio) && gridArea.devicePixelRatio > 0 ? gridArea.devicePixelRatio : 1;
 
     const plotLeftDevice = gridArea.left * dpr;
     const plotTopDevice = gridArea.top * dpr;
@@ -348,7 +320,7 @@ export function createReferenceLineRenderer(
       }
 
       instanceBuffer = device.createBuffer({
-        label: "referenceLineRenderer/instanceBuffer",
+        label: 'referenceLineRenderer/instanceBuffer',
         size,
         usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
       });
@@ -361,33 +333,25 @@ export function createReferenceLineRenderer(
       const line = lines[i];
       const base = i * INSTANCE_STRIDE_FLOATS;
 
-      if (line.axis !== "vertical" && line.axis !== "horizontal") {
-        throw new Error(
-          "ReferenceLineRenderer.prepare: line.axis must be 'vertical' or 'horizontal'.",
-        );
+      if (line.axis !== 'vertical' && line.axis !== 'horizontal') {
+        throw new Error("ReferenceLineRenderer.prepare: line.axis must be 'vertical' or 'horizontal'.");
       }
       if (!Number.isFinite(line.positionCssPx)) {
-        throw new Error(
-          "ReferenceLineRenderer.prepare: line.positionCssPx must be a finite number.",
-        );
+        throw new Error('ReferenceLineRenderer.prepare: line.positionCssPx must be a finite number.');
       }
       if (!Number.isFinite(line.lineWidth) || line.lineWidth < 0) {
-        throw new Error(
-          "ReferenceLineRenderer.prepare: line.lineWidth must be a finite non-negative number.",
-        );
+        throw new Error('ReferenceLineRenderer.prepare: line.lineWidth must be a finite non-negative number.');
       }
 
       const rgba = line.rgba;
       if (!Array.isArray(rgba) || rgba.length !== 4) {
-        throw new Error(
-          "ReferenceLineRenderer.prepare: line.rgba must be a tuple [r,g,b,a].",
-        );
+        throw new Error('ReferenceLineRenderer.prepare: line.rgba must be a tuple [r,g,b,a].');
       }
 
       const dash = normalizeDash(line.lineDash);
 
       // axisPos
-      data[base + 0] = line.axis === "vertical" ? 0 : 1;
+      data[base + 0] = line.axis === 'vertical' ? 0 : 1;
       data[base + 1] = line.positionCssPx;
 
       // widthDashCount
@@ -410,27 +374,15 @@ export function createReferenceLineRenderer(
       data[base + 17] = rgba[3];
     }
 
-    device.queue.writeBuffer(
-      instanceBuffer,
-      0,
-      data.buffer,
-      data.byteOffset,
-      data.byteLength,
-    );
+    device.queue.writeBuffer(instanceBuffer, 0, data.buffer, data.byteOffset, data.byteLength);
     instanceCount = lines.length;
   };
 
-  const render: ReferenceLineRenderer["render"] = (
-    passEncoder,
-    firstInstance = 0,
-    requestedCount,
-  ) => {
+  const render: ReferenceLineRenderer['render'] = (passEncoder, firstInstance = 0, requestedCount) => {
     assertNotDisposed();
     if (instanceCount === 0 || !instanceBuffer) return;
 
-    const first = Number.isFinite(firstInstance)
-      ? Math.max(0, Math.floor(firstInstance))
-      : 0;
+    const first = Number.isFinite(firstInstance) ? Math.max(0, Math.floor(firstInstance)) : 0;
     const available = Math.max(0, instanceCount - first);
     const count =
       requestedCount == null
@@ -446,7 +398,7 @@ export function createReferenceLineRenderer(
     passEncoder.draw(6, count, 0, first);
   };
 
-  const dispose: ReferenceLineRenderer["dispose"] = () => {
+  const dispose: ReferenceLineRenderer['dispose'] = () => {
     if (disposed) return;
     disposed = true;
 

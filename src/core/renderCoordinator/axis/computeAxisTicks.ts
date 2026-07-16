@@ -20,11 +20,7 @@ const DEFAULT_MAX_TICK_FRACTION_DIGITS = 8;
  * @param tickCount - Number of ticks to generate (must be >= 1)
  * @returns Array of tick values
  */
-export function generateLinearTicks(
-  domainMin: number,
-  domainMax: number,
-  tickCount: number,
-): number[] {
+export function generateLinearTicks(domainMin: number, domainMax: number, tickCount: number): number[] {
   const count = Math.max(1, Math.floor(tickCount));
   const ticks: number[] = new Array(count);
   for (let i = 0; i < count; i++) {
@@ -48,7 +44,7 @@ export function generateLinearTicks(
  */
 export function computeMaxFractionDigitsFromStep(
   tickStep: number,
-  cap: number = DEFAULT_MAX_TICK_FRACTION_DIGITS,
+  cap: number = DEFAULT_MAX_TICK_FRACTION_DIGITS
 ): number {
   const stepAbs = Math.abs(tickStep);
   if (!Number.isFinite(stepAbs) || stepAbs === 0) return 0;
@@ -79,7 +75,7 @@ export function computeMaxFractionDigitsFromStep(
  */
 export function createTickFormatter(tickStep: number): Intl.NumberFormat {
   const maximumFractionDigits = computeMaxFractionDigitsFromStep(tickStep);
-  return new Intl.NumberFormat("en-US", { maximumFractionDigits });
+  return new Intl.NumberFormat('en-US', { maximumFractionDigits });
 }
 
 /**
@@ -94,14 +90,11 @@ export function createTickFormatter(tickStep: number): Intl.NumberFormat {
  * @param v - Numeric value to format
  * @returns Formatted string or null if value cannot be formatted
  */
-export function formatTickValue(
-  nf: Intl.NumberFormat,
-  v: number,
-): string | null {
+export function formatTickValue(nf: Intl.NumberFormat, v: number): string | null {
   if (!Number.isFinite(v)) return null;
   // Avoid displaying "-0" from floating-point artifacts.
   const normalized = Math.abs(v) < 1e-12 ? 0 : v;
   const formatted = nf.format(normalized);
   // Guard against unexpected output like "NaN" even after the finite check (defensive).
-  return formatted === "NaN" ? null : formatted;
+  return formatted === 'NaN' ? null : formatted;
 }

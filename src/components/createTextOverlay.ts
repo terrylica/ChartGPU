@@ -1,4 +1,4 @@
-export type TextOverlayAnchor = "start" | "middle" | "end";
+export type TextOverlayAnchor = 'start' | 'middle' | 'end';
 
 export interface TextOverlayLabelOptions {
   readonly fontSize?: number;
@@ -20,66 +20,49 @@ export interface TextOverlayOptions {
 
 export interface TextOverlay {
   clear(): void;
-  addLabel(
-    text: string,
-    x: number,
-    y: number,
-    options?: TextOverlayLabelOptions,
-  ): HTMLSpanElement;
+  addLabel(text: string, x: number, y: number, options?: TextOverlayLabelOptions): HTMLSpanElement;
   dispose(): void;
 }
 
-const getAnchorTransform = (
-  anchor: TextOverlayAnchor,
-): Readonly<{ translateX: string; originX: string }> => {
+const getAnchorTransform = (anchor: TextOverlayAnchor): Readonly<{ translateX: string; originX: string }> => {
   switch (anchor) {
-    case "start":
-      return { translateX: "0%", originX: "0%" };
-    case "middle":
-      return { translateX: "-50%", originX: "50%" };
-    case "end":
-      return { translateX: "-100%", originX: "100%" };
+    case 'start':
+      return { translateX: '0%', originX: '0%' };
+    case 'middle':
+      return { translateX: '-50%', originX: '50%' };
+    case 'end':
+      return { translateX: '-100%', originX: '100%' };
   }
 };
 
-export function createTextOverlay(
-  container: HTMLElement,
-  options?: TextOverlayOptions,
-): TextOverlay {
+export function createTextOverlay(container: HTMLElement, options?: TextOverlayOptions): TextOverlay {
   const computedStyle = getComputedStyle(container);
   const computedPosition = computedStyle.position;
   const computedOverflow = computedStyle.overflow;
 
   const clip = options?.clip ?? false;
 
-  const didSetRelative = computedPosition === "static";
+  const didSetRelative = computedPosition === 'static';
   const didSetOverflowVisible =
-    !clip &&
-    (computedOverflow === "hidden" ||
-      computedOverflow === "scroll" ||
-      computedOverflow === "auto");
+    !clip && (computedOverflow === 'hidden' || computedOverflow === 'scroll' || computedOverflow === 'auto');
 
-  const previousInlinePosition = didSetRelative
-    ? container.style.position
-    : null;
-  const previousInlineOverflow = didSetOverflowVisible
-    ? container.style.overflow
-    : null;
+  const previousInlinePosition = didSetRelative ? container.style.position : null;
+  const previousInlineOverflow = didSetOverflowVisible ? container.style.overflow : null;
 
   if (didSetRelative) {
-    container.style.position = "relative";
+    container.style.position = 'relative';
   }
 
   if (didSetOverflowVisible) {
-    container.style.overflow = "visible";
+    container.style.overflow = 'visible';
   }
 
-  const overlay = document.createElement("div");
-  overlay.style.position = "absolute";
-  overlay.style.inset = "0";
-  overlay.style.pointerEvents = "none";
-  overlay.style.overflow = clip ? "hidden" : "visible";
-  overlay.style.zIndex = "10"; // Above zoom slider (z-index: 4) and other overlays
+  const overlay = document.createElement('div');
+  overlay.style.position = 'absolute';
+  overlay.style.inset = '0';
+  overlay.style.pointerEvents = 'none';
+  overlay.style.overflow = clip ? 'hidden' : 'visible';
+  overlay.style.zIndex = '10'; // Above zoom slider (z-index: 4) and other overlays
   container.appendChild(overlay);
 
   let disposed = false;
@@ -89,28 +72,27 @@ export function createTextOverlay(
     overlay.replaceChildren();
   };
 
-  const addLabel: TextOverlay["addLabel"] = (text, x, y, options) => {
+  const addLabel: TextOverlay['addLabel'] = (text, x, y, options) => {
     if (disposed) {
       // Keep it non-throwing so callsites don't need try/catch in teardown paths.
-      return document.createElement("span");
+      return document.createElement('span');
     }
 
-    const span = document.createElement("span");
+    const span = document.createElement('span');
     span.textContent = text;
-    span.style.position = "absolute";
+    span.style.position = 'absolute';
     span.style.left = `${x}px`;
     span.style.top = `${y}px`;
-    span.style.pointerEvents = "none";
-    span.style.userSelect = "none";
-    span.style.whiteSpace = "nowrap";
-    span.style.lineHeight = "1";
+    span.style.pointerEvents = 'none';
+    span.style.userSelect = 'none';
+    span.style.whiteSpace = 'nowrap';
+    span.style.lineHeight = '1';
 
-    if (options?.fontSize != null)
-      span.style.fontSize = `${options.fontSize}px`;
+    if (options?.fontSize != null) span.style.fontSize = `${options.fontSize}px`;
     if (options?.color != null) span.style.color = options.color;
 
     const rotation = options?.rotation ?? 0;
-    const anchor = options?.anchor ?? "start";
+    const anchor = options?.anchor ?? 'start';
     const { translateX, originX } = getAnchorTransform(anchor);
 
     span.style.transformOrigin = `${originX} 50%`;

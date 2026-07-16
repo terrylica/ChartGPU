@@ -8,15 +8,15 @@
  * @module rendererPool
  */
 
-import { createAreaRenderer } from "../../../renderers/createAreaRenderer";
-import { createLineRenderer } from "../../../renderers/createLineRenderer";
-import { createScatterRenderer } from "../../../renderers/createScatterRenderer";
-import { createScatterDensityRenderer } from "../../../renderers/createScatterDensityRenderer";
-import { createPieRenderer } from "../../../renderers/createPieRenderer";
-import { createCandlestickRenderer } from "../../../renderers/createCandlestickRenderer";
-import { createBarRenderer } from "../../../renderers/createBarRenderer";
-import { createDecimationCompute } from "../../../renderers/createDecimationCompute";
-import type { PipelineCache } from "../../PipelineCache";
+import { createAreaRenderer } from '../../../renderers/createAreaRenderer';
+import { createLineRenderer } from '../../../renderers/createLineRenderer';
+import { createScatterRenderer } from '../../../renderers/createScatterRenderer';
+import { createScatterDensityRenderer } from '../../../renderers/createScatterDensityRenderer';
+import { createPieRenderer } from '../../../renderers/createPieRenderer';
+import { createCandlestickRenderer } from '../../../renderers/createCandlestickRenderer';
+import { createBarRenderer } from '../../../renderers/createBarRenderer';
+import { createDecimationCompute } from '../../../renderers/createDecimationCompute';
+import type { PipelineCache } from '../../PipelineCache';
 
 /**
  * Configuration for renderer pool creation.
@@ -40,23 +40,15 @@ export interface RendererPoolConfig {
 export interface RendererPoolState {
   readonly areaRenderers: ReadonlyArray<ReturnType<typeof createAreaRenderer>>;
   readonly lineRenderers: ReadonlyArray<ReturnType<typeof createLineRenderer>>;
-  readonly scatterRenderers: ReadonlyArray<
-    ReturnType<typeof createScatterRenderer>
-  >;
-  readonly scatterDensityRenderers: ReadonlyArray<
-    ReturnType<typeof createScatterDensityRenderer>
-  >;
+  readonly scatterRenderers: ReadonlyArray<ReturnType<typeof createScatterRenderer>>;
+  readonly scatterDensityRenderers: ReadonlyArray<ReturnType<typeof createScatterDensityRenderer>>;
   readonly pieRenderers: ReadonlyArray<ReturnType<typeof createPieRenderer>>;
-  readonly candlestickRenderers: ReadonlyArray<
-    ReturnType<typeof createCandlestickRenderer>
-  >;
+  readonly candlestickRenderers: ReadonlyArray<ReturnType<typeof createCandlestickRenderer>>;
   /**
    * Per-line-series GPU decimation compute instances. Sized 1:1 with
    * `lineRenderers`. Ineligible series simply never call `.prepare()`.
    */
-  readonly decimationComputes: ReadonlyArray<
-    ReturnType<typeof createDecimationCompute>
-  >;
+  readonly decimationComputes: ReadonlyArray<ReturnType<typeof createDecimationCompute>>;
   readonly barRenderer: ReturnType<typeof createBarRenderer>;
 }
 
@@ -157,16 +149,10 @@ export function createRendererPool(config: RendererPoolConfig): RendererPool {
   const areaRenderers: Array<ReturnType<typeof createAreaRenderer>> = [];
   const lineRenderers: Array<ReturnType<typeof createLineRenderer>> = [];
   const scatterRenderers: Array<ReturnType<typeof createScatterRenderer>> = [];
-  const scatterDensityRenderers: Array<
-    ReturnType<typeof createScatterDensityRenderer>
-  > = [];
+  const scatterDensityRenderers: Array<ReturnType<typeof createScatterDensityRenderer>> = [];
   const pieRenderers: Array<ReturnType<typeof createPieRenderer>> = [];
-  const candlestickRenderers: Array<
-    ReturnType<typeof createCandlestickRenderer>
-  > = [];
-  const decimationComputes: Array<
-    ReturnType<typeof createDecimationCompute>
-  > = [];
+  const candlestickRenderers: Array<ReturnType<typeof createCandlestickRenderer>> = [];
+  const decimationComputes: Array<ReturnType<typeof createDecimationCompute>> = [];
 
   // Bar renderer is a singleton (one instance handles all bar series)
   const barRenderer = createBarRenderer(device, {
@@ -191,7 +177,7 @@ export function createRendererPool(config: RendererPoolConfig): RendererPool {
           targetFormat,
           pipelineCache,
           sampleCount,
-        }),
+        })
       );
     }
   }
@@ -212,7 +198,7 @@ export function createRendererPool(config: RendererPoolConfig): RendererPool {
           targetFormat,
           pipelineCache,
           sampleCount,
-        }),
+        })
       );
     }
   }
@@ -233,7 +219,7 @@ export function createRendererPool(config: RendererPoolConfig): RendererPool {
           targetFormat,
           pipelineCache,
           sampleCount,
-        }),
+        })
       );
     }
   }
@@ -254,7 +240,7 @@ export function createRendererPool(config: RendererPoolConfig): RendererPool {
           targetFormat,
           pipelineCache,
           sampleCount,
-        }),
+        })
       );
     }
   }
@@ -270,9 +256,7 @@ export function createRendererPool(config: RendererPoolConfig): RendererPool {
       r?.dispose();
     }
     while (pieRenderers.length < count) {
-      pieRenderers.push(
-        createPieRenderer(device, { targetFormat, pipelineCache, sampleCount }),
-      );
+      pieRenderers.push(createPieRenderer(device, { targetFormat, pipelineCache, sampleCount }));
     }
   }
 
@@ -292,7 +276,7 @@ export function createRendererPool(config: RendererPoolConfig): RendererPool {
           targetFormat,
           pipelineCache,
           sampleCount,
-        }),
+        })
       );
     }
   }
@@ -307,9 +291,7 @@ export function createRendererPool(config: RendererPoolConfig): RendererPool {
       r?.dispose();
     }
     while (decimationComputes.length < count) {
-      decimationComputes.push(
-        createDecimationCompute(device, { pipelineCache }),
-      );
+      decimationComputes.push(createDecimationCompute(device, { pipelineCache }));
     }
   }
 

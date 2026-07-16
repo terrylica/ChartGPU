@@ -6,28 +6,20 @@
  * code does not break normal chart creation and disposal.
  */
 
-import {
-  describe,
-  it,
-  expect,
-  beforeEach,
-  vi,
-  beforeAll,
-  afterEach,
-} from "vitest";
-import { ChartGPU, _resetInstanceRegistryForTesting } from "../ChartGPU";
-import type { ChartGPUOptions } from "../config/types";
+import { describe, it, expect, beforeEach, vi, beforeAll, afterEach } from 'vitest';
+import { ChartGPU, _resetInstanceRegistryForTesting } from '../ChartGPU';
+import type { ChartGPUOptions } from '../config/types';
 
 // Mock WebGPU globals before importing the module
 beforeAll(() => {
   // Mock window global for SSR-safe checks
-  if (typeof window === "undefined") {
+  if (typeof window === 'undefined') {
     // @ts-ignore - Mock window global
     globalThis.window = globalThis;
   }
 
   // Polyfill PageTransitionEvent — not available in jsdom/vitest node environment
-  if (typeof globalThis.PageTransitionEvent === "undefined") {
+  if (typeof globalThis.PageTransitionEvent === 'undefined') {
     class PageTransitionEventPolyfill extends Event {
       readonly persisted: boolean;
       constructor(type: string, init?: PageTransitionEventInit) {
@@ -40,11 +32,11 @@ beforeAll(() => {
   }
 
   // Mock document if not available
-  if (typeof document === "undefined") {
+  if (typeof document === 'undefined') {
     // @ts-ignore - Mock document global
     globalThis.document = {
       createElement: (tagName: string) => {
-        if (tagName === "canvas") {
+        if (tagName === 'canvas') {
           return createMockCanvas();
         }
         return {
@@ -105,7 +97,7 @@ function createMockCanvas(): HTMLCanvasElement {
       toJSON: () => ({}),
     })),
     getContext: vi.fn((contextId: string) => {
-      if (contextId === "webgpu") {
+      if (contextId === 'webgpu') {
         return {
           configure: vi.fn(),
           unconfigure: vi.fn(),
@@ -206,13 +198,11 @@ function createMockAdapter(): GPUAdapter {
 }
 
 // Mock navigator.gpu
-function setupMockNavigatorGPU(
-  adapter: GPUAdapter | null = createMockAdapter(),
-): void {
-  vi.stubGlobal("navigator", {
+function setupMockNavigatorGPU(adapter: GPUAdapter | null = createMockAdapter()): void {
+  vi.stubGlobal('navigator', {
     gpu: {
       requestAdapter: vi.fn(async () => adapter),
-      getPreferredCanvasFormat: vi.fn(() => "bgra8unorm"),
+      getPreferredCanvasFormat: vi.fn(() => 'bgra8unorm'),
     },
   });
 }
@@ -243,7 +233,7 @@ function createMockContainer(): HTMLElement {
 const minimalOptions: ChartGPUOptions = {
   series: [
     {
-      type: "line",
+      type: 'line',
       data: [
         [0, 1],
         [1, 3],
@@ -253,20 +243,20 @@ const minimalOptions: ChartGPUOptions = {
   ],
 };
 
-describe("auto-dispose on page unload (CGPU-OOM-139)", () => {
+describe('auto-dispose on page unload (CGPU-OOM-139)', () => {
   let mockContainer: HTMLElement;
   let warnSpy: ReturnType<typeof vi.spyOn> | null = null;
 
   beforeEach(() => {
     mockContainer = createMockContainer();
     setupMockNavigatorGPU();
-    warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-    vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => {
+    warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
       setTimeout(() => cb(performance.now()), 0);
       return 1;
     });
-    vi.stubGlobal("cancelAnimationFrame", vi.fn());
-    vi.stubGlobal("devicePixelRatio", 2);
+    vi.stubGlobal('cancelAnimationFrame', vi.fn());
+    vi.stubGlobal('devicePixelRatio', 2);
   });
 
   afterEach(() => {
@@ -277,27 +267,27 @@ describe("auto-dispose on page unload (CGPU-OOM-139)", () => {
     vi.unstubAllGlobals();
   });
 
-  it("dispose() is idempotent — calling twice does not throw", async () => {
+  it('dispose() is idempotent — calling twice does not throw', async () => {
     const chart = await ChartGPU.create(mockContainer, minimalOptions);
     chart.dispose();
     expect(() => chart.dispose()).not.toThrow();
   });
 
-  it("instance is marked disposed after dispose()", async () => {
+  it('instance is marked disposed after dispose()', async () => {
     const chart = await ChartGPU.create(mockContainer, minimalOptions);
     expect(chart.disposed).toBe(false);
     chart.dispose();
     expect(chart.disposed).toBe(true);
   });
 
-  it("creating and disposing a chart does not throw", async () => {
+  it('creating and disposing a chart does not throw', async () => {
     const chart = await ChartGPU.create(mockContainer, minimalOptions);
     expect(chart.disposed).toBe(false);
     expect(() => chart.dispose()).not.toThrow();
     expect(chart.disposed).toBe(true);
   });
 
-  it("multiple charts can be created and disposed independently", async () => {
+  it('multiple charts can be created and disposed independently', async () => {
     const container1 = createMockContainer();
     const container2 = createMockContainer();
 
@@ -315,7 +305,7 @@ describe("auto-dispose on page unload (CGPU-OOM-139)", () => {
     expect(chart2.disposed).toBe(true);
   });
 
-  it("_resetInstanceRegistryForTesting clears the registry without errors", async () => {
+  it('_resetInstanceRegistryForTesting clears the registry without errors', async () => {
     const chart = await ChartGPU.create(mockContainer, minimalOptions);
     expect(chart.disposed).toBe(false);
 
@@ -330,7 +320,7 @@ describe("auto-dispose on page unload (CGPU-OOM-139)", () => {
     expect(chart.disposed).toBe(true);
   });
 
-  it("operations on a disposed chart are safe (no-op)", async () => {
+  it('operations on a disposed chart are safe (no-op)', async () => {
     const chart = await ChartGPU.create(mockContainer, minimalOptions);
     chart.dispose();
 
@@ -341,7 +331,7 @@ describe("auto-dispose on page unload (CGPU-OOM-139)", () => {
     expect(() => chart.appendData(0, [[3, 4]])).not.toThrow();
   });
 
-  it("pagehide event with persisted=false disposes all active chart instances", async () => {
+  it('pagehide event with persisted=false disposes all active chart instances', async () => {
     // Capture the pagehide handler registered by ensureUnloadListeners.
     // We need real addEventListener/removeEventListener so that both
     // ensureUnloadListeners() and _resetInstanceRegistryForTesting() work.
@@ -350,7 +340,7 @@ describe("auto-dispose on page unload (CGPU-OOM-139)", () => {
     window.addEventListener = vi.fn((event: string, handler: any) => {
       if (!handlers.has(event)) handlers.set(event, new Set());
       handlers.get(event)!.add(handler);
-      if (event === "pagehide") pagehideHandler = handler;
+      if (event === 'pagehide') pagehideHandler = handler;
     }) as any;
     window.removeEventListener = vi.fn((event: string, handler: any) => {
       handlers.get(event)?.delete(handler);
@@ -365,20 +355,20 @@ describe("auto-dispose on page unload (CGPU-OOM-139)", () => {
     expect(pagehideHandler).not.toBeNull();
 
     // Simulate a real unload (persisted=false) — disposal should occur
-    pagehideHandler!(new PageTransitionEvent("pagehide", { persisted: false }));
+    pagehideHandler!(new PageTransitionEvent('pagehide', { persisted: false }));
 
     expect(chart1.disposed).toBe(true);
     expect(chart2.disposed).toBe(true);
   });
 
-  it("pagehide with persisted=true (bfcache) does NOT dispose instances", async () => {
+  it('pagehide with persisted=true (bfcache) does NOT dispose instances', async () => {
     // Capture the pagehide handler registered by ensureUnloadListeners.
     let pagehideHandler: ((e: PageTransitionEvent) => void) | null = null;
     const handlers = new Map<string, Set<Function>>();
     window.addEventListener = vi.fn((event: string, handler: any) => {
       if (!handlers.has(event)) handlers.set(event, new Set());
       handlers.get(event)!.add(handler);
-      if (event === "pagehide") pagehideHandler = handler;
+      if (event === 'pagehide') pagehideHandler = handler;
     }) as any;
     window.removeEventListener = vi.fn((event: string, handler: any) => {
       handlers.get(event)?.delete(handler);
@@ -393,7 +383,7 @@ describe("auto-dispose on page unload (CGPU-OOM-139)", () => {
     expect(pagehideHandler).not.toBeNull();
 
     // Simulate bfcache navigation (persisted=true) — disposal must NOT occur
-    pagehideHandler!(new PageTransitionEvent("pagehide", { persisted: true }));
+    pagehideHandler!(new PageTransitionEvent('pagehide', { persisted: true }));
 
     expect(chart1.disposed).toBe(false);
     expect(chart2.disposed).toBe(false);

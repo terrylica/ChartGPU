@@ -3,7 +3,7 @@
  * These tests verify texture allocation, reallocation, and disposal.
  */
 
-import { describe, it, expect, beforeEach, vi, beforeAll } from "vitest";
+import { describe, it, expect, beforeEach, vi, beforeAll } from 'vitest';
 
 // Mock WebGPU globals before importing the module
 beforeAll(() => {
@@ -23,8 +23,8 @@ beforeAll(() => {
   };
 });
 
-import { createTextureManager } from "../textureManager";
-import type { TextureManagerConfig } from "../textureManager";
+import { createTextureManager } from '../textureManager';
+import type { TextureManagerConfig } from '../textureManager';
 
 // Mock GPUDevice and related WebGPU types
 function createMockDevice(): GPUDevice {
@@ -47,19 +47,19 @@ function createMockDevice(): GPUDevice {
       return mockTexture;
     }),
     createBindGroupLayout: vi.fn(() => ({
-      label: "mockBindGroupLayout",
+      label: 'mockBindGroupLayout',
     })),
     createBindGroup: vi.fn(() => ({
-      label: "mockBindGroup",
+      label: 'mockBindGroup',
     })),
     createPipelineLayout: vi.fn(() => ({
-      label: "mockPipelineLayout",
+      label: 'mockPipelineLayout',
     })),
     createShaderModule: vi.fn(() => ({
-      label: "mockShaderModule",
+      label: 'mockShaderModule',
     })),
     createRenderPipeline: vi.fn(() => ({
-      label: "mockRenderPipeline",
+      label: 'mockRenderPipeline',
     })),
   } as any;
 
@@ -68,16 +68,16 @@ function createMockDevice(): GPUDevice {
 
 function createMockRenderPipeline(): GPURenderPipeline {
   return {
-    label: "mockPipeline",
+    label: 'mockPipeline',
   } as any;
 }
 
 // Mock the createRenderPipeline function
-vi.mock("../../../renderers/rendererUtils", () => ({
+vi.mock('../../../renderers/rendererUtils', () => ({
   createRenderPipeline: vi.fn(() => createMockRenderPipeline()),
 }));
 
-describe("TextureManager", () => {
+describe('TextureManager', () => {
   let device: GPUDevice;
   let config: TextureManagerConfig;
 
@@ -85,15 +85,15 @@ describe("TextureManager", () => {
     device = createMockDevice();
     config = {
       device,
-      targetFormat: "bgra8unorm" as GPUTextureFormat,
+      targetFormat: 'bgra8unorm' as GPUTextureFormat,
     };
   });
 
-  it("creates texture manager without errors", () => {
+  it('creates texture manager without errors', () => {
     expect(() => createTextureManager(config)).not.toThrow();
   });
 
-  it("getState returns null views before ensureTextures is called", () => {
+  it('getState returns null views before ensureTextures is called', () => {
     const manager = createTextureManager(config);
     const state = manager.getState();
 
@@ -102,21 +102,21 @@ describe("TextureManager", () => {
     expect(state.overlayBlitBindGroup).toBe(null);
   });
 
-  it("getState returns msaaSampleCount", () => {
+  it('getState returns msaaSampleCount', () => {
     const manager = createTextureManager(config);
     const state = manager.getState();
 
     expect(state.msaaSampleCount).toBe(4);
   });
 
-  it("getState returns overlayBlitPipeline", () => {
+  it('getState returns overlayBlitPipeline', () => {
     const manager = createTextureManager(config);
     const state = manager.getState();
 
     expect(state.overlayBlitPipeline).toBeDefined();
   });
 
-  it("ensureTextures allocates textures", () => {
+  it('ensureTextures allocates textures', () => {
     const manager = createTextureManager(config);
     manager.ensureTextures(800, 600);
 
@@ -126,117 +126,111 @@ describe("TextureManager", () => {
     expect(state.overlayBlitBindGroup).not.toBe(null);
   });
 
-  it("ensureTextures creates main color texture with correct properties", () => {
+  it('ensureTextures creates main color texture with correct properties', () => {
     const manager = createTextureManager(config);
     manager.ensureTextures(800, 600);
 
     // Main color texture is now 4x MSAA (RENDER_ATTACHMENT only — multisampled textures cannot have TEXTURE_BINDING).
     expect(device.createTexture).toHaveBeenCalledWith(
       expect.objectContaining({
-        label: "textureManager/mainColorTexture",
+        label: 'textureManager/mainColorTexture',
         size: { width: 800, height: 600 },
         sampleCount: 4,
-        format: "bgra8unorm",
+        format: 'bgra8unorm',
         usage: GPUTextureUsage.RENDER_ATTACHMENT,
-      }),
+      })
     );
 
     // Single-sample resolve target receives the MSAA resolve and is read by the overlay blit.
     expect(device.createTexture).toHaveBeenCalledWith(
       expect.objectContaining({
-        label: "textureManager/mainResolveTexture",
+        label: 'textureManager/mainResolveTexture',
         size: { width: 800, height: 600 },
-        format: "bgra8unorm",
-        usage:
-          GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
-      }),
+        format: 'bgra8unorm',
+        usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+      })
     );
   });
 
-  it("ensureTextures creates MSAA overlay texture with correct properties", () => {
+  it('ensureTextures creates MSAA overlay texture with correct properties', () => {
     const manager = createTextureManager(config);
     manager.ensureTextures(800, 600);
 
     expect(device.createTexture).toHaveBeenCalledWith(
       expect.objectContaining({
-        label: "textureManager/annotationOverlayMsaaTexture",
+        label: 'textureManager/annotationOverlayMsaaTexture',
         size: { width: 800, height: 600 },
         sampleCount: 4,
-        format: "bgra8unorm",
+        format: 'bgra8unorm',
         usage: GPUTextureUsage.RENDER_ATTACHMENT,
-      }),
+      })
     );
   });
 
-  it("ensureTextures clamps dimensions to minimum 1", () => {
+  it('ensureTextures clamps dimensions to minimum 1', () => {
     const manager = createTextureManager(config);
     manager.ensureTextures(0, -5);
 
     expect(device.createTexture).toHaveBeenCalledWith(
       expect.objectContaining({
         size: { width: 1, height: 1 },
-      }),
+      })
     );
   });
 
-  it("ensureTextures handles non-finite dimensions", () => {
+  it('ensureTextures handles non-finite dimensions', () => {
     const manager = createTextureManager(config);
     manager.ensureTextures(NaN, Infinity);
 
     expect(device.createTexture).toHaveBeenCalledWith(
       expect.objectContaining({
         size: { width: 1, height: 1 },
-      }),
+      })
     );
   });
 
-  it("ensureTextures does not reallocate if dimensions match", () => {
+  it('ensureTextures does not reallocate if dimensions match', () => {
     const manager = createTextureManager(config);
 
     manager.ensureTextures(800, 600);
     const callCountAfterFirst = (device.createTexture as any).mock.calls.length;
 
     manager.ensureTextures(800, 600);
-    const callCountAfterSecond = (device.createTexture as any).mock.calls
-      .length;
+    const callCountAfterSecond = (device.createTexture as any).mock.calls.length;
 
     expect(callCountAfterSecond).toBe(callCountAfterFirst);
   });
 
-  it("ensureTextures reallocates if width changes", () => {
+  it('ensureTextures reallocates if width changes', () => {
     const manager = createTextureManager(config);
 
     manager.ensureTextures(800, 600);
     const callCountAfterFirst = (device.createTexture as any).mock.calls.length;
 
     manager.ensureTextures(1024, 600);
-    const callCountAfterSecond = (device.createTexture as any).mock.calls
-      .length;
+    const callCountAfterSecond = (device.createTexture as any).mock.calls.length;
 
     expect(callCountAfterSecond).toBeGreaterThan(callCountAfterFirst);
   });
 
-  it("ensureTextures reallocates if height changes", () => {
+  it('ensureTextures reallocates if height changes', () => {
     const manager = createTextureManager(config);
 
     manager.ensureTextures(800, 600);
     const callCountAfterFirst = (device.createTexture as any).mock.calls.length;
 
     manager.ensureTextures(800, 768);
-    const callCountAfterSecond = (device.createTexture as any).mock.calls
-      .length;
+    const callCountAfterSecond = (device.createTexture as any).mock.calls.length;
 
     expect(callCountAfterSecond).toBeGreaterThan(callCountAfterFirst);
   });
 
-  it("dispose destroys textures", () => {
+  it('dispose destroys textures', () => {
     const manager = createTextureManager(config);
     manager.ensureTextures(800, 600);
 
     // Get textures before disposal
-    const texturesBefore = (device.createTexture as any).mock.results.map(
-      (r: any) => r.value,
-    );
+    const texturesBefore = (device.createTexture as any).mock.results.map((r: any) => r.value);
 
     manager.dispose();
 
@@ -246,7 +240,7 @@ describe("TextureManager", () => {
     });
   });
 
-  it("dispose clears state", () => {
+  it('dispose clears state', () => {
     const manager = createTextureManager(config);
     manager.ensureTextures(800, 600);
 
@@ -258,7 +252,7 @@ describe("TextureManager", () => {
     expect(state.overlayBlitBindGroup).toBe(null);
   });
 
-  it("ensureTextures can be called after dispose", () => {
+  it('ensureTextures can be called after dispose', () => {
     const manager = createTextureManager(config);
     manager.ensureTextures(800, 600);
     manager.dispose();
@@ -269,25 +263,25 @@ describe("TextureManager", () => {
     expect(state.mainColorView).not.toBe(null);
   });
 
-  it("creates bind group with main color view", () => {
+  it('creates bind group with main color view', () => {
     const manager = createTextureManager(config);
     manager.ensureTextures(800, 600);
 
     expect(device.createBindGroup).toHaveBeenCalledWith(
       expect.objectContaining({
-        label: "textureManager/overlayBlitBindGroup",
-      }),
+        label: 'textureManager/overlayBlitBindGroup',
+      })
     );
   });
 
-  it("texture dimensions are floored to integers", () => {
+  it('texture dimensions are floored to integers', () => {
     const manager = createTextureManager(config);
     manager.ensureTextures(800.7, 600.3);
 
     expect(device.createTexture).toHaveBeenCalledWith(
       expect.objectContaining({
         size: { width: 800, height: 600 },
-      }),
+      })
     );
   });
 });

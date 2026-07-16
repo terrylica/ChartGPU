@@ -1,11 +1,8 @@
-import type { DataPoint, CartesianSeriesData } from "../config/types";
-import type {
-  ResolvedBarSeriesConfig,
-  ResolvedSeriesConfig,
-} from "../config/OptionResolver";
-import type { LinearScale } from "../utils/scales";
-import { computeBarLayoutPx } from "./findNearestPoint";
-import { getPointCount, getX, getY, getSize } from "../data/cartesianData";
+import type { DataPoint, CartesianSeriesData } from '../config/types';
+import type { ResolvedBarSeriesConfig, ResolvedSeriesConfig } from '../config/OptionResolver';
+import type { LinearScale } from '../utils/scales';
+import { computeBarLayoutPx } from './findNearestPoint';
+import { getPointCount, getX, getY, getSize } from '../data/cartesianData';
 
 export type PointsAtXMatch = Readonly<{
   seriesIndex: number;
@@ -17,7 +14,7 @@ const hasNaNXCache = new WeakMap<object, boolean>();
 
 const seriesHasNaNX = (data: CartesianSeriesData): boolean => {
   // Use data object as cache key (works for arrays, typed arrays, and XYArraysData)
-  const cacheKey = typeof data === "object" && data !== null ? data : null;
+  const cacheKey = typeof data === 'object' && data !== null ? data : null;
   if (cacheKey && hasNaNXCache.has(cacheKey)) {
     return hasNaNXCache.get(cacheKey)!;
   }
@@ -50,7 +47,7 @@ type BarHitTestLayout = Readonly<{
 
 const computeBarHitTestLayout = (
   series: ReadonlyArray<ResolvedSeriesConfig>,
-  xScale: LinearScale,
+  xScale: LinearScale
 ): BarHitTestLayout | null => {
   // Mirror the bar renderer's shared layout math via `computeBarLayoutPx(...)`, but in xScale range units.
   // IMPORTANT: Bar layout depends on all bar series (stacking + grouped slots), not per-series.
@@ -60,13 +57,13 @@ const computeBarHitTestLayout = (
   }[] = [];
   for (let i = 0; i < series.length; i++) {
     const s = series[i];
-    if (s?.type === "bar") barSeries.push({ globalSeriesIndex: i, s });
+    if (s?.type === 'bar') barSeries.push({ globalSeriesIndex: i, s });
   }
   if (barSeries.length === 0) return null;
 
   const layout = computeBarLayoutPx(
     barSeries.map((b) => b.s),
-    xScale,
+    xScale
   );
 
   const barWidthRange = layout.barWidthPx;
@@ -132,14 +129,12 @@ export function findPointsAtX(
   series: ReadonlyArray<ResolvedSeriesConfig>,
   xValue: number,
   xScale: LinearScale,
-  tolerance?: number,
+  tolerance?: number
 ): ReadonlyArray<PointsAtXMatch> {
   if (!Number.isFinite(xValue)) return [];
 
   const maxDx =
-    tolerance === undefined || !Number.isFinite(tolerance)
-      ? Number.POSITIVE_INFINITY
-      : Math.max(0, tolerance);
+    tolerance === undefined || !Number.isFinite(tolerance) ? Number.POSITIVE_INFINITY : Math.max(0, tolerance);
   const maxDxSq = maxDx * maxDx;
 
   const xTarget = xScale.invert(xValue);
@@ -151,8 +146,7 @@ export function findPointsAtX(
   for (let s = 0; s < series.length; s++) {
     const seriesConfig = series[s];
     // Pie and candlestick are non-cartesian (or not yet implemented); they can't match an x position.
-    if (seriesConfig.type === "pie" || seriesConfig.type === "candlestick")
-      continue;
+    if (seriesConfig.type === 'pie' || seriesConfig.type === 'candlestick') continue;
 
     // Skip invisible series.
     if (seriesConfig.visible === false) continue;
@@ -164,24 +158,16 @@ export function findPointsAtX(
     // Bar series: return the correct bar dataIndex for xValue when inside the bar interval.
     // When tolerance is finite: require an (expanded) interval hit.
     // When tolerance is non-finite: attempt exact hit, otherwise fall back to nearest-x behavior below.
-    if (seriesConfig.type === "bar" && barLayout) {
+    if (seriesConfig.type === 'bar' && barLayout) {
       const clusterIndex = barLayout.clusterIndexByGlobalSeriesIndex.get(s);
       if (clusterIndex !== undefined) {
         const { barWidth, gap, clusterWidth } = barLayout;
-        const offsetLeftFromCategoryCenter =
-          -clusterWidth / 2 + clusterIndex * (barWidth + gap);
+        const offsetLeftFromCategoryCenter = -clusterWidth / 2 + clusterIndex * (barWidth + gap);
 
-        const hitTol =
-          tolerance === undefined || !Number.isFinite(tolerance)
-            ? 0
-            : Math.max(0, tolerance);
+        const hitTol = tolerance === undefined || !Number.isFinite(tolerance) ? 0 : Math.max(0, tolerance);
 
         // If we can't safely compute an interval hit, don't guess when tolerance is finite.
-        if (
-          Number.isFinite(barWidth) &&
-          barWidth > 0 &&
-          Number.isFinite(offsetLeftFromCategoryCenter)
-        ) {
+        if (Number.isFinite(barWidth) && barWidth > 0 && Number.isFinite(offsetLeftFromCategoryCenter)) {
           let hitIndex = -1;
 
           const isHit = (xCenterRange: number): boolean => {
@@ -204,9 +190,7 @@ export function findPointsAtX(
             }
           } else {
             // Use a lower-bound search around the adjusted x (accounts for cluster offset).
-            const xTargetAdjusted = xScale.invert(
-              xValue - offsetLeftFromCategoryCenter,
-            );
+            const xTargetAdjusted = xScale.invert(xValue - offsetLeftFromCategoryCenter);
             if (Number.isFinite(xTargetAdjusted)) {
               const insertionIndex = lowerBoundX(data, xTargetAdjusted);
 
@@ -270,9 +254,7 @@ export function findPointsAtX(
 
     const tryUpdate = (idx: number, dxSq: number) => {
       if (!Number.isFinite(dxSq)) return;
-      const isBetter =
-        dxSq < bestDxSq ||
-        (dxSq === bestDxSq && (bestDataIndex < 0 || idx < bestDataIndex));
+      const isBetter = dxSq < bestDxSq || (dxSq === bestDxSq && (bestDataIndex < 0 || idx < bestDataIndex));
       if (!isBetter) return;
       bestDxSq = dxSq;
       bestDataIndex = idx;
@@ -314,14 +296,8 @@ export function findPointsAtX(
         while (right < n && dxSqAt(right) === null) right++;
         if (left < 0 && right >= n) break;
 
-        const dxSqLeft =
-          left >= 0
-            ? (dxSqAt(left) ?? Number.POSITIVE_INFINITY)
-            : Number.POSITIVE_INFINITY;
-        const dxSqRight =
-          right < n
-            ? (dxSqAt(right) ?? Number.POSITIVE_INFINITY)
-            : Number.POSITIVE_INFINITY;
+        const dxSqLeft = left >= 0 ? (dxSqAt(left) ?? Number.POSITIVE_INFINITY) : Number.POSITIVE_INFINITY;
+        const dxSqRight = right < n ? (dxSqAt(right) ?? Number.POSITIVE_INFINITY) : Number.POSITIVE_INFINITY;
 
         if (dxSqLeft > bestDxSq && dxSqRight > bestDxSq) break;
 

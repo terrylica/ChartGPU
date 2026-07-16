@@ -15,21 +15,16 @@ export interface HoverState {
 
 const DEFAULT_DEBOUNCE_MS = 16;
 
-const isValidIndex = (v: number): boolean =>
-  Number.isFinite(v) && Number.isInteger(v) && v >= 0;
+const isValidIndex = (v: number): boolean => Number.isFinite(v) && Number.isInteger(v) && v >= 0;
 
 const copyHoverTarget = (t: HoverTarget): HoverTarget => ({
   seriesIndex: t.seriesIndex,
   dataIndex: t.dataIndex,
 });
 
-const copyHoverTargetOrNull = (t: HoverTarget | null): HoverTarget | null =>
-  t === null ? null : copyHoverTarget(t);
+const copyHoverTargetOrNull = (t: HoverTarget | null): HoverTarget | null => (t === null ? null : copyHoverTarget(t));
 
-const isEqualHoverTarget = (
-  a: HoverTarget | null,
-  b: HoverTarget | null,
-): boolean => {
+const isEqualHoverTarget = (a: HoverTarget | null, b: HoverTarget | null): boolean => {
   if (a === b) return true;
   if (a === null || b === null) return false;
   return a.seriesIndex === b.seriesIndex && a.dataIndex === b.dataIndex;
@@ -55,8 +50,7 @@ export function createHoverState(): HoverState {
 
     // Emit to a snapshot so additions/removals during emit don't affect this flush.
     const snapshot = Array.from(listeners);
-    for (const cb of snapshot)
-      cb(emitted === null ? null : copyHoverTarget(emitted));
+    for (const cb of snapshot) cb(emitted === null ? null : copyHoverTarget(emitted));
   };
 
   const scheduleFlush = (): void => {
@@ -71,34 +65,31 @@ export function createHoverState(): HoverState {
     debounceTimer = setTimeout(flush, DEFAULT_DEBOUNCE_MS);
   };
 
-  const setHovered: HoverState["setHovered"] = (seriesIndex, dataIndex) => {
+  const setHovered: HoverState['setHovered'] = (seriesIndex, dataIndex) => {
     const nextHovered: HoverTarget | null =
-      isValidIndex(seriesIndex) && isValidIndex(dataIndex)
-        ? { seriesIndex, dataIndex }
-        : null;
+      isValidIndex(seriesIndex) && isValidIndex(dataIndex) ? { seriesIndex, dataIndex } : null;
 
     if (isEqualHoverTarget(nextHovered, hovered)) return;
     hovered = nextHovered;
     scheduleFlush();
   };
 
-  const clearHovered: HoverState["clearHovered"] = () => {
+  const clearHovered: HoverState['clearHovered'] = () => {
     if (hovered === null) return;
     hovered = null;
     scheduleFlush();
   };
 
-  const getHovered: HoverState["getHovered"] = () =>
-    copyHoverTargetOrNull(hovered);
+  const getHovered: HoverState['getHovered'] = () => copyHoverTargetOrNull(hovered);
 
-  const onChange: HoverState["onChange"] = (callback) => {
+  const onChange: HoverState['onChange'] = (callback) => {
     listeners.add(callback);
     return () => {
       listeners.delete(callback);
     };
   };
 
-  const destroy: HoverState["destroy"] = () => {
+  const destroy: HoverState['destroy'] = () => {
     if (debounceTimer !== null) {
       clearTimeout(debounceTimer);
       debounceTimer = null;

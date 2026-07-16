@@ -4,10 +4,10 @@
 
 /// <reference types="@webgpu/types" />
 
-import { describe, it, expect, beforeAll, vi } from "vitest";
-import type { ResolvedScatterSeriesConfig } from "../../config/OptionResolver";
-import type { LinearScale } from "../../utils/scales";
-import type { GridArea } from "../createGridRenderer";
+import { describe, it, expect, beforeAll, vi } from 'vitest';
+import type { ResolvedScatterSeriesConfig } from '../../config/OptionResolver';
+import type { LinearScale } from '../../utils/scales';
+import type { GridArea } from '../createGridRenderer';
 
 beforeAll(() => {
   // @ts-ignore
@@ -27,17 +27,17 @@ beforeAll(() => {
   };
 });
 
-vi.mock("../rendererUtils", () => ({
+vi.mock('../rendererUtils', () => ({
   createRenderPipeline: vi.fn(() => ({})),
   createUniformBuffer: vi.fn(() => ({ destroy: vi.fn() })),
   writeUniformBuffer: vi.fn(),
 }));
 
-import { createScatterRenderer } from "../createScatterRenderer";
+import { createScatterRenderer } from '../createScatterRenderer';
 
 function createMockDevice() {
   return {
-    label: "mockDevice",
+    label: 'mockDevice',
     queue: {
       writeBuffer: vi.fn(),
       submit: vi.fn(),
@@ -71,50 +71,40 @@ const gridArea = {
   plotHeight: 600,
 } as unknown as GridArea;
 
-const baseSeries = (
-  symbolSize: number,
-): ResolvedScatterSeriesConfig =>
+const baseSeries = (symbolSize: number): ResolvedScatterSeriesConfig =>
   ({
-    type: "scatter",
-    name: "s",
+    type: 'scatter',
+    name: 's',
     data: [],
     rawData: [],
-    color: "#0f0",
+    color: '#0f0',
     symbolSize,
-    mode: "points",
+    mode: 'points',
     binSize: 2,
-    densityColormap: "viridis",
-    densityNormalization: "log",
-    sampling: "none",
+    densityColormap: 'viridis',
+    densityNormalization: 'log',
+    sampling: 'none',
     samplingThreshold: 5000,
-    yAxis: "y",
+    yAxis: 'y',
     visible: true,
   }) as ResolvedScatterSeriesConfig;
 
-describe("scatter const-radius instance stride", () => {
-  it("uploads N*8 bytes for constant symbolSize dense tuples", () => {
+describe('scatter const-radius instance stride', () => {
+  it('uploads N*8 bytes for constant symbolSize dense tuples', () => {
     const device = createMockDevice();
     const writeBuffer = device.queue.writeBuffer as ReturnType<typeof vi.fn>;
     const renderer = createScatterRenderer(device, { sampleCount: 1 });
     const n = 100;
     const data = Array.from({ length: n }, (_, i) => [i, i * 0.5] as const);
-    renderer.prepare(
-      baseSeries(5),
-      data as unknown as never,
-      identityScale,
-      identityScale,
-      gridArea,
-    );
+    renderer.prepare(baseSeries(5), data as unknown as never, identityScale, identityScale, gridArea);
 
-    const sizes = writeBuffer.mock.calls
-      .map((c) => c[4])
-      .filter((s): s is number => typeof s === "number");
+    const sizes = writeBuffer.mock.calls.map((c) => c[4]).filter((s): s is number => typeof s === 'number');
     expect(sizes).toContain(n * 8);
     expect(sizes).not.toContain(n * 16);
     renderer.dispose();
   });
 
-  it("uses N*16 when tuple carries per-point size", () => {
+  it('uses N*16 when tuple carries per-point size', () => {
     const device = createMockDevice();
     const writeBuffer = device.queue.writeBuffer as ReturnType<typeof vi.fn>;
     const renderer = createScatterRenderer(device, { sampleCount: 1 });
@@ -123,21 +113,13 @@ describe("scatter const-radius instance stride", () => {
       [1, 2, 6],
       [2, 3, 9],
     ] as const;
-    renderer.prepare(
-      baseSeries(5),
-      data as unknown as never,
-      identityScale,
-      identityScale,
-      gridArea,
-    );
-    const sizes = writeBuffer.mock.calls
-      .map((c) => c[4])
-      .filter((s): s is number => typeof s === "number");
+    renderer.prepare(baseSeries(5), data as unknown as never, identityScale, identityScale, gridArea);
+    const sizes = writeBuffer.mock.calls.map((c) => c[4]).filter((s): s is number => typeof s === 'number');
     expect(sizes).toContain(3 * 16);
     renderer.dispose();
   });
 
-  it("uses N*16 when size appears only on a later point (sparse)", () => {
+  it('uses N*16 when size appears only on a later point (sparse)', () => {
     const device = createMockDevice();
     const writeBuffer = device.queue.writeBuffer as ReturnType<typeof vi.fn>;
     const renderer = createScatterRenderer(device, { sampleCount: 1 });
@@ -146,17 +128,93 @@ describe("scatter const-radius instance stride", () => {
       { x: 1, y: 2 },
       { x: 2, y: 3, size: 12 },
     ];
-    renderer.prepare(
-      baseSeries(5),
-      data as unknown as never,
-      identityScale,
-      identityScale,
-      gridArea,
-    );
-    const sizes = writeBuffer.mock.calls
-      .map((c) => c[4])
-      .filter((s): s is number => typeof s === "number");
+    renderer.prepare(baseSeries(5), data as unknown as never, identityScale, identityScale, gridArea);
+    const sizes = writeBuffer.mock.calls.map((c) => c[4]).filter((s): s is number => typeof s === 'number');
     expect(sizes).toContain(3 * 16);
+    renderer.dispose();
+  });
+});
+
+describe('scatter geometry identity cache (issue 1.2)', () => {
+  it('skips instance writeBuffer on second prepare with same data ref', () => {
+    const device = createMockDevice();
+    const writeBuffer = device.queue.writeBuffer as ReturnType<typeof vi.fn>;
+    const renderer = createScatterRenderer(device, { sampleCount: 1 });
+    const data = Array.from({ length: 50 }, (_, i) => [i, i * 0.5] as const);
+
+    renderer.prepare(baseSeries(5), data as unknown as never, identityScale, identityScale, gridArea);
+    const afterFirst = writeBuffer.mock.calls.length;
+    expect(afterFirst).toBeGreaterThan(0);
+
+    // Axes-only / pan: same data ref — uniforms may rewrite; instances must not.
+    writeBuffer.mockClear();
+    const zoomedScale = {
+      scale: (v: number) => v * 2,
+      invert: (v: number) => v / 2,
+    } as unknown as LinearScale;
+    renderer.prepare(baseSeries(5), data as unknown as never, zoomedScale, identityScale, gridArea);
+    // No instance writeBuffer (byteLength payload via 5th arg); uniforms use writeUniformBuffer mock.
+    const instanceWrites = writeBuffer.mock.calls.filter((c) => typeof c[4] === 'number' && (c[4] as number) > 0);
+    expect(instanceWrites).toHaveLength(0);
+    renderer.dispose();
+  });
+
+  it('re-uploads when data ref changes', () => {
+    const device = createMockDevice();
+    const writeBuffer = device.queue.writeBuffer as ReturnType<typeof vi.fn>;
+    const renderer = createScatterRenderer(device, { sampleCount: 1 });
+    const dataA = [
+      [0, 1],
+      [1, 2],
+    ] as const;
+    const dataB = [
+      [0, 3],
+      [1, 4],
+    ] as const;
+
+    renderer.prepare(baseSeries(5), dataA as unknown as never, identityScale, identityScale, gridArea);
+    writeBuffer.mockClear();
+    renderer.prepare(baseSeries(5), dataB as unknown as never, identityScale, identityScale, gridArea);
+    const instanceWrites = writeBuffer.mock.calls.filter((c) => typeof c[4] === 'number' && (c[4] as number) >= 2 * 8);
+    expect(instanceWrites.length).toBeGreaterThan(0);
+    renderer.dispose();
+  });
+
+  it('re-uploads when size mode changes (const → per-point)', () => {
+    const device = createMockDevice();
+    const writeBuffer = device.queue.writeBuffer as ReturnType<typeof vi.fn>;
+    const renderer = createScatterRenderer(device, { sampleCount: 1 });
+    const dataConst = [
+      [0, 1],
+      [1, 2],
+    ] as const;
+    const dataSized = [
+      [0, 1, 3],
+      [1, 2, 6],
+    ] as const;
+
+    renderer.prepare(baseSeries(5), dataConst as unknown as never, identityScale, identityScale, gridArea);
+    writeBuffer.mockClear();
+    renderer.prepare(baseSeries(5), dataSized as unknown as never, identityScale, identityScale, gridArea);
+    const sizes = writeBuffer.mock.calls.map((c) => c[4]).filter((s): s is number => typeof s === 'number');
+    expect(sizes).toContain(2 * 16);
+    renderer.dispose();
+  });
+
+  it('re-uploads after invalidateGeometry with same data ref', () => {
+    const device = createMockDevice();
+    const writeBuffer = device.queue.writeBuffer as ReturnType<typeof vi.fn>;
+    const renderer = createScatterRenderer(device, { sampleCount: 1 });
+    const data = [
+      [0, 1],
+      [1, 2],
+    ] as const;
+
+    renderer.prepare(baseSeries(5), data as unknown as never, identityScale, identityScale, gridArea);
+    writeBuffer.mockClear();
+    renderer.invalidateGeometry();
+    renderer.prepare(baseSeries(5), data as unknown as never, identityScale, identityScale, gridArea);
+    expect(writeBuffer.mock.calls.some((c) => typeof c[4] === 'number' && (c[4] as number) >= 2 * 8)).toBe(true);
     renderer.dispose();
   });
 });

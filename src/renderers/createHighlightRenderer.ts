@@ -1,11 +1,7 @@
-import highlightWgsl from "../shaders/highlight.wgsl?raw";
-import { parseCssColorToRgba01 } from "../utils/colors";
-import {
-  createRenderPipeline,
-  createUniformBuffer,
-  writeUniformBuffer,
-} from "./rendererUtils";
-import type { PipelineCache } from "../core/PipelineCache";
+import highlightWgsl from '../shaders/highlight.wgsl?raw';
+import { parseCssColorToRgba01 } from '../utils/colors';
+import { createRenderPipeline, createUniformBuffer, writeUniformBuffer } from './rendererUtils';
+import type { PipelineCache } from '../core/PipelineCache';
 
 export type HighlightPoint = Readonly<{
   /** Center in *device pixels* (same coordinate space as fragment `@builtin(position)`). */
@@ -58,48 +54,34 @@ export interface HighlightRendererOptions {
   readonly pipelineCache?: PipelineCache;
 }
 
-const DEFAULT_TARGET_FORMAT: GPUTextureFormat = "bgra8unorm";
+const DEFAULT_TARGET_FORMAT: GPUTextureFormat = 'bgra8unorm';
 const DEFAULT_RGBA: readonly [number, number, number, number] = [1, 1, 1, 1];
 
 const clamp01 = (v: number): number => Math.min(1, Math.max(0, v));
-const clampInt = (v: number, lo: number, hi: number): number =>
-  Math.min(hi, Math.max(lo, v | 0));
+const clampInt = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v | 0));
 
-const isFiniteScissor = (s: HighlightPoint["scissor"]): boolean =>
-  Number.isFinite(s.x) &&
-  Number.isFinite(s.y) &&
-  Number.isFinite(s.w) &&
-  Number.isFinite(s.h);
+const isFiniteScissor = (s: HighlightPoint['scissor']): boolean =>
+  Number.isFinite(s.x) && Number.isFinite(s.y) && Number.isFinite(s.w) && Number.isFinite(s.h);
 
 const brighten = (
   rgba: readonly [number, number, number, number],
-  factor: number,
+  factor: number
 ): readonly [number, number, number, number] => {
   const f = Number.isFinite(factor) ? factor : 1;
-  return [
-    clamp01(rgba[0] * f),
-    clamp01(rgba[1] * f),
-    clamp01(rgba[2] * f),
-    clamp01(rgba[3]),
-  ] as const;
+  return [clamp01(rgba[0] * f), clamp01(rgba[1] * f), clamp01(rgba[2] * f), clamp01(rgba[3])] as const;
 };
 
 const luminance = (rgba: readonly [number, number, number, number]): number =>
   0.2126 * rgba[0] + 0.7152 * rgba[1] + 0.0722 * rgba[2];
 
-export function createHighlightRenderer(
-  device: GPUDevice,
-  options?: HighlightRendererOptions,
-): HighlightRenderer {
+export function createHighlightRenderer(device: GPUDevice, options?: HighlightRendererOptions): HighlightRenderer {
   let disposed = false;
   let visible = true;
 
   const targetFormat = options?.targetFormat ?? DEFAULT_TARGET_FORMAT;
   // Be resilient: coerce invalid values to 1 (no MSAA).
   const sampleCountRaw = options?.sampleCount ?? 1;
-  const sampleCount = Number.isFinite(sampleCountRaw)
-    ? Math.max(1, Math.floor(sampleCountRaw))
-    : 1;
+  const sampleCount = Number.isFinite(sampleCountRaw) ? Math.max(1, Math.floor(sampleCountRaw)) : 1;
   const pipelineCache = options?.pipelineCache;
 
   const bindGroupLayout = device.createBindGroupLayout({
@@ -107,7 +89,7 @@ export function createHighlightRenderer(
       {
         binding: 0,
         visibility: GPUShaderStage.FRAGMENT,
-        buffer: { type: "uniform" },
+        buffer: { type: 'uniform' },
       },
     ],
   });
@@ -116,7 +98,7 @@ export function createHighlightRenderer(
   // center.xy, radius, thickness, color.rgba, outlineColor.rgba
   // = 12 floats = 48 bytes
   const uniformBuffer = createUniformBuffer(device, 48, {
-    label: "highlightRenderer/uniforms",
+    label: 'highlightRenderer/uniforms',
   });
 
   const bindGroup = device.createBindGroup({
@@ -127,30 +109,30 @@ export function createHighlightRenderer(
   const pipeline = createRenderPipeline(
     device,
     {
-      label: "highlightRenderer/pipeline",
+      label: 'highlightRenderer/pipeline',
       bindGroupLayouts: [bindGroupLayout],
-      vertex: { code: highlightWgsl, label: "highlight.wgsl" },
+      vertex: { code: highlightWgsl, label: 'highlight.wgsl' },
       fragment: {
         code: highlightWgsl,
-        label: "highlight.wgsl",
+        label: 'highlight.wgsl',
         formats: targetFormat,
         blend: {
           color: {
-            operation: "add",
-            srcFactor: "src-alpha",
-            dstFactor: "one-minus-src-alpha",
+            operation: 'add',
+            srcFactor: 'src-alpha',
+            dstFactor: 'one-minus-src-alpha',
           },
           alpha: {
-            operation: "add",
-            srcFactor: "one",
-            dstFactor: "one-minus-src-alpha",
+            operation: 'add',
+            srcFactor: 'one',
+            dstFactor: 'one-minus-src-alpha',
           },
         },
       },
-      primitive: { topology: "triangle-list", cullMode: "none" },
+      primitive: { topology: 'triangle-list', cullMode: 'none' },
       multisample: { count: sampleCount },
     },
-    pipelineCache,
+    pipelineCache
   );
 
   let lastCanvasWidth = 0;
@@ -159,23 +141,14 @@ export function createHighlightRenderer(
   let hasPrepared = false;
 
   const assertNotDisposed = (): void => {
-    if (disposed) throw new Error("HighlightRenderer is disposed.");
+    if (disposed) throw new Error('HighlightRenderer is disposed.');
   };
 
-  const prepare: HighlightRenderer["prepare"] = (
-    point,
-    cssColor,
-    sizeCssPx,
-  ) => {
+  const prepare: HighlightRenderer['prepare'] = (point, cssColor, sizeCssPx) => {
     assertNotDisposed();
 
-    if (
-      !Number.isFinite(point.centerDeviceX) ||
-      !Number.isFinite(point.centerDeviceY)
-    ) {
-      throw new Error(
-        "HighlightRenderer.prepare: point center must be finite.",
-      );
+    if (!Number.isFinite(point.centerDeviceX) || !Number.isFinite(point.centerDeviceY)) {
+      throw new Error('HighlightRenderer.prepare: point center must be finite.');
     }
     if (
       !Number.isFinite(point.canvasWidth) ||
@@ -183,17 +156,13 @@ export function createHighlightRenderer(
       point.canvasWidth <= 0 ||
       point.canvasHeight <= 0
     ) {
-      throw new Error(
-        "HighlightRenderer.prepare: canvasWidth/canvasHeight must be positive finite numbers.",
-      );
+      throw new Error('HighlightRenderer.prepare: canvasWidth/canvasHeight must be positive finite numbers.');
     }
     if (!isFiniteScissor(point.scissor)) {
-      throw new Error("HighlightRenderer.prepare: scissor must be finite.");
+      throw new Error('HighlightRenderer.prepare: scissor must be finite.');
     }
     if (!Number.isFinite(sizeCssPx) || sizeCssPx < 0) {
-      throw new Error(
-        "HighlightRenderer.prepare: size must be a finite non-negative number.",
-      );
+      throw new Error('HighlightRenderer.prepare: size must be a finite non-negative number.');
     }
 
     const dprRaw = point.devicePixelRatio;
@@ -207,8 +176,7 @@ export function createHighlightRenderer(
     const seriesRgba = parseCssColorToRgba01(cssColor) ?? DEFAULT_RGBA;
     const ringRgba = brighten(seriesRgba, 1.25);
     const useDarkOutline = luminance(seriesRgba) > 0.7;
-    const outlineRgba: readonly [number, number, number, number] =
-      useDarkOutline ? [0, 0, 0, 0.9] : [1, 1, 1, 0.9];
+    const outlineRgba: readonly [number, number, number, number] = useDarkOutline ? [0, 0, 0, 0.9] : [1, 1, 1, 0.9];
 
     const buf = new ArrayBuffer(12 * 4);
     new Float32Array(buf).set([
@@ -231,26 +199,10 @@ export function createHighlightRenderer(
     lastCanvasHeight = point.canvasHeight;
 
     // Clamp scissor to valid canvas bounds (defensive).
-    const x0 = clampInt(
-      Math.floor(point.scissor.x),
-      0,
-      Math.max(0, point.canvasWidth),
-    );
-    const y0 = clampInt(
-      Math.floor(point.scissor.y),
-      0,
-      Math.max(0, point.canvasHeight),
-    );
-    const x1 = clampInt(
-      Math.ceil(point.scissor.x + point.scissor.w),
-      0,
-      Math.max(0, point.canvasWidth),
-    );
-    const y1 = clampInt(
-      Math.ceil(point.scissor.y + point.scissor.h),
-      0,
-      Math.max(0, point.canvasHeight),
-    );
+    const x0 = clampInt(Math.floor(point.scissor.x), 0, Math.max(0, point.canvasWidth));
+    const y0 = clampInt(Math.floor(point.scissor.y), 0, Math.max(0, point.canvasHeight));
+    const x1 = clampInt(Math.ceil(point.scissor.x + point.scissor.w), 0, Math.max(0, point.canvasWidth));
+    const y1 = clampInt(Math.ceil(point.scissor.y + point.scissor.h), 0, Math.max(0, point.canvasHeight));
     lastScissor = {
       x: x0,
       y: y0,
@@ -261,31 +213,26 @@ export function createHighlightRenderer(
     hasPrepared = true;
   };
 
-  const render: HighlightRenderer["render"] = (passEncoder) => {
+  const render: HighlightRenderer['render'] = (passEncoder) => {
     assertNotDisposed();
     if (!visible) return;
     if (!hasPrepared) return;
     if (lastCanvasWidth <= 0 || lastCanvasHeight <= 0) return;
     if (lastScissor.w === 0 || lastScissor.h === 0) return;
 
-    passEncoder.setScissorRect(
-      lastScissor.x,
-      lastScissor.y,
-      lastScissor.w,
-      lastScissor.h,
-    );
+    passEncoder.setScissorRect(lastScissor.x, lastScissor.y, lastScissor.w, lastScissor.h);
     passEncoder.setPipeline(pipeline);
     passEncoder.setBindGroup(0, bindGroup);
     passEncoder.draw(3);
     passEncoder.setScissorRect(0, 0, lastCanvasWidth, lastCanvasHeight);
   };
 
-  const setVisible: HighlightRenderer["setVisible"] = (v) => {
+  const setVisible: HighlightRenderer['setVisible'] = (v) => {
     assertNotDisposed();
     visible = Boolean(v);
   };
 
-  const dispose: HighlightRenderer["dispose"] = () => {
+  const dispose: HighlightRenderer['dispose'] = () => {
     if (disposed) return;
     disposed = true;
 

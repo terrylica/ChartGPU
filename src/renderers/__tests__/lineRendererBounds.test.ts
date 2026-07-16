@@ -5,18 +5,11 @@
 
 /// <reference types="@webgpu/types" />
 
-import {
-  describe,
-  it,
-  expect,
-  beforeAll,
-  vi,
-  type Mock,
-} from "vitest";
-import { createLinearScale } from "../../utils/scales";
-import type { ResolvedLineSeriesConfig } from "../../config/OptionResolver";
-import type { DataPoint } from "../../config/types";
-import * as cartesianData from "../../data/cartesianData";
+import { describe, it, expect, beforeAll, vi, type Mock } from 'vitest';
+import { createLinearScale } from '../../utils/scales';
+import type { ResolvedLineSeriesConfig } from '../../config/OptionResolver';
+import type { DataPoint } from '../../config/types';
+import * as cartesianData from '../../data/cartesianData';
 
 beforeAll(() => {
   // @ts-ignore
@@ -36,11 +29,11 @@ beforeAll(() => {
   };
 });
 
-import { createLineRenderer } from "../createLineRenderer";
+import { createLineRenderer } from '../createLineRenderer';
 
 function createMockDevice() {
   return {
-    label: "mockDevice",
+    label: 'mockDevice',
     limits: {
       maxUniformBufferBindingSize: 65536,
       minUniformBufferOffsetAlignment: 256,
@@ -61,40 +54,81 @@ function createMockDevice() {
   } as unknown as GPUDevice;
 }
 
-vi.mock("../rendererUtils", () => ({
+vi.mock('../rendererUtils', () => ({
   createRenderPipeline: vi.fn(() => ({})),
   createUniformBuffer: vi.fn(() => ({ destroy: vi.fn() })),
   writeUniformBuffer: vi.fn(),
 }));
 
-describe("createLineRenderer bounds (P2-5)", () => {
-  it("does not call computeRawBoundsFromCartesianData during prepare", () => {
-    const boundsSpy = vi.spyOn(
-      cartesianData,
-      "computeRawBoundsFromCartesianData",
-    );
+import { writeUniformBuffer } from '../rendererUtils';
+
+describe('createLineRenderer uniform dirty-skip (issue 2.5)', () => {
+  it('skips uniform writes on second prepare with identical inputs', () => {
     const device = createMockDevice();
+    const writeUniform = writeUniformBuffer as ReturnType<typeof vi.fn>;
+    writeUniform.mockClear();
     const renderer = createLineRenderer(device);
-    const data: DataPoint[] = Array.from({ length: 50_000 }, (_, i) => [
-      i,
-      Math.sin(i * 0.01),
-    ]);
+    const data: DataPoint[] = [
+      [0, 1],
+      [1, 2],
+      [2, 3],
+    ];
     const series = {
-      type: "line",
+      type: 'line',
+      name: 's',
       data,
       rawData: data,
-      color: "#0af",
-      lineStyle: { width: 2, opacity: 1, color: "#0af" },
-      sampling: "none",
+      color: '#0af',
+      lineStyle: { width: 2, opacity: 1 },
+      sampling: 'none',
       samplingThreshold: 5000,
       connectNulls: false,
-      yAxis: "y",
+      yAxis: 'y',
+      visible: true,
+    } as unknown as ResolvedLineSeriesConfig;
+    const buf = { size: 64 } as unknown as GPUBuffer;
+    const x = createLinearScale().domain(0, 2).range(-1, 1);
+    const y = createLinearScale().domain(0, 3).range(-1, 1);
+
+    renderer.prepare(series, buf, x, y, 0, 1, 800, 600);
+    const afterFirst = writeUniform.mock.calls.length;
+    expect(afterFirst).toBeGreaterThan(0);
+
+    writeUniform.mockClear();
+    renderer.prepare(series, buf, x, y, 0, 1, 800, 600);
+    expect(writeUniform).not.toHaveBeenCalled();
+
+    // Scale change → VS uniform write.
+    writeUniform.mockClear();
+    const y2 = createLinearScale().domain(0, 10).range(-1, 1);
+    renderer.prepare(series, buf, x, y2, 0, 1, 800, 600);
+    expect(writeUniform.mock.calls.length).toBeGreaterThan(0);
+    renderer.dispose();
+  });
+});
+
+describe('createLineRenderer bounds (P2-5)', () => {
+  it('does not call computeRawBoundsFromCartesianData during prepare', () => {
+    const boundsSpy = vi.spyOn(cartesianData, 'computeRawBoundsFromCartesianData');
+    const device = createMockDevice();
+    const renderer = createLineRenderer(device);
+    const data: DataPoint[] = Array.from({ length: 50_000 }, (_, i) => [i, Math.sin(i * 0.01)]);
+    const series = {
+      type: 'line',
+      data,
+      rawData: data,
+      color: '#0af',
+      lineStyle: { width: 2, opacity: 1, color: '#0af' },
+      sampling: 'none',
+      samplingThreshold: 5000,
+      connectNulls: false,
+      yAxis: 'y',
       visible: true,
     } as ResolvedLineSeriesConfig;
 
     const xScale = createLinearScale().domain(0, 50_000).range(-1, 1);
     const yScale = createLinearScale().domain(-1, 1).range(1, -1);
-    const dataBuffer = { label: "data" } as GPUBuffer;
+    const dataBuffer = { label: 'data' } as GPUBuffer;
 
     renderer.prepare(series, dataBuffer, xScale, yScale, 0, 2, 1280, 720);
 
@@ -103,31 +137,28 @@ describe("createLineRenderer bounds (P2-5)", () => {
     renderer.dispose();
   });
 
-  it("samples scale affine only at 0 and 1 (not per-point)", () => {
+  it('samples scale affine only at 0 and 1 (not per-point)', () => {
     const device = createMockDevice();
     const renderer = createLineRenderer(device);
-    const data: DataPoint[] = Array.from({ length: 10_000 }, (_, i) => [
-      i,
-      i,
-    ]);
+    const data: DataPoint[] = Array.from({ length: 10_000 }, (_, i) => [i, i]);
     const series = {
-      type: "line",
+      type: 'line',
       data,
       rawData: data,
-      color: "#0af",
-      lineStyle: { width: 2, opacity: 1, color: "#0af" },
-      sampling: "none",
+      color: '#0af',
+      lineStyle: { width: 2, opacity: 1, color: '#0af' },
+      sampling: 'none',
       samplingThreshold: 5000,
       connectNulls: false,
-      yAxis: "y",
+      yAxis: 'y',
       visible: true,
     } as ResolvedLineSeriesConfig;
 
     const xScale = createLinearScale().domain(0, 10_000).range(-1, 1);
     const yScale = createLinearScale().domain(0, 10_000).range(1, -1);
-    const xScaleSpy = vi.spyOn(xScale, "scale");
-    const yScaleSpy = vi.spyOn(yScale, "scale");
-    const dataBuffer = { label: "data" } as GPUBuffer;
+    const xScaleSpy = vi.spyOn(xScale, 'scale');
+    const yScaleSpy = vi.spyOn(yScale, 'scale');
+    const dataBuffer = { label: 'data' } as GPUBuffer;
 
     renderer.prepare(series, dataBuffer, xScale, yScale, 0, 2, 1280, 720);
 
@@ -143,14 +174,11 @@ describe("createLineRenderer bounds (P2-5)", () => {
     renderer.dispose();
   });
 
-  it("structurally does not import bounds scan into prepare path", async () => {
+  it('structurally does not import bounds scan into prepare path', async () => {
     // Source-level regression: prepare path must stay on affine (0,1).
-    const fs = await import("node:fs");
-    const path = await import("node:path");
-    const src = fs.readFileSync(
-      path.resolve(__dirname, "../createLineRenderer.ts"),
-      "utf8",
-    );
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+    const src = fs.readFileSync(path.resolve(__dirname, '../createLineRenderer.ts'), 'utf8');
     expect(src).not.toMatch(/computeRawBoundsFromCartesianData/);
     expect(src).toMatch(/computeClipAffineFromScale\(xScale, 0, 1\)/);
     expect(src).toMatch(/computeClipAffineFromScale\(yScale, 0, 1\)/);

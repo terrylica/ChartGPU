@@ -9,8 +9,8 @@
  * @internal
  */
 
-import type { CartesianSeriesData } from "../config/types";
-import { getPointCount, getX, getY } from "./cartesianData";
+import type { CartesianSeriesData } from '../config/types';
+import { getPointCount, getX, getY } from './cartesianData';
 
 /**
  * True when every finite x equals its index (0..n-1) within a tight epsilon.
@@ -49,7 +49,7 @@ export function isYOnlyRewriteAgainstStaging(
   next: CartesianSeriesData,
   staging: Float32Array,
   pointCount: number,
-  xOffset: number,
+  xOffset: number
 ): boolean {
   const n = getPointCount(next);
   if (n !== pointCount || n <= 0) return false;
@@ -69,14 +69,21 @@ export function isYOnlyRewriteAgainstStaging(
  * Pack only the y channel into an existing interleaved staging buffer, leaving
  * x (and any padding beyond `pointCount`) untouched. `out` must already hold
  * valid x values for `pointCount` points.
+ *
+ * Returns `true` if any y float actually changed (issue 2.1: skip full FNV when
+ * y-only already proved a content change; skip GPU write when y is identical).
  */
-export function packYOnlyInto(
-  out: Float32Array,
-  src: CartesianSeriesData,
-  pointCount: number,
-): void {
+export function packYOnlyInto(out: Float32Array, src: CartesianSeriesData, pointCount: number): boolean {
   const n = Math.min(pointCount, getPointCount(src));
+  let changed = false;
   for (let i = 0; i < n; i++) {
-    out[i * 2 + 1] = getY(src, i);
+    const y = getY(src, i);
+    const prev = out[i * 2 + 1]!;
+    // Treat NaN≠NaN as a change when either side is non-finite.
+    if (y !== prev && !(Number.isNaN(y) && Number.isNaN(prev))) {
+      changed = true;
+    }
+    out[i * 2 + 1] = y;
   }
+  return changed;
 }

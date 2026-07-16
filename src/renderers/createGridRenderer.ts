@@ -1,11 +1,7 @@
-import gridWgsl from "../shaders/grid.wgsl?raw";
-import {
-  createRenderPipeline,
-  createUniformBuffer,
-  writeUniformBuffer,
-} from "./rendererUtils";
-import { parseCssColorToRgba01 } from "../utils/colors";
-import type { PipelineCache } from "../core/PipelineCache";
+import gridWgsl from '../shaders/grid.wgsl?raw';
+import { createRenderPipeline, createUniformBuffer, writeUniformBuffer } from './rendererUtils';
+import { parseCssColorToRgba01 } from '../utils/colors';
+import type { PipelineCache } from '../core/PipelineCache';
 
 export interface GridRenderer {
   /**
@@ -15,10 +11,7 @@ export interface GridRenderer {
    * Preferred:
    * - `prepare(gridArea, { lineCount, color })`
    */
-  prepare(
-    gridArea: GridArea,
-    lineCountOrOptions?: GridLineCount | GridPrepareOptions,
-  ): void;
+  prepare(gridArea: GridArea, lineCountOrOptions?: GridLineCount | GridPrepareOptions): void;
   render(passEncoder: GPURenderPassEncoder): void;
   dispose(): void;
 }
@@ -78,52 +71,27 @@ export interface GridRendererOptions {
   readonly pipelineCache?: PipelineCache;
 }
 
-const DEFAULT_TARGET_FORMAT: GPUTextureFormat = "bgra8unorm";
+const DEFAULT_TARGET_FORMAT: GPUTextureFormat = 'bgra8unorm';
 const DEFAULT_HORIZONTAL_LINES = 5;
 const DEFAULT_VERTICAL_LINES = 6;
-const DEFAULT_GRID_COLOR = "rgba(255,255,255,0.15)";
-const DEFAULT_GRID_RGBA: readonly [number, number, number, number] = [
-  1, 1, 1, 0.15,
-];
+const DEFAULT_GRID_COLOR = 'rgba(255,255,255,0.15)';
+const DEFAULT_GRID_RGBA: readonly [number, number, number, number] = [1, 1, 1, 0.15];
 
 /** Initial capacity for per-batch color slots. Grows geometrically on demand. */
 const INITIAL_BATCH_SLOTS = 4;
 
-const createIdentityMat4Buffer = (): ArrayBuffer => {
-  // Column-major identity mat4x4
+// Module-level identity (issue 3.3) — avoid per-prepare ArrayBuffer alloc.
+const IDENTITY_MAT4_BUFFER: ArrayBuffer = (() => {
   const buffer = new ArrayBuffer(16 * 4);
-  new Float32Array(buffer).set([
-    1,
-    0,
-    0,
-    0, // col0
-    0,
-    1,
-    0,
-    0, // col1
-    0,
-    0,
-    1,
-    0, // col2
-    0,
-    0,
-    0,
-    1, // col3
-  ]);
+  new Float32Array(buffer).set([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
   return buffer;
-};
+})();
 
-const generateGridVertices = (
-  gridArea: GridArea,
-  horizontal: number,
-  vertical: number,
-): Float32Array => {
+const generateGridVertices = (gridArea: GridArea, horizontal: number, vertical: number): Float32Array => {
   const { left, right, top, bottom, canvasWidth, canvasHeight } = gridArea;
   // Be resilient: older call sites may omit/incorrectly pass DPR. Defaulting avoids hard crashes.
   const devicePixelRatio =
-    Number.isFinite(gridArea.devicePixelRatio) && gridArea.devicePixelRatio > 0
-      ? gridArea.devicePixelRatio
-      : 1;
+    Number.isFinite(gridArea.devicePixelRatio) && gridArea.devicePixelRatio > 0 ? gridArea.devicePixelRatio : 1;
 
   // Calculate plot area in device pixels using explicit DPR
   const plotLeft = left * devicePixelRatio;
@@ -183,17 +151,12 @@ const generateGridVertices = (
   return vertices;
 };
 
-export function createGridRenderer(
-  device: GPUDevice,
-  options?: GridRendererOptions,
-): GridRenderer {
+export function createGridRenderer(device: GPUDevice, options?: GridRendererOptions): GridRenderer {
   let disposed = false;
   const targetFormat = options?.targetFormat ?? DEFAULT_TARGET_FORMAT;
   // Be resilient: coerce invalid values to 1 (no MSAA).
   const sampleCountRaw = options?.sampleCount ?? 1;
-  const sampleCount = Number.isFinite(sampleCountRaw)
-    ? Math.max(1, Math.floor(sampleCountRaw))
-    : 1;
+  const sampleCount = Number.isFinite(sampleCountRaw) ? Math.max(1, Math.floor(sampleCountRaw)) : 1;
   const pipelineCache = options?.pipelineCache;
 
   // Dynamic-offset alignment for uniform buffers. Spec default is 256; some
@@ -205,7 +168,7 @@ export function createGridRenderer(
       {
         binding: 0,
         visibility: GPUShaderStage.VERTEX,
-        buffer: { type: "uniform" },
+        buffer: { type: 'uniform' },
       },
       {
         // Per-batch color via dynamic offset so multi-batch grids (e.g. distinct
@@ -214,19 +177,19 @@ export function createGridRenderer(
         // batches would otherwise render with the last color.
         binding: 1,
         visibility: GPUShaderStage.FRAGMENT,
-        buffer: { type: "uniform", hasDynamicOffset: true },
+        buffer: { type: 'uniform', hasDynamicOffset: true },
       },
     ],
   });
 
   const vsUniformBuffer = createUniformBuffer(device, 64, {
-    label: "gridRenderer/vsUniforms",
+    label: 'gridRenderer/vsUniforms',
   });
 
   // Single FS uniform buffer with slots for multiple batches. Grows geometrically.
   let fsUniformSlotCount = INITIAL_BATCH_SLOTS;
   let fsUniformBuffer: GPUBuffer = device.createBuffer({
-    label: "gridRenderer/fsUniforms",
+    label: 'gridRenderer/fsUniforms',
     size: fsUniformSlotCount * dynamicOffsetAlignment,
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
   });
@@ -252,42 +215,42 @@ export function createGridRenderer(
   const pipeline = createRenderPipeline(
     device,
     {
-      label: "gridRenderer/pipeline",
+      label: 'gridRenderer/pipeline',
       bindGroupLayouts: [bindGroupLayout],
       vertex: {
         code: gridWgsl,
-        label: "grid.wgsl",
+        label: 'grid.wgsl',
         buffers: [
           {
             arrayStride: 8, // vec2<f32> = 2 * 4 bytes
-            stepMode: "vertex",
-            attributes: [{ shaderLocation: 0, format: "float32x2", offset: 0 }],
+            stepMode: 'vertex',
+            attributes: [{ shaderLocation: 0, format: 'float32x2', offset: 0 }],
           },
         ],
       },
       fragment: {
         code: gridWgsl,
-        label: "grid.wgsl",
+        label: 'grid.wgsl',
         formats: targetFormat,
         // Enable standard alpha blending so `fsUniforms.color.a` behaves as expected
         // (blends into the cleared background instead of making the canvas pixels transparent).
         blend: {
           color: {
-            operation: "add",
-            srcFactor: "src-alpha",
-            dstFactor: "one-minus-src-alpha",
+            operation: 'add',
+            srcFactor: 'src-alpha',
+            dstFactor: 'one-minus-src-alpha',
           },
           alpha: {
-            operation: "add",
-            srcFactor: "one",
-            dstFactor: "one-minus-src-alpha",
+            operation: 'add',
+            srcFactor: 'one',
+            dstFactor: 'one-minus-src-alpha',
           },
         },
       },
-      primitive: { topology: "line-list", cullMode: "none" },
+      primitive: { topology: 'line-list', cullMode: 'none' },
       multisample: { count: sampleCount },
     },
-    pipelineCache,
+    pipelineCache
   );
 
   interface Batch {
@@ -304,7 +267,7 @@ export function createGridRenderer(
   const colorScratch = new Float32Array(4);
 
   const assertNotDisposed = (): void => {
-    if (disposed) throw new Error("GridRenderer is disposed.");
+    if (disposed) throw new Error('GridRenderer is disposed.');
   };
 
   const ensureFsUniformCapacity = (requiredSlots: number): void => {
@@ -322,7 +285,7 @@ export function createGridRenderer(
 
     fsUniformSlotCount = nextCount;
     fsUniformBuffer = device.createBuffer({
-      label: "gridRenderer/fsUniforms",
+      label: 'gridRenderer/fsUniforms',
       size: fsUniformSlotCount * dynamicOffsetAlignment,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
@@ -339,34 +302,23 @@ export function createGridRenderer(
     });
   };
 
-  const writeBatchColor = (
-    slotIndex: number,
-    rgba: readonly [number, number, number, number],
-  ): void => {
+  const writeBatchColor = (slotIndex: number, rgba: readonly [number, number, number, number]): void => {
     const offset = slotIndex * dynamicOffsetAlignment;
     colorScratch[0] = rgba[0];
     colorScratch[1] = rgba[1];
     colorScratch[2] = rgba[2];
     colorScratch[3] = rgba[3];
     // queue.writeBuffer requires 4-byte-aligned size; 16-byte color satisfies that.
-    device.queue.writeBuffer(
-      fsUniformBuffer,
-      offset,
-      colorScratch.buffer,
-      0,
-      colorScratch.byteLength,
-    );
+    device.queue.writeBuffer(fsUniformBuffer, offset, colorScratch.buffer, 0, colorScratch.byteLength);
   };
 
-  const prepare: GridRenderer["prepare"] = (gridArea, lineCountOrOptions) => {
+  const prepare: GridRenderer['prepare'] = (gridArea, lineCountOrOptions) => {
     assertNotDisposed();
 
     const isOptionsObject =
       lineCountOrOptions != null &&
-      typeof lineCountOrOptions === "object" &&
-      ("lineCount" in lineCountOrOptions ||
-        "color" in lineCountOrOptions ||
-        "append" in lineCountOrOptions);
+      typeof lineCountOrOptions === 'object' &&
+      ('lineCount' in lineCountOrOptions || 'color' in lineCountOrOptions || 'append' in lineCountOrOptions);
 
     const optionsArg: GridPrepareOptions | undefined = isOptionsObject
       ? (lineCountOrOptions as GridPrepareOptions)
@@ -383,9 +335,7 @@ export function createGridRenderer(
 
     // Validate inputs
     if (horizontal < 0 || vertical < 0) {
-      throw new Error(
-        "GridRenderer.prepare: line counts must be non-negative.",
-      );
+      throw new Error('GridRenderer.prepare: line counts must be non-negative.');
     }
     if (
       !Number.isFinite(gridArea.left) ||
@@ -395,14 +345,10 @@ export function createGridRenderer(
       !Number.isFinite(gridArea.canvasWidth) ||
       !Number.isFinite(gridArea.canvasHeight)
     ) {
-      throw new Error(
-        "GridRenderer.prepare: gridArea dimensions must be finite numbers.",
-      );
+      throw new Error('GridRenderer.prepare: gridArea dimensions must be finite numbers.');
     }
     if (gridArea.canvasWidth <= 0 || gridArea.canvasHeight <= 0) {
-      throw new Error(
-        "GridRenderer.prepare: canvas dimensions must be positive.",
-      );
+      throw new Error('GridRenderer.prepare: canvas dimensions must be positive.');
     }
 
     // Early return if no lines to draw. If we're not appending, also clear any
@@ -422,24 +368,16 @@ export function createGridRenderer(
     // Parse color for this batch (fallbacks to internal default)
     const rgba = parseCssColorToRgba01(colorString) ?? DEFAULT_GRID_RGBA;
 
-    const nextBatchIndex =
-      append && combinedVertices && batches.length > 0 ? batches.length : 0;
+    const nextBatchIndex = append && combinedVertices && batches.length > 0 ? batches.length : 0;
 
     ensureFsUniformCapacity(nextBatchIndex + 1);
     writeBatchColor(nextBatchIndex, rgba);
 
     // Append or replace prepared geometry
     let vertexOffsetBytes = 0;
-    if (
-      append &&
-      combinedVertices &&
-      combinedVertices.byteLength > 0 &&
-      batches.length > 0
-    ) {
+    if (append && combinedVertices && combinedVertices.byteLength > 0 && batches.length > 0) {
       vertexOffsetBytes = combinedVertices.byteLength;
-      const combined = new Float32Array(
-        combinedVertices.length + vertices.length,
-      );
+      const combined = new Float32Array(combinedVertices.length + vertices.length);
       combined.set(combinedVertices, 0);
       combined.set(vertices, combinedVertices.length);
       combinedVertices = combined;
@@ -476,26 +414,20 @@ export function createGridRenderer(
       }
 
       vertexBuffer = device.createBuffer({
-        label: "gridRenderer/vertexBuffer",
+        label: 'gridRenderer/vertexBuffer',
         size: bufferSize,
         usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
       });
     }
 
     // Write combined vertex data
-    device.queue.writeBuffer(
-      vertexBuffer,
-      0,
-      combinedVertices.buffer,
-      0,
-      combinedVertices.byteLength,
-    );
+    device.queue.writeBuffer(vertexBuffer, 0, combinedVertices.buffer, 0, combinedVertices.byteLength);
 
     // VS uniform: identity transform (vertices already in clip space)
-    writeUniformBuffer(device, vsUniformBuffer, createIdentityMat4Buffer());
+    writeUniformBuffer(device, vsUniformBuffer, IDENTITY_MAT4_BUFFER);
   };
 
-  const render: GridRenderer["render"] = (passEncoder) => {
+  const render: GridRenderer['render'] = (passEncoder) => {
     assertNotDisposed();
     if (batches.length === 0 || !vertexBuffer) return;
 
@@ -510,7 +442,7 @@ export function createGridRenderer(
     }
   };
 
-  const dispose: GridRenderer["dispose"] = () => {
+  const dispose: GridRenderer['dispose'] = () => {
     if (disposed) return;
     disposed = true;
 

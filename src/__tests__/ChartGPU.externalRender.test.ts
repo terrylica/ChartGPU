@@ -9,35 +9,27 @@
  * - Switching auto->external stops internal scheduling; external->auto schedules if dirty
  */
 
-import {
-  describe,
-  it,
-  expect,
-  beforeEach,
-  vi,
-  beforeAll,
-  afterEach,
-} from "vitest";
-import { ChartGPU } from "../ChartGPU";
-import type { ChartGPUInstance } from "../ChartGPU";
-import type { ChartGPUOptions } from "../config/types";
+import { describe, it, expect, beforeEach, vi, beforeAll, afterEach } from 'vitest';
+import { ChartGPU } from '../ChartGPU';
+import type { ChartGPUInstance } from '../ChartGPU';
+import type { ChartGPUOptions } from '../config/types';
 
 // Mock WebGPU globals before importing the module
 beforeAll(() => {
   // Mock window global for SSR-safe checks
-  if (typeof window === "undefined") {
+  if (typeof window === 'undefined') {
     // @ts-ignore - Mock window global
     globalThis.window = globalThis;
   }
 
   // Mock document if not available
-  if (typeof document === "undefined") {
+  if (typeof document === 'undefined') {
     const createElement = ((tagName: string) => {
-      if (tagName === "canvas") {
+      if (tagName === 'canvas') {
         return createMockCanvas();
       }
       return createMockElement();
-    }) as unknown as Document["createElement"];
+    }) as unknown as Document['createElement'];
 
     (globalThis as any).document = {
       createElement,
@@ -93,7 +85,7 @@ function createMockCanvas(): HTMLCanvasElement {
       toJSON: () => ({}),
     })),
     getContext: vi.fn((contextId: string) => {
-      if (contextId === "webgpu") {
+      if (contextId === 'webgpu') {
         return {
           configure: vi.fn(),
           unconfigure: vi.fn(),
@@ -202,13 +194,11 @@ function createMockAdapter(): GPUAdapter {
 }
 
 // Mock navigator.gpu
-function setupMockNavigatorGPU(
-  adapter: GPUAdapter | null = createMockAdapter(),
-): void {
-  vi.stubGlobal("navigator", {
+function setupMockNavigatorGPU(adapter: GPUAdapter | null = createMockAdapter()): void {
+  vi.stubGlobal('navigator', {
     gpu: {
       requestAdapter: vi.fn(async () => adapter),
-      getPreferredCanvasFormat: vi.fn(() => "bgra8unorm"),
+      getPreferredCanvasFormat: vi.fn(() => 'bgra8unorm'),
     },
   });
 }
@@ -236,7 +226,7 @@ function createMockContainer(): HTMLElement {
   return container;
 }
 
-describe("ChartGPU - External Render Mode", () => {
+describe('ChartGPU - External Render Mode', () => {
   let mockContainer: HTMLElement;
   let mockAdapter: GPUAdapter;
   let mockDevice: GPUDevice;
@@ -251,18 +241,18 @@ describe("ChartGPU - External Render Mode", () => {
     setupMockNavigatorGPU(mockAdapter);
 
     // Mock devicePixelRatio
-    vi.stubGlobal("devicePixelRatio", 2);
+    vi.stubGlobal('devicePixelRatio', 2);
 
     // Mock requestAnimationFrame and cancelAnimationFrame
-    vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => {
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
       setTimeout(() => cb(performance.now()), 0);
       return 1;
     });
-    vi.stubGlobal("cancelAnimationFrame", vi.fn());
+    vi.stubGlobal('cancelAnimationFrame', vi.fn());
 
     // Now spy on the stubbed functions
-    rafSpy = vi.spyOn(globalThis, "requestAnimationFrame");
-    cancelRafSpy = vi.spyOn(globalThis, "cancelAnimationFrame");
+    rafSpy = vi.spyOn(globalThis, 'requestAnimationFrame');
+    cancelRafSpy = vi.spyOn(globalThis, 'cancelAnimationFrame');
   });
 
   afterEach(() => {
@@ -274,11 +264,11 @@ describe("ChartGPU - External Render Mode", () => {
     vi.unstubAllGlobals();
   });
 
-  describe("External render mode initialization", () => {
+  describe('External render mode initialization', () => {
     it('creates chart in external mode via options.renderMode: "external"', async () => {
       const options: ChartGPUOptions = {
-        renderMode: "external",
-        series: [{ type: "line", data: [{ x: 1, y: 10 }] }],
+        renderMode: 'external',
+        series: [{ type: 'line', data: [{ x: 1, y: 10 }] }],
       };
 
       const chart = await ChartGPU.create(mockContainer, options, {
@@ -286,27 +276,27 @@ describe("ChartGPU - External Render Mode", () => {
         device: mockDevice,
       });
 
-      expect(chart.getRenderMode()).toBe("external");
+      expect(chart.getRenderMode()).toBe('external');
       await chart.dispose();
     });
 
-    it("defaults to auto mode when no external render config provided", async () => {
+    it('defaults to auto mode when no external render config provided', async () => {
       const options: ChartGPUOptions = {
-        series: [{ type: "line", data: [{ x: 1, y: 10 }] }],
+        series: [{ type: 'line', data: [{ x: 1, y: 10 }] }],
       };
 
       const chart = await ChartGPU.create(mockContainer, options);
 
-      expect(chart.getRenderMode()).toBe("auto");
+      expect(chart.getRenderMode()).toBe('auto');
       await chart.dispose();
     });
   });
 
-  describe("External mode: no internal RAF scheduling", () => {
-    it("does not schedule RAF when needsRender becomes true in external mode", async () => {
+  describe('External mode: no internal RAF scheduling', () => {
+    it('does not schedule RAF when needsRender becomes true in external mode', async () => {
       const options: ChartGPUOptions = {
-        renderMode: "external",
-        series: [{ type: "line", data: [{ x: 1, y: 10 }] }],
+        renderMode: 'external',
+        series: [{ type: 'line', data: [{ x: 1, y: 10 }] }],
       };
 
       rafSpy?.mockClear();
@@ -323,7 +313,7 @@ describe("ChartGPU - External Render Mode", () => {
       chart.setOption({
         series: [
           {
-            type: "line",
+            type: 'line',
             data: [
               { x: 1, y: 10 },
               { x: 2, y: 20 },
@@ -341,10 +331,10 @@ describe("ChartGPU - External Render Mode", () => {
       await chart.dispose();
     });
 
-    it("external mode allows manual control via renderFrame", async () => {
+    it('external mode allows manual control via renderFrame', async () => {
       const options: ChartGPUOptions = {
-        renderMode: "external",
-        series: [{ type: "line", sampling: "none", data: [{ x: 1, y: 10 }] }],
+        renderMode: 'external',
+        series: [{ type: 'line', sampling: 'none', data: [{ x: 1, y: 10 }] }],
       };
 
       const chart = await ChartGPU.create(mockContainer, options, {
@@ -353,7 +343,7 @@ describe("ChartGPU - External Render Mode", () => {
       });
 
       // In external mode, we control rendering manually
-      expect(chart.getRenderMode()).toBe("external");
+      expect(chart.getRenderMode()).toBe('external');
 
       // Append data
       chart.appendData(0, [{ x: 2, y: 20 }]);
@@ -364,10 +354,10 @@ describe("ChartGPU - External Render Mode", () => {
       await chart.dispose();
     });
 
-    it("does not schedule RAF on resize in external mode", async () => {
+    it('does not schedule RAF on resize in external mode', async () => {
       const options: ChartGPUOptions = {
-        renderMode: "external",
-        series: [{ type: "line", data: [{ x: 1, y: 10 }] }],
+        renderMode: 'external',
+        series: [{ type: 'line', data: [{ x: 1, y: 10 }] }],
       };
 
       const chart = await ChartGPU.create(mockContainer, options, {
@@ -389,11 +379,11 @@ describe("ChartGPU - External Render Mode", () => {
     });
   });
 
-  describe("needsRender() behavior", () => {
-    it("needsRender returns boolean value", async () => {
+  describe('needsRender() behavior', () => {
+    it('needsRender returns boolean value', async () => {
       const options: ChartGPUOptions = {
-        renderMode: "external",
-        series: [{ type: "line", data: [{ x: 1, y: 10 }] }],
+        renderMode: 'external',
+        series: [{ type: 'line', data: [{ x: 1, y: 10 }] }],
       };
 
       const chart = await ChartGPU.create(mockContainer, options, {
@@ -403,19 +393,19 @@ describe("ChartGPU - External Render Mode", () => {
 
       // needsRender should return a boolean
       const needs = chart.needsRender();
-      expect(typeof needs).toBe("boolean");
+      expect(typeof needs).toBe('boolean');
 
       // renderFrame should be callable
       const result = chart.renderFrame();
-      expect(typeof result).toBe("boolean");
+      expect(typeof result).toBe('boolean');
 
       await chart.dispose();
     });
 
-    it("needsRender returns true after setOption", async () => {
+    it('needsRender returns true after setOption', async () => {
       const options: ChartGPUOptions = {
-        renderMode: "external",
-        series: [{ type: "line", data: [{ x: 1, y: 10 }] }],
+        renderMode: 'external',
+        series: [{ type: 'line', data: [{ x: 1, y: 10 }] }],
       };
 
       const chart = await ChartGPU.create(mockContainer, options, {
@@ -427,7 +417,7 @@ describe("ChartGPU - External Render Mode", () => {
       chart.setOption({
         series: [
           {
-            type: "line",
+            type: 'line',
             data: [
               { x: 1, y: 10 },
               { x: 2, y: 20 },
@@ -441,10 +431,10 @@ describe("ChartGPU - External Render Mode", () => {
       await chart.dispose();
     });
 
-    it("needsRender returns true after appendData", async () => {
+    it('needsRender returns true after appendData', async () => {
       const options: ChartGPUOptions = {
-        renderMode: "external",
-        series: [{ type: "line", sampling: "none", data: [{ x: 1, y: 10 }] }],
+        renderMode: 'external',
+        series: [{ type: 'line', sampling: 'none', data: [{ x: 1, y: 10 }] }],
       };
 
       const chart = await ChartGPU.create(mockContainer, options, {
@@ -463,10 +453,10 @@ describe("ChartGPU - External Render Mode", () => {
       await chart.dispose();
     });
 
-    it("needsRender changes after setOption and renderFrame", async () => {
+    it('needsRender changes after setOption and renderFrame', async () => {
       const options: ChartGPUOptions = {
-        renderMode: "external",
-        series: [{ type: "line", data: [{ x: 1, y: 10 }] }],
+        renderMode: 'external',
+        series: [{ type: 'line', data: [{ x: 1, y: 10 }] }],
       };
 
       const chart = await ChartGPU.create(mockContainer, options, {
@@ -483,7 +473,7 @@ describe("ChartGPU - External Render Mode", () => {
       chart.setOption({
         series: [
           {
-            type: "line",
+            type: 'line',
             data: [
               { x: 1, y: 10 },
               { x: 2, y: 20 },
@@ -502,11 +492,11 @@ describe("ChartGPU - External Render Mode", () => {
     });
   });
 
-  describe("renderFrame() behavior", () => {
-    it("renderFrame returns true when chart is dirty", async () => {
+  describe('renderFrame() behavior', () => {
+    it('renderFrame returns true when chart is dirty', async () => {
       const options: ChartGPUOptions = {
-        renderMode: "external",
-        series: [{ type: "line", data: [{ x: 1, y: 10 }] }],
+        renderMode: 'external',
+        series: [{ type: 'line', data: [{ x: 1, y: 10 }] }],
       };
 
       const chart = await ChartGPU.create(mockContainer, options, {
@@ -518,7 +508,7 @@ describe("ChartGPU - External Render Mode", () => {
       chart.setOption({
         series: [
           {
-            type: "line",
+            type: 'line',
             data: [
               { x: 1, y: 10 },
               { x: 2, y: 20 },
@@ -534,10 +524,10 @@ describe("ChartGPU - External Render Mode", () => {
       await chart.dispose();
     });
 
-    it("renderFrame returns false in auto mode", async () => {
+    it('renderFrame returns false in auto mode', async () => {
       const options: ChartGPUOptions = {
-        renderMode: "auto",
-        series: [{ type: "line", data: [{ x: 1, y: 10 }] }],
+        renderMode: 'auto',
+        series: [{ type: 'line', data: [{ x: 1, y: 10 }] }],
       };
 
       const chart = await ChartGPU.create(mockContainer, options);
@@ -549,10 +539,10 @@ describe("ChartGPU - External Render Mode", () => {
       await chart.dispose();
     });
 
-    it("renderFrame returns false when chart is disposed", async () => {
+    it('renderFrame returns false when chart is disposed', async () => {
       const options: ChartGPUOptions = {
-        renderMode: "external",
-        series: [{ type: "line", data: [{ x: 1, y: 10 }] }],
+        renderMode: 'external',
+        series: [{ type: 'line', data: [{ x: 1, y: 10 }] }],
       };
 
       const chart = await ChartGPU.create(mockContainer, options, {
@@ -568,11 +558,11 @@ describe("ChartGPU - External Render Mode", () => {
     });
   });
 
-  describe("Multiple changes coalesce", () => {
-    it("multiple setOption calls work with manual renderFrame", async () => {
+  describe('Multiple changes coalesce', () => {
+    it('multiple setOption calls work with manual renderFrame', async () => {
       const options: ChartGPUOptions = {
-        renderMode: "external",
-        series: [{ type: "line", data: [{ x: 1, y: 10 }] }],
+        renderMode: 'external',
+        series: [{ type: 'line', data: [{ x: 1, y: 10 }] }],
       };
 
       const chart = await ChartGPU.create(mockContainer, options, {
@@ -591,7 +581,7 @@ describe("ChartGPU - External Render Mode", () => {
       chart.setOption({
         series: [
           {
-            type: "line",
+            type: 'line',
             data: [
               { x: 1, y: 10 },
               { x: 2, y: 20 },
@@ -602,7 +592,7 @@ describe("ChartGPU - External Render Mode", () => {
       chart.setOption({
         series: [
           {
-            type: "line",
+            type: 'line',
             data: [
               { x: 1, y: 10 },
               { x: 2, y: 20 },
@@ -614,7 +604,7 @@ describe("ChartGPU - External Render Mode", () => {
       chart.setOption({
         series: [
           {
-            type: "line",
+            type: 'line',
             data: [
               { x: 1, y: 10 },
               { x: 2, y: 20 },
@@ -634,10 +624,10 @@ describe("ChartGPU - External Render Mode", () => {
       await chart.dispose();
     });
 
-    it("multiple appendData calls work with manual renderFrame in external mode", async () => {
+    it('multiple appendData calls work with manual renderFrame in external mode', async () => {
       const options: ChartGPUOptions = {
-        renderMode: "external",
-        series: [{ type: "line", sampling: "none", data: [{ x: 1, y: 10 }] }],
+        renderMode: 'external',
+        series: [{ type: 'line', sampling: 'none', data: [{ x: 1, y: 10 }] }],
       };
 
       const chart = await ChartGPU.create(mockContainer, options, {
@@ -646,7 +636,7 @@ describe("ChartGPU - External Render Mode", () => {
       });
 
       // Verify we're in external mode
-      expect(chart.getRenderMode()).toBe("external");
+      expect(chart.getRenderMode()).toBe('external');
 
       // Multiple appends
       chart.appendData(0, [{ x: 2, y: 20 }]);
@@ -659,10 +649,10 @@ describe("ChartGPU - External Render Mode", () => {
       await chart.dispose();
     });
 
-    it("mixed setOption and appendData calls work in external mode", async () => {
+    it('mixed setOption and appendData calls work in external mode', async () => {
       const options: ChartGPUOptions = {
-        renderMode: "external",
-        series: [{ type: "line", sampling: "none", data: [{ x: 1, y: 10 }] }],
+        renderMode: 'external',
+        series: [{ type: 'line', sampling: 'none', data: [{ x: 1, y: 10 }] }],
       };
 
       const chart = await ChartGPU.create(mockContainer, options, {
@@ -671,13 +661,13 @@ describe("ChartGPU - External Render Mode", () => {
       });
 
       // Verify we're in external mode
-      expect(chart.getRenderMode()).toBe("external");
+      expect(chart.getRenderMode()).toBe('external');
 
       // Mixed operations
       chart.setOption({
         series: [
           {
-            type: "line",
+            type: 'line',
             data: [
               { x: 1, y: 10 },
               { x: 2, y: 20 },
@@ -689,7 +679,7 @@ describe("ChartGPU - External Render Mode", () => {
       chart.setOption({
         series: [
           {
-            type: "line",
+            type: 'line',
             data: [
               { x: 1, y: 10 },
               { x: 2, y: 20 },
@@ -707,11 +697,11 @@ describe("ChartGPU - External Render Mode", () => {
     });
   });
 
-  describe("Switching render modes", () => {
-    it("switching from auto to external stops auto rendering", async () => {
+  describe('Switching render modes', () => {
+    it('switching from auto to external stops auto rendering', async () => {
       const options: ChartGPUOptions = {
-        renderMode: "auto",
-        series: [{ type: "line", data: [{ x: 1, y: 10 }] }],
+        renderMode: 'auto',
+        series: [{ type: 'line', data: [{ x: 1, y: 10 }] }],
       };
 
       const chart = await ChartGPU.create(mockContainer, options);
@@ -720,15 +710,15 @@ describe("ChartGPU - External Render Mode", () => {
       await new Promise((resolve) => setTimeout(resolve, 50));
 
       // Switch to external mode
-      chart.setRenderMode("external");
-      expect(chart.getRenderMode()).toBe("external");
+      chart.setRenderMode('external');
+      expect(chart.getRenderMode()).toBe('external');
 
       // Now in external mode, changes should not schedule RAF
       rafSpy?.mockClear();
       chart.setOption({
         series: [
           {
-            type: "line",
+            type: 'line',
             data: [
               { x: 1, y: 10 },
               { x: 2, y: 20 },
@@ -745,10 +735,10 @@ describe("ChartGPU - External Render Mode", () => {
       await chart.dispose();
     });
 
-    it("switching from external to auto schedules RAF if dirty", async () => {
+    it('switching from external to auto schedules RAF if dirty', async () => {
       const options: ChartGPUOptions = {
-        renderMode: "external",
-        series: [{ type: "line", data: [{ x: 1, y: 10 }] }],
+        renderMode: 'external',
+        series: [{ type: 'line', data: [{ x: 1, y: 10 }] }],
       };
 
       const chart = await ChartGPU.create(mockContainer, options, {
@@ -760,7 +750,7 @@ describe("ChartGPU - External Render Mode", () => {
       chart.setOption({
         series: [
           {
-            type: "line",
+            type: 'line',
             data: [
               { x: 1, y: 10 },
               { x: 2, y: 20 },
@@ -773,7 +763,7 @@ describe("ChartGPU - External Render Mode", () => {
       rafSpy?.mockClear();
 
       // Switch to auto mode
-      chart.setRenderMode("auto");
+      chart.setRenderMode('auto');
 
       // RAF should be scheduled because chart is dirty
       expect(rafSpy).toHaveBeenCalled();
@@ -781,10 +771,10 @@ describe("ChartGPU - External Render Mode", () => {
       await chart.dispose();
     });
 
-    it("switching from external to auto enables auto rendering", async () => {
+    it('switching from external to auto enables auto rendering', async () => {
       const options: ChartGPUOptions = {
-        renderMode: "external",
-        series: [{ type: "line", data: [{ x: 1, y: 10 }] }],
+        renderMode: 'external',
+        series: [{ type: 'line', data: [{ x: 1, y: 10 }] }],
       };
 
       const chart = await ChartGPU.create(mockContainer, options, {
@@ -798,8 +788,8 @@ describe("ChartGPU - External Render Mode", () => {
       }
 
       // Switch to auto mode
-      chart.setRenderMode("auto");
-      expect(chart.getRenderMode()).toBe("auto");
+      chart.setRenderMode('auto');
+      expect(chart.getRenderMode()).toBe('auto');
 
       await new Promise((resolve) => setTimeout(resolve, 50));
 
@@ -809,7 +799,7 @@ describe("ChartGPU - External Render Mode", () => {
       chart.setOption({
         series: [
           {
-            type: "line",
+            type: 'line',
             data: [
               { x: 1, y: 10 },
               { x: 2, y: 20 },
@@ -826,42 +816,42 @@ describe("ChartGPU - External Render Mode", () => {
       await chart.dispose();
     });
 
-    it("getRenderMode reflects current mode after switching", async () => {
+    it('getRenderMode reflects current mode after switching', async () => {
       const options: ChartGPUOptions = {
-        renderMode: "auto",
-        series: [{ type: "line", data: [{ x: 1, y: 10 }] }],
+        renderMode: 'auto',
+        series: [{ type: 'line', data: [{ x: 1, y: 10 }] }],
       };
 
       const chart = await ChartGPU.create(mockContainer, options);
 
-      expect(chart.getRenderMode()).toBe("auto");
+      expect(chart.getRenderMode()).toBe('auto');
 
-      chart.setRenderMode("external");
-      expect(chart.getRenderMode()).toBe("external");
+      chart.setRenderMode('external');
+      expect(chart.getRenderMode()).toBe('external');
 
-      chart.setRenderMode("auto");
-      expect(chart.getRenderMode()).toBe("auto");
+      chart.setRenderMode('auto');
+      expect(chart.getRenderMode()).toBe('auto');
 
       await chart.dispose();
     });
 
-    it("switching modes multiple times maintains correct state", async () => {
+    it('switching modes multiple times maintains correct state', async () => {
       const options: ChartGPUOptions = {
-        renderMode: "auto",
-        series: [{ type: "line", data: [{ x: 1, y: 10 }] }],
+        renderMode: 'auto',
+        series: [{ type: 'line', data: [{ x: 1, y: 10 }] }],
       };
 
       const chart = await ChartGPU.create(mockContainer, options);
 
       // auto -> external
-      chart.setRenderMode("external");
-      expect(chart.getRenderMode()).toBe("external");
+      chart.setRenderMode('external');
+      expect(chart.getRenderMode()).toBe('external');
 
       // Make dirty
       chart.setOption({
         series: [
           {
-            type: "line",
+            type: 'line',
             data: [
               { x: 1, y: 10 },
               { x: 2, y: 20 },
@@ -873,22 +863,22 @@ describe("ChartGPU - External Render Mode", () => {
 
       // external -> auto (should schedule RAF)
       rafSpy?.mockClear();
-      chart.setRenderMode("auto");
+      chart.setRenderMode('auto');
       expect(rafSpy).toHaveBeenCalled();
 
       // auto -> external again
-      chart.setRenderMode("external");
-      expect(chart.getRenderMode()).toBe("external");
+      chart.setRenderMode('external');
+      expect(chart.getRenderMode()).toBe('external');
 
       await chart.dispose();
     });
   });
 
-  describe("performance metrics on mode switch", () => {
-    it("frame-drop metrics are disabled in external mode", async () => {
+  describe('performance metrics on mode switch', () => {
+    it('frame-drop metrics are disabled in external mode', async () => {
       const options: ChartGPUOptions = {
-        renderMode: "auto",
-        series: [{ type: "line", data: [{ x: 1, y: 10 }] }],
+        renderMode: 'auto',
+        series: [{ type: 'line', data: [{ x: 1, y: 10 }] }],
       };
 
       const chart = await ChartGPU.create(mockContainer, options);
@@ -897,7 +887,7 @@ describe("ChartGPU - External Render Mode", () => {
       await new Promise((resolve) => setTimeout(resolve, 50));
 
       // Switch to external mode
-      chart.setRenderMode("external");
+      chart.setRenderMode('external');
 
       // Get metrics after switch
       const metricsAfter = chart.getPerformanceMetrics();
@@ -908,11 +898,11 @@ describe("ChartGPU - External Render Mode", () => {
     });
   });
 
-  describe("External render mode with real rendering loop simulation", () => {
-    it("simulates external rendering loop driving the chart", async () => {
+  describe('External render mode with real rendering loop simulation', () => {
+    it('simulates external rendering loop driving the chart', async () => {
       const options: ChartGPUOptions = {
-        renderMode: "external",
-        series: [{ type: "line", sampling: "none", data: [{ x: 1, y: 10 }] }],
+        renderMode: 'external',
+        series: [{ type: 'line', sampling: 'none', data: [{ x: 1, y: 10 }] }],
       };
 
       const chart = await ChartGPU.create(mockContainer, options, {
@@ -934,9 +924,7 @@ describe("ChartGPU - External Render Mode", () => {
 
         // Simulate data update every other frame
         if (frameCount % 2 === 0 && frameCount < maxFrames - 1) {
-          chart.appendData(0, [
-            { x: frameCount + 2, y: (frameCount + 2) * 10 },
-          ]);
+          chart.appendData(0, [{ x: frameCount + 2, y: (frameCount + 2) * 10 }]);
         }
 
         frameCount++;
@@ -949,10 +937,10 @@ describe("ChartGPU - External Render Mode", () => {
       await chart.dispose();
     });
 
-    it("external loop respects needsRender flag", async () => {
+    it('external loop respects needsRender flag', async () => {
       const options: ChartGPUOptions = {
-        renderMode: "external",
-        series: [{ type: "line", sampling: "none", data: [{ x: 1, y: 10 }] }],
+        renderMode: 'external',
+        series: [{ type: 'line', sampling: 'none', data: [{ x: 1, y: 10 }] }],
       };
 
       const chart = await ChartGPU.create(mockContainer, options, {
@@ -995,11 +983,11 @@ describe("ChartGPU - External Render Mode", () => {
     });
   });
 
-  describe("Edge cases and error handling", () => {
-    it("renderFrame handles disposed chart gracefully", async () => {
+  describe('Edge cases and error handling', () => {
+    it('renderFrame handles disposed chart gracefully', async () => {
       const options: ChartGPUOptions = {
-        renderMode: "external",
-        series: [{ type: "line", data: [{ x: 1, y: 10 }] }],
+        renderMode: 'external',
+        series: [{ type: 'line', data: [{ x: 1, y: 10 }] }],
       };
 
       const chart = await ChartGPU.create(mockContainer, options, {
@@ -1014,10 +1002,10 @@ describe("ChartGPU - External Render Mode", () => {
       expect(rendered).toBe(false);
     });
 
-    it("needsRender handles disposed chart gracefully", async () => {
+    it('needsRender handles disposed chart gracefully', async () => {
       const options: ChartGPUOptions = {
-        renderMode: "external",
-        series: [{ type: "line", data: [{ x: 1, y: 10 }] }],
+        renderMode: 'external',
+        series: [{ type: 'line', data: [{ x: 1, y: 10 }] }],
       };
 
       const chart = await ChartGPU.create(mockContainer, options, {
@@ -1031,13 +1019,13 @@ describe("ChartGPU - External Render Mode", () => {
       const needs = chart.needsRender();
       // After dispose, needsRender behavior depends on implementation
       // The important part is it doesn't throw
-      expect(typeof needs).toBe("boolean");
+      expect(typeof needs).toBe('boolean');
     });
 
-    it("setRenderMode handles disposed chart gracefully", async () => {
+    it('setRenderMode handles disposed chart gracefully', async () => {
       const options: ChartGPUOptions = {
-        renderMode: "auto",
-        series: [{ type: "line", data: [{ x: 1, y: 10 }] }],
+        renderMode: 'auto',
+        series: [{ type: 'line', data: [{ x: 1, y: 10 }] }],
       };
 
       const chart = await ChartGPU.create(mockContainer, options);
@@ -1045,15 +1033,15 @@ describe("ChartGPU - External Render Mode", () => {
       await chart.dispose();
 
       // Should not throw
-      expect(() => chart.setRenderMode("external")).not.toThrow();
+      expect(() => chart.setRenderMode('external')).not.toThrow();
     });
 
-    it("renderFrame with no coordinator returns false", async () => {
+    it('renderFrame with no coordinator returns false', async () => {
       // This is hard to test directly, but we can test the disposed case
       // which also has no coordinator
       const options: ChartGPUOptions = {
-        renderMode: "external",
-        series: [{ type: "line", data: [{ x: 1, y: 10 }] }],
+        renderMode: 'external',
+        series: [{ type: 'line', data: [{ x: 1, y: 10 }] }],
       };
 
       const chart = await ChartGPU.create(mockContainer, options, {
@@ -1068,11 +1056,11 @@ describe("ChartGPU - External Render Mode", () => {
     });
   });
 
-  describe("Auto mode continues to work as expected", () => {
-    it("auto mode schedules RAF on changes", async () => {
+  describe('Auto mode continues to work as expected', () => {
+    it('auto mode schedules RAF on changes', async () => {
       const options: ChartGPUOptions = {
-        renderMode: "auto",
-        series: [{ type: "line", data: [{ x: 1, y: 10 }] }],
+        renderMode: 'auto',
+        series: [{ type: 'line', data: [{ x: 1, y: 10 }] }],
       };
 
       const chart = await ChartGPU.create(mockContainer, options);
@@ -1086,7 +1074,7 @@ describe("ChartGPU - External Render Mode", () => {
       chart.setOption({
         series: [
           {
-            type: "line",
+            type: 'line',
             data: [
               { x: 1, y: 10 },
               { x: 2, y: 20 },
@@ -1102,10 +1090,10 @@ describe("ChartGPU - External Render Mode", () => {
       await chart.dispose();
     });
 
-    it("auto mode handles appendData with RAF scheduling", async () => {
+    it('auto mode handles appendData with RAF scheduling', async () => {
       const options: ChartGPUOptions = {
-        renderMode: "auto",
-        series: [{ type: "line", sampling: "none", data: [{ x: 1, y: 10 }] }],
+        renderMode: 'auto',
+        series: [{ type: 'line', sampling: 'none', data: [{ x: 1, y: 10 }] }],
       };
 
       const chart = await ChartGPU.create(mockContainer, options);

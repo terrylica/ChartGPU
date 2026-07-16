@@ -1,14 +1,7 @@
-import type { CartesianSeriesData } from "../config/types";
-import { getPointCount, packXYInto } from "./cartesianData";
-import {
-  maxPointsPeakRetention,
-  normalizeMaxPoints,
-  planMaxPointsWindow,
-} from "./maxPointsWindow";
-import {
-  isYOnlyRewriteAgainstStaging,
-  packYOnlyInto,
-} from "./seriesRewriteDetect";
+import type { CartesianSeriesData } from '../config/types';
+import { getPointCount, packXYInto } from './cartesianData';
+import { maxPointsPeakRetention, normalizeMaxPoints, planMaxPointsWindow } from './maxPointsWindow';
+import { isYOnlyRewriteAgainstStaging, packYOnlyInto } from './seriesRewriteDetect';
 
 export type SeriesRingLayout = Readonly<{
   /**
@@ -27,7 +20,15 @@ export interface DataStore {
   setSeries(
     index: number,
     data: CartesianSeriesData,
-    options?: Readonly<{ xOffset?: number }>,
+    options?: Readonly<{
+      xOffset?: number;
+      /**
+       * When true, skip the O(N) FNV content hash after packing (issue 2.6).
+       * Coordinator already decided content changed (e.g. cache miss, y-only).
+       * contentVersion for decimation still updates via a cheap stamp.
+       */
+      skipContentHash?: boolean;
+    }>
   ): void;
   /**
    * Appends new points to an existing series without re-uploading the entire buffer when possible.
@@ -46,11 +47,7 @@ export interface DataStore {
    *
    * Throws if the series has not been set yet.
    */
-  appendSeries(
-    index: number,
-    newPoints: CartesianSeriesData,
-    options?: Readonly<{ maxPoints?: number }>,
-  ): void;
+  appendSeries(index: number, newPoints: CartesianSeriesData, options?: Readonly<{ maxPoints?: number }>): void;
   removeSeries(index: number): void;
   getSeriesBuffer(index: number): GPUBuffer;
   /**
@@ -62,8 +59,21 @@ export interface DataStore {
   /**
    * Modular ring layout for GPU consumers (decimation). When `capacity === 0`,
    * points are packed linearly at the start of the buffer.
+   *
+   * Note: during the pre-wrap fill phase `capacity` is still reported as `0`
+   * so decimation can index linearly; use {@link isSeriesRingMode} to detect
+   * whether the series is under maxPoints ring residency (including pre-wrap).
    */
   getSeriesRingLayout(index: number): SeriesRingLayout;
+  /**
+   * True when the series is under maxPoints modular-ring residency
+   * (`ringCapacityPoints > 0`), including the pre-wrap fill phase where
+   * {@link getSeriesRingLayout} still reports `capacity === 0`.
+   *
+   * Callers must not linearize via `setSeries` while this is true unless an
+   * intentional full rebuild is desired (issue 0.2).
+   */
+  isSeriesRingMode(index: number): boolean;
   /**
    * Returns the FNV-1a content hash of the packed Float32 payload for this series.
    * Changes whenever `setSeries` / `appendSeries` rewrites floats (even into the
@@ -116,6 +126,10 @@ type SeriesEntry = {
 
 const MIN_BUFFER_BYTES = 4;
 
+/** Series device-local buffers: draw + decimation storage + upload + growth copy. */
+const seriesBufferUsage = (): number =>
+  GPUBufferUsage.VERTEX | GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC;
+
 function roundUpToMultipleOf4(bytes: number): number {
   return (bytes + 3) & ~3;
 }
@@ -126,16 +140,10 @@ function nextPow2(bytes: number): number {
   return 2 ** Math.ceil(Math.log2(n));
 }
 
-function computeGrownCapacityBytes(
-  currentCapacityBytes: number,
-  requiredBytes: number,
-): number {
+function computeGrownCapacityBytes(currentCapacityBytes: number, requiredBytes: number): number {
   // Grow geometrically to reduce buffer churn (power-of-two policy).
   // Enforce 4-byte alignment via MIN_BUFFER_BYTES (>= 4) and power-of-two growth.
-  const required = Math.max(
-    MIN_BUFFER_BYTES,
-    roundUpToMultipleOf4(requiredBytes),
-  );
+  const required = Math.max(MIN_BUFFER_BYTES, roundUpToMultipleOf4(requiredBytes));
   const grown = Math.max(MIN_BUFFER_BYTES, nextPow2(required));
   return Math.max(currentCapacityBytes, grown);
 }
@@ -154,11 +162,7 @@ function fnv1aUpdate(hash: number, words: Uint32Array): number {
  * bit patterns (not numeric equality), to cheaply detect changes.
  */
 function hashFloat32ArrayBits(data: Float32Array): number {
-  const u32 = new Uint32Array(
-    data.buffer,
-    data.byteOffset,
-    data.byteLength / 4,
-  );
+  const u32 = new Uint32Array(data.buffer, data.byteOffset, data.byteLength / 4);
   return fnv1aUpdate(0x811c9dc5, u32); // FNV-1a offset basis
 }
 
@@ -173,7 +177,7 @@ function packXYIntoRing(
   src: CartesianSeriesData,
   srcPointOffset: number,
   pointCount: number,
-  xOffset: number,
+  xOffset: number
 ): void {
   if (pointCount <= 0 || ringCapacity <= 0) return;
   const first = Math.min(pointCount, ringCapacity - physStart);
@@ -196,33 +200,21 @@ function writeRingRangeToGpu(
   staging: Float32Array,
   physStart: number,
   ringCapacity: number,
-  pointCount: number,
+  pointCount: number
 ): void {
   if (pointCount <= 0) return;
   const first = Math.min(pointCount, ringCapacity - physStart);
   if (first > 0) {
     const view = staging.subarray(physStart * 2, (physStart + first) * 2);
     if (view.byteLength > 0) {
-      device.queue.writeBuffer(
-        buffer,
-        physStart * 2 * 4,
-        view.buffer,
-        view.byteOffset,
-        view.byteLength,
-      );
+      device.queue.writeBuffer(buffer, physStart * 2 * 4, view.buffer, view.byteOffset, view.byteLength);
     }
   }
   const rest = pointCount - first;
   if (rest > 0) {
     const view = staging.subarray(0, rest * 2);
     if (view.byteLength > 0) {
-      device.queue.writeBuffer(
-        buffer,
-        0,
-        view.buffer,
-        view.byteOffset,
-        view.byteLength,
-      );
+      device.queue.writeBuffer(buffer, 0, view.buffer, view.byteOffset, view.byteLength);
     }
   }
 }
@@ -237,7 +229,7 @@ function linearizeStagingChronological(
   src: Float32Array,
   ringStart: number,
   ringCap: number,
-  count: number,
+  count: number
 ): void {
   if (count <= 0) return;
   if (ringCap <= 0 || ringStart === 0) {
@@ -259,22 +251,46 @@ function linearizeStagingChronological(
   }
 }
 
-function writeFullPointsToGpu(
-  device: GPUDevice,
-  buffer: GPUBuffer,
-  staging: Float32Array,
-  pointCount: number,
-): void {
+function writeFullPointsToGpu(device: GPUDevice, buffer: GPUBuffer, staging: Float32Array, pointCount: number): void {
   if (pointCount <= 0) return;
   const view = staging.subarray(0, pointCount * 2);
   if (view.byteLength === 0) return;
-  device.queue.writeBuffer(
-    buffer,
-    0,
-    view.buffer,
-    view.byteOffset,
-    view.byteLength,
-  );
+  device.queue.writeBuffer(buffer, 0, view.buffer, view.byteOffset, view.byteLength);
+}
+
+/**
+ * GPU-copy retained points from `src` into chronological order at the start of
+ * `dst` (issue 1.1 option A). Linear layout is one copy; modular ring uses up
+ * to two copies (tail then head). Self-submits so `src` can be destroyed after.
+ */
+function copyRetainedPointsToNewBuffer(
+  device: GPUDevice,
+  src: GPUBuffer,
+  dst: GPUBuffer,
+  ringStart: number,
+  ringCap: number,
+  pointCount: number
+): void {
+  if (pointCount <= 0) return;
+  const bytesPerPoint = 8;
+  const encoder = device.createCommandEncoder({
+    label: 'DataStore/growCopy',
+  });
+  if (ringCap <= 0 || ringStart === 0) {
+    const copyBytes = pointCount * bytesPerPoint;
+    encoder.copyBufferToBuffer(src, 0, dst, 0, copyBytes);
+  } else {
+    // Modular physical → linear chronological on dst.
+    const first = Math.min(pointCount, ringCap - ringStart);
+    if (first > 0) {
+      encoder.copyBufferToBuffer(src, ringStart * bytesPerPoint, dst, 0, first * bytesPerPoint);
+    }
+    const rest = pointCount - first;
+    if (rest > 0) {
+      encoder.copyBufferToBuffer(src, 0, dst, first * bytesPerPoint, rest * bytesPerPoint);
+    }
+  }
+  device.queue.submit([encoder.finish()]);
 }
 
 export function createDataStore(device: GPUDevice): DataStore {
@@ -283,7 +299,7 @@ export function createDataStore(device: GPUDevice): DataStore {
 
   const assertNotDisposed = (): void => {
     if (disposed) {
-      throw new Error("DataStore is disposed.");
+      throw new Error('DataStore is disposed.');
     }
   };
 
@@ -291,9 +307,7 @@ export function createDataStore(device: GPUDevice): DataStore {
     assertNotDisposed();
     const entry = series.get(index);
     if (!entry) {
-      throw new Error(
-        `Series ${index} has no data. Call setSeries(${index}, data) first.`,
-      );
+      throw new Error(`Series ${index} has no data. Call setSeries(${index}, data) first.`);
     }
     return entry;
   };
@@ -301,7 +315,7 @@ export function createDataStore(device: GPUDevice): DataStore {
   const setSeries = (
     index: number,
     data: CartesianSeriesData,
-    options?: Readonly<{ xOffset?: number }>,
+    options?: Readonly<{ xOffset?: number; skipContentHash?: boolean }>
   ): void => {
     assertNotDisposed();
 
@@ -319,7 +333,7 @@ export function createDataStore(device: GPUDevice): DataStore {
       const maxBufferSize = device.limits.maxBufferSize;
       if (targetBytes > maxBufferSize) {
         throw new Error(
-          `DataStore.setSeries(${index}): required buffer size ${targetBytes} exceeds device.limits.maxBufferSize (${maxBufferSize}).`,
+          `DataStore.setSeries(${index}): required buffer size ${targetBytes} exceeds device.limits.maxBufferSize (${maxBufferSize}).`
         );
       }
 
@@ -331,10 +345,7 @@ export function createDataStore(device: GPUDevice): DataStore {
         }
       }
 
-      const grownCapacityBytes = computeGrownCapacityBytes(
-        capacityBytes,
-        targetBytes,
-      );
+      const grownCapacityBytes = computeGrownCapacityBytes(capacityBytes, targetBytes);
       if (grownCapacityBytes > maxBufferSize) {
         // If geometric growth would exceed the limit, fall back to the exact required size.
         // (Still no shrink: if current capacity was already larger, we'd keep it above.)
@@ -346,10 +357,7 @@ export function createDataStore(device: GPUDevice): DataStore {
 
       buffer = device.createBuffer({
         size: capacityBytes,
-        usage:
-          GPUBufferUsage.VERTEX |
-          GPUBufferUsage.STORAGE |
-          GPUBufferUsage.COPY_DST,
+        usage: seriesBufferUsage(),
       });
     } else {
       capacityBytes = existing!.capacityBytes;
@@ -375,26 +383,34 @@ export function createDataStore(device: GPUDevice): DataStore {
       existing.xOffset === xOffset &&
       existing.ringStart === 0 &&
       existing.ringCapacityPoints === 0 &&
-      isYOnlyRewriteAgainstStaging(
-        data,
-        existing.stagingBuffer,
-        existing.pointCount,
-        existing.xOffset,
-      );
+      isYOnlyRewriteAgainstStaging(data, existing.stagingBuffer, existing.pointCount, existing.xOffset);
 
+    let yOnlyChanged = false;
     if (yOnly) {
-      packYOnlyInto(stagingBuffer, data, pointCount);
+      yOnlyChanged = packYOnlyInto(stagingBuffer, data, pointCount);
+      if (!yOnlyChanged) {
+        // x matched and every y is identical — no GPU work.
+        return;
+      }
     } else if (pointCount > 0) {
       packXYInto(stagingBuffer, 0, data, 0, pointCount, xOffset);
     }
 
-    const packedView =
-      pointCount > 0
-        ? stagingBuffer.subarray(0, pointCount * 2)
-        : new Float32Array(0);
-    const hash32 = hashFloat32ArrayBits(packedView);
+    const packedView = pointCount > 0 ? stagingBuffer.subarray(0, pointCount * 2) : new Float32Array(0);
+
+    // Issue 2.1: y-only already proved y changed — skip full O(N) FNV.
+    // Residual: GPU still full writeBuffer of N×8 (WebGPU has no strided write).
+    // Stamp hash so decimation still dirties. Issue 2.6: skipContentHash same.
+    const skipHash = yOnlyChanged || options?.skipContentHash === true;
+    let hash32: number;
+    if (skipHash && existing) {
+      hash32 = (existing.hash32 + 0x9e3779b9) >>> 0;
+    } else {
+      hash32 = hashFloat32ArrayBits(packedView);
+    }
 
     const unchanged =
+      !skipHash &&
       existing &&
       existing.pointCount === pointCount &&
       existing.hash32 === hash32 &&
@@ -405,15 +421,9 @@ export function createDataStore(device: GPUDevice): DataStore {
       return;
     }
 
-    // Full interleaved GPU upload (even after y-only CPU pack).
+    // Full interleaved GPU upload (even after y-only CPU pack) — residual 2.1.
     if (packedView.byteLength > 0) {
-      device.queue.writeBuffer(
-        buffer,
-        0,
-        packedView.buffer,
-        packedView.byteOffset,
-        packedView.byteLength,
-      );
+      device.queue.writeBuffer(buffer, 0, packedView.buffer, packedView.byteOffset, packedView.byteLength);
     }
 
     series.set(index, {
@@ -431,7 +441,7 @@ export function createDataStore(device: GPUDevice): DataStore {
   const appendSeries = (
     index: number,
     newPoints: CartesianSeriesData,
-    options?: Readonly<{ maxPoints?: number }>,
+    options?: Readonly<{ maxPoints?: number }>
   ): void => {
     assertNotDisposed();
     const newPointCount = getPointCount(newPoints);
@@ -440,11 +450,7 @@ export function createDataStore(device: GPUDevice): DataStore {
     const existing = getSeriesEntry(index);
     const prevPointCount = existing.pointCount;
     const maxPoints = normalizeMaxPoints(options?.maxPoints);
-    const plan = planMaxPointsWindow(
-      prevPointCount,
-      newPointCount,
-      maxPoints,
-    );
+    const plan = planMaxPointsWindow(prevPointCount, newPointCount, maxPoints);
     const {
       nextCount: nextPointCount,
       dropPrevCount,
@@ -458,9 +464,7 @@ export function createDataStore(device: GPUDevice): DataStore {
     // Reserve peak ring capacity when maxPoints is set so streaming never
     // reallocates (full re-upload) on every geometric step.
     const reservePoints =
-      isRing && ringCapacity > 0
-        ? Math.max(nextPointCount, maxPointsPeakRetention(ringCapacity))
-        : nextPointCount;
+      isRing && ringCapacity > 0 ? Math.max(nextPointCount, maxPointsPeakRetention(ringCapacity)) : nextPointCount;
     const requiredBytes = roundUpToMultipleOf4(reservePoints * 2 * 4);
     const targetBytes = Math.max(MIN_BUFFER_BYTES, requiredBytes);
 
@@ -480,86 +484,90 @@ export function createDataStore(device: GPUDevice): DataStore {
     // - first activation with prev already ≤ capacity (linear base, ringStart=0), OR
     // - already ring-tagged at the same capacity with prev ≤ capacity
     // Oversized→ring (prev > capacity) and capacity changes use rebuild below.
-    const firstRingActivation =
-      isRing &&
-      !wasRing &&
-      ringCapacity > 0 &&
-      prevPointCount <= ringCapacity;
+    const firstRingActivation = isRing && !wasRing && ringCapacity > 0 && prevPointCount <= ringCapacity;
     const continuingRing =
-      isRing &&
-      wasRing &&
-      prevRingCap === ringCapacity &&
-      ringCapacity > 0 &&
-      prevPointCount <= prevRingCap;
-    const steadyRing =
-      (firstRingActivation || continuingRing) &&
-      !needsGrowth &&
-      !isStrictReplace;
+      isRing && wasRing && prevRingCap === ringCapacity && ringCapacity > 0 && prevPointCount <= prevRingCap;
+    const steadyRing = (firstRingActivation || continuingRing) && !needsGrowth && !isStrictReplace;
 
     // Pure linear ranged append: never been a ring, no windowing, no growth.
-    const pureLinearRanged =
-      !isRing &&
-      !wasRing &&
-      !needsGrowth &&
-      !isStrictReplace &&
-      dropPrevCount === 0;
+    const pureLinearRanged = !isRing && !wasRing && !needsGrowth && !isStrictReplace && dropPrevCount === 0;
 
-    // ── Growth: allocate new GPU buffer + linearize staging chronologically ──
-    // Retained points are always full-uploaded later on non-steady paths (or
-    // here when we continue into pure linear after growth).
+    // ── Growth: allocate new GPU buffer + linearize staging on CPU (1.1 A). ──
+    // Pure unbounded append: GPU-copy retained prefix + ranged-write new only.
+    // Non-pure paths (drop / strict / ring rebuild) still full-upload the planned
+    // window after packing — GPU prefix copy is skipped there to avoid a wasted
+    // copy that would be overwritten by writeFullPointsToGpu.
     if (needsGrowth) {
       if (targetBytes > maxBufferSize) {
         throw new Error(
-          `DataStore.appendSeries(${index}): required buffer size ${targetBytes} exceeds device.limits.maxBufferSize (${maxBufferSize}).`,
+          `DataStore.appendSeries(${index}): required buffer size ${targetBytes} exceeds device.limits.maxBufferSize (${maxBufferSize}).`
         );
       }
+      const oldBuffer = existing.buffer;
       const oldStaging = existing.stagingBuffer;
       const oldStart = existing.ringStart;
       const oldCap = existing.ringCapacityPoints;
       const oldCount = existing.pointCount;
 
-      try {
-        buffer.destroy();
-      } catch {
-        // Ignore destroy errors; we are replacing the buffer anyway.
-      }
-      const grownCapacityBytes = computeGrownCapacityBytes(
-        capacityBytes,
-        targetBytes,
-      );
-      capacityBytes =
-        grownCapacityBytes > maxBufferSize ? targetBytes : grownCapacityBytes;
+      const grownCapacityBytes = computeGrownCapacityBytes(capacityBytes, targetBytes);
+      capacityBytes = grownCapacityBytes > maxBufferSize ? targetBytes : grownCapacityBytes;
       buffer = device.createBuffer({
         size: capacityBytes,
-        usage:
-          GPUBufferUsage.VERTEX |
-          GPUBufferUsage.STORAGE |
-          GPUBufferUsage.COPY_DST,
+        usage: seriesBufferUsage(),
       });
       stagingBuffer = new Float32Array(capacityBytes / 4);
 
-      // Linearize previous points into chronological order at offset 0.
-      // GPU contents are empty until we full-upload after packing new points.
-      linearizeStagingChronological(
-        stagingBuffer,
-        oldStaging,
-        oldStart,
-        oldCap,
-        oldCount,
-      );
+      // Linearize previous points into chronological order at offset 0 (CPU mirror).
+      linearizeStagingChronological(stagingBuffer, oldStaging, oldStart, oldCap, oldCount);
+
+      // Pure unbounded growth append (no windowing): GPU-copy retained prefix,
+      // then pack + ranged-write only the new points.
+      const pureGrowthAppend = !isRing && !isStrictReplace && dropPrevCount === 0 && keepNewCount === newPointCount;
+
+      if (pureGrowthAppend && oldCount > 0) {
+        copyRetainedPointsToNewBuffer(device, oldBuffer, buffer, oldStart, oldCap, oldCount);
+      }
+      try {
+        oldBuffer.destroy();
+      } catch {
+        // Ignore destroy errors; we are replacing the buffer anyway.
+      }
       ringStart = 0;
+
+      if (pureGrowthAppend) {
+        packXYInto(stagingBuffer, oldCount * 2, newPoints, 0, newPointCount, existing.xOffset);
+        const appendedView = stagingBuffer.subarray(oldCount * 2, nextPointCount * 2);
+        if (appendedView.byteLength > 0) {
+          device.queue.writeBuffer(
+            buffer,
+            oldCount * 2 * 4,
+            appendedView.buffer,
+            appendedView.byteOffset,
+            appendedView.byteLength
+          );
+        }
+        const appendWords = new Uint32Array(appendedView.buffer, appendedView.byteOffset, appendedView.byteLength / 4);
+        const nextHash32 = fnv1aUpdate(existing.hash32, appendWords);
+        series.set(index, {
+          buffer,
+          capacityBytes,
+          pointCount: nextPointCount,
+          hash32: nextHash32,
+          xOffset: existing.xOffset,
+          stagingBuffer,
+          ringStart: 0,
+          ringCapacityPoints: 0,
+        });
+        return;
+      }
+      // Otherwise fall through: drop/strict/ring rebuild packs the planned
+      // window on CPU and full-uploads (no GPU prefix copy — that would be
+      // overwritten by writeFullPointsToGpu on those paths).
     }
 
     // ── Strict replace: linear pack of the new batch tail at index 0 ──
     if (isStrictReplace) {
-      packXYInto(
-        stagingBuffer,
-        0,
-        newPoints,
-        newSrcOffset,
-        keepNewCount,
-        existing.xOffset,
-      );
+      packXYInto(stagingBuffer, 0, newPoints, newSrcOffset, keepNewCount, existing.xOffset);
       const fullPacked = stagingBuffer.subarray(0, nextPointCount * 2);
       writeFullPointsToGpu(device, buffer, stagingBuffer, nextPointCount);
       series.set(index, {
@@ -585,61 +593,26 @@ export function createDataStore(device: GPUDevice): DataStore {
         ringStart = ringStart % cap;
       }
 
-      const writeHead =
-        prevPointCount >= cap
-          ? ringStart
-          : (ringStart + prevPointCount) % cap;
+      const writeHead = prevPointCount >= cap ? ringStart : (ringStart + prevPointCount) % cap;
 
-      packXYIntoRing(
-        stagingBuffer,
-        writeHead,
-        cap,
-        newPoints,
-        newSrcOffset,
-        keepNewCount,
-        existing.xOffset,
-      );
-      writeRingRangeToGpu(
-        device,
-        buffer,
-        stagingBuffer,
-        writeHead,
-        cap,
-        keepNewCount,
-      );
+      packXYIntoRing(stagingBuffer, writeHead, cap, newPoints, newSrcOffset, keepNewCount, existing.xOffset);
+      writeRingRangeToGpu(device, buffer, stagingBuffer, writeHead, cap, keepNewCount);
 
-      const nextRingStart =
-        dropPrevCount > 0 ? (ringStart + dropPrevCount) % cap : ringStart;
+      const nextRingStart = dropPrevCount > 0 ? (ringStart + dropPrevCount) % cap : ringStart;
 
       let nextHash32 = existing.hash32;
       if (keepNewCount <= cap - writeHead) {
-        const writtenView = stagingBuffer.subarray(
-          writeHead * 2,
-          (writeHead + keepNewCount) * 2,
-        );
+        const writtenView = stagingBuffer.subarray(writeHead * 2, (writeHead + keepNewCount) * 2);
         nextHash32 = fnv1aUpdate(
           nextHash32,
-          new Uint32Array(
-            writtenView.buffer,
-            writtenView.byteOffset,
-            writtenView.byteLength / 4,
-          ),
+          new Uint32Array(writtenView.buffer, writtenView.byteOffset, writtenView.byteLength / 4)
         );
       } else {
         const first = cap - writeHead;
-        const v1 = stagingBuffer.subarray(
-          writeHead * 2,
-          (writeHead + first) * 2,
-        );
+        const v1 = stagingBuffer.subarray(writeHead * 2, (writeHead + first) * 2);
         const v2 = stagingBuffer.subarray(0, (keepNewCount - first) * 2);
-        nextHash32 = fnv1aUpdate(
-          nextHash32,
-          new Uint32Array(v1.buffer, v1.byteOffset, v1.byteLength / 4),
-        );
-        nextHash32 = fnv1aUpdate(
-          nextHash32,
-          new Uint32Array(v2.buffer, v2.byteOffset, v2.byteLength / 4),
-        );
+        nextHash32 = fnv1aUpdate(nextHash32, new Uint32Array(v1.buffer, v1.byteOffset, v1.byteLength / 4));
+        nextHash32 = fnv1aUpdate(nextHash32, new Uint32Array(v2.buffer, v2.byteOffset, v2.byteLength / 4));
       }
       if (dropPrevCount > 0) {
         nextHash32 = (nextHash32 + 0x9e3779b9) >>> 0;
@@ -660,19 +633,9 @@ export function createDataStore(device: GPUDevice): DataStore {
 
     // ── Pure linear ranged append (no maxPoints, no growth) ──
     if (pureLinearRanged) {
-      packXYInto(
-        stagingBuffer,
-        prevPointCount * 2,
-        newPoints,
-        0,
-        newPointCount,
-        existing.xOffset,
-      );
+      packXYInto(stagingBuffer, prevPointCount * 2, newPoints, 0, newPointCount, existing.xOffset);
 
-      const appendedView = stagingBuffer.subarray(
-        prevPointCount * 2,
-        nextPointCount * 2,
-      );
+      const appendedView = stagingBuffer.subarray(prevPointCount * 2, nextPointCount * 2);
       if (appendedView.byteLength > 0) {
         const byteOffset = prevPointCount * 2 * 4;
         device.queue.writeBuffer(
@@ -680,15 +643,11 @@ export function createDataStore(device: GPUDevice): DataStore {
           byteOffset,
           appendedView.buffer,
           appendedView.byteOffset,
-          appendedView.byteLength,
+          appendedView.byteLength
         );
       }
 
-      const appendWords = new Uint32Array(
-        appendedView.buffer,
-        appendedView.byteOffset,
-        appendedView.byteLength / 4,
-      );
+      const appendWords = new Uint32Array(appendedView.buffer, appendedView.byteOffset, appendedView.byteLength / 4);
       const nextHash32 = fnv1aUpdate(existing.hash32, appendWords);
 
       series.set(index, {
@@ -712,38 +671,20 @@ export function createDataStore(device: GPUDevice): DataStore {
       // Linearize modular layout in place when leaving ring / changing capacity /
       // activating from a previously modular buffer without growth.
       if (prevRingCap > 0 && prevRingStart !== 0) {
-        linearizeStagingChronological(
-          stagingBuffer,
-          stagingBuffer,
-          prevRingStart,
-          prevRingCap,
-          prevPointCount,
-        );
+        linearizeStagingChronological(stagingBuffer, stagingBuffer, prevRingStart, prevRingCap, prevPointCount);
       }
     }
     // After growth we already linearized; ringStart is 0.
 
     // Apply drop of oldest previous points in chronological space.
     if (dropPrevCount > 0 && dropPrevCount < prevPointCount) {
-      stagingBuffer.copyWithin(
-        0,
-        dropPrevCount * 2,
-        prevPointCount * 2,
-      );
+      stagingBuffer.copyWithin(0, dropPrevCount * 2, prevPointCount * 2);
     }
-    const retainedPrev =
-      dropPrevCount >= prevPointCount ? 0 : prevPointCount - dropPrevCount;
+    const retainedPrev = dropPrevCount >= prevPointCount ? 0 : prevPointCount - dropPrevCount;
 
     // Pack kept new points after the retained prefix.
     if (keepNewCount > 0) {
-      packXYInto(
-        stagingBuffer,
-        retainedPrev * 2,
-        newPoints,
-        newSrcOffset,
-        keepNewCount,
-        existing.xOffset,
-      );
+      packXYInto(stagingBuffer, retainedPrev * 2, newPoints, newSrcOffset, keepNewCount, existing.xOffset);
     }
 
     // Full GPU upload of the entire retained window (required after growth and
@@ -796,6 +737,10 @@ export function createDataStore(device: GPUDevice): DataStore {
     return { start: 0, capacity: 0 };
   };
 
+  const isSeriesRingMode = (index: number): boolean => {
+    return getSeriesEntry(index).ringCapacityPoints > 0;
+  };
+
   const getSeriesContentHash = (index: number): number => {
     return getSeriesEntry(index).hash32;
   };
@@ -829,6 +774,7 @@ export function createDataStore(device: GPUDevice): DataStore {
     getSeriesBuffer,
     getSeriesPointCount,
     getSeriesRingLayout,
+    isSeriesRingMode,
     getSeriesContentHash,
     getSeriesStagingBuffer,
     getSeriesXOffset,

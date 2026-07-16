@@ -8,12 +8,12 @@
  * @module interactionHelpers
  */
 
-import type { LinearScale } from "../../../utils/scales";
+import type { LinearScale } from '../../../utils/scales';
 
 /**
  * Source of pointer events - either real mouse input or externally synchronized.
  */
-export type PointerSource = "mouse" | "sync";
+export type PointerSource = 'mouse' | 'sync';
 
 /**
  * Pointer state tracking both canvas-local CSS pixels and plot-relative grid coordinates.
@@ -62,7 +62,7 @@ export interface GridArea {
  */
 export function createPointerState(): PointerState {
   return {
-    source: "mouse",
+    source: 'mouse',
     x: 0,
     y: 0,
     gridX: 0,
@@ -87,10 +87,10 @@ export function updatePointerFromMouse(
   y: number,
   gridX: number,
   gridY: number,
-  isInGrid: boolean,
+  isInGrid: boolean
 ): PointerState {
   return {
-    source: "mouse",
+    source: 'mouse',
     x,
     y,
     gridX,
@@ -123,10 +123,7 @@ export function clearPointer(prevState: PointerState): PointerState {
  * @param xScale - Linear scale for X axis
  * @returns Grid X in CSS pixels, or null if conversion fails
  */
-export function domainToGridX(
-  interactionX: number,
-  xScale: LinearScale,
-): number | null {
+export function domainToGridX(interactionX: number, xScale: LinearScale): number | null {
   const gridX = xScale.scale(interactionX);
   return Number.isFinite(gridX) ? gridX : null;
 }
@@ -138,10 +135,7 @@ export function domainToGridX(
  * @param xScale - Linear scale for X axis
  * @returns Domain X, or null if conversion fails
  */
-export function gridToDomainX(
-  gridX: number,
-  xScale: LinearScale,
-): number | null {
+export function gridToDomainX(gridX: number, xScale: LinearScale): number | null {
   const domainX = xScale.invert(gridX);
   return Number.isFinite(domainX) ? domainX : null;
 }
@@ -163,7 +157,7 @@ export function gridToDomainX(
 export function computeSyncPointer(
   interactionX: number | null,
   scales: InteractionScales,
-  gridArea: GridArea,
+  gridArea: GridArea
 ): PointerState | null {
   if (interactionX === null) {
     return null;
@@ -181,7 +175,7 @@ export function computeSyncPointer(
   const isInGrid = gridX >= 0 && gridX <= scales.plotWidthCss && gridY >= 0 && gridY <= scales.plotHeightCss;
 
   return {
-    source: "sync",
+    source: 'sync',
     gridX,
     gridY,
     // Canvas-local CSS pixels (grid-relative + grid offset)
@@ -211,9 +205,9 @@ export function computeEffectivePointer(
   pointerState: PointerState,
   interactionX: number | null,
   scales: InteractionScales | null,
-  gridArea: GridArea,
+  gridArea: GridArea
 ): PointerState {
-  if (pointerState.source === "mouse") {
+  if (pointerState.source === 'mouse') {
     return pointerState;
   }
 
@@ -292,7 +286,7 @@ export function shouldUpdateInteractionX(
   current: number | null,
   currentSource: unknown,
   next: number | null,
-  nextSource: unknown,
+  nextSource: unknown
 ): boolean {
   return current !== next || currentSource !== nextSource;
 }

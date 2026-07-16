@@ -1,22 +1,13 @@
-import scatterWgsl from "../shaders/scatter.wgsl?raw";
-import type { ResolvedScatterSeriesConfig } from "../config/OptionResolver";
-import type { CartesianSeriesData } from "../config/types";
-import type { LinearScale } from "../utils/scales";
-import { parseCssColorToRgba01 } from "../utils/colors";
-import type { GridArea } from "./createGridRenderer";
-import {
-  createRenderPipeline,
-  createUniformBuffer,
-  writeUniformBuffer,
-} from "./rendererUtils";
-import {
-  getPointCount,
-  getX,
-  getY,
-  getSize,
-  hasAnyPerPointSize,
-} from "../data/cartesianData";
-import type { PipelineCache } from "../core/PipelineCache";
+import scatterWgsl from '../shaders/scatter.wgsl?raw';
+import type { ResolvedScatterSeriesConfig } from '../config/OptionResolver';
+import type { CartesianSeriesData } from '../config/types';
+import type { LinearScale } from '../utils/scales';
+import { parseCssColorToRgba01 } from '../utils/colors';
+import type { GridArea } from './createGridRenderer';
+import { createRenderPipeline, createUniformBuffer, writeUniformBuffer } from './rendererUtils';
+import { getPointCount, getX, getY, getSize, hasAnyPerPointSize } from '../data/cartesianData';
+import type { PipelineCache } from '../core/PipelineCache';
+import { resolveUploadPolicy } from '../data/seriesResidency';
 
 export interface ScatterRenderer {
   prepare(
@@ -24,8 +15,14 @@ export interface ScatterRenderer {
     data: CartesianSeriesData,
     xScale: LinearScale,
     yScale: LinearScale,
-    gridArea?: GridArea,
+    gridArea?: GridArea
   ): void;
+  /**
+   * Drop cached instance geometry so the next `prepare` re-packs.
+   * Required when values mutate under a stable data array reference
+   * (update-transition interpolation — same rule as bar/area).
+   */
+  invalidateGeometry(): void;
   render(passEncoder: GPURenderPassEncoder): void;
   dispose(): void;
 }
@@ -54,7 +51,7 @@ export interface ScatterRendererOptions {
 type Rgba = readonly [r: number, g: number, b: number, a: number];
 type DataPointLike = { readonly x: number; readonly y: number };
 
-const DEFAULT_TARGET_FORMAT: GPUTextureFormat = "bgra8unorm";
+const DEFAULT_TARGET_FORMAT: GPUTextureFormat = 'bgra8unorm';
 const DEFAULT_SCATTER_RADIUS_CSS_PX = 4;
 /** Per-instance radius layout: center.xy, radiusPx, pad */
 const INSTANCE_STRIDE_BYTES = 16;
@@ -64,11 +61,9 @@ const CONST_RADIUS_STRIDE_BYTES = 8;
 const CONST_RADIUS_STRIDE_FLOATS = 2;
 
 const clamp01 = (v: number): number => Math.min(1, Math.max(0, v));
-const clampInt = (v: number, lo: number, hi: number): number =>
-  Math.min(hi, Math.max(lo, v | 0));
+const clampInt = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v | 0));
 
-const parseSeriesColorToRgba01 = (color: string): Rgba =>
-  parseCssColorToRgba01(color) ?? ([0, 0, 0, 1] as const);
+const parseSeriesColorToRgba01 = (color: string): Rgba => parseCssColorToRgba01(color) ?? ([0, 0, 0, 1] as const);
 
 const nextPow2 = (v: number): number => {
   if (!Number.isFinite(v) || v <= 0) return 1;
@@ -79,19 +74,13 @@ const nextPow2 = (v: number): number => {
 const computeClipAffineFromScale = (
   scale: LinearScale,
   v0: number,
-  v1: number,
+  v1: number
 ): { readonly a: number; readonly b: number } => {
   const p0 = scale.scale(v0);
   const p1 = scale.scale(v1);
 
   // If the domain sample is degenerate or non-finite, fall back to constant output.
-  if (
-    !Number.isFinite(v0) ||
-    !Number.isFinite(v1) ||
-    v0 === v1 ||
-    !Number.isFinite(p0) ||
-    !Number.isFinite(p1)
-  ) {
+  if (!Number.isFinite(v0) || !Number.isFinite(v1) || v0 === v1 || !Number.isFinite(p0) || !Number.isFinite(p1)) {
     return { a: 0, b: Number.isFinite(p0) ? p0 : 0 };
   }
 
@@ -100,13 +89,7 @@ const computeClipAffineFromScale = (
   return { a: Number.isFinite(a) ? a : 0, b: Number.isFinite(b) ? b : 0 };
 };
 
-const writeTransformMat4F32 = (
-  out: Float32Array,
-  ax: number,
-  bx: number,
-  ay: number,
-  by: number,
-): void => {
+const writeTransformMat4F32 = (out: Float32Array, ax: number, bx: number, ay: number, by: number): void => {
   // Column-major mat4x4 for: clip = M * vec4(x, y, 0, 1)
   out[0] = ax;
   out[1] = 0;
@@ -127,7 +110,7 @@ const writeTransformMat4F32 = (
 };
 
 const computePlotScissorDevicePx = (
-  gridArea: GridArea,
+  gridArea: GridArea
 ): {
   readonly x: number;
   readonly y: number;
@@ -141,43 +124,22 @@ const computePlotScissorDevicePx = (
   const plotTopDevice = gridArea.top * devicePixelRatio;
   const plotBottomDevice = canvasHeight - gridArea.bottom * devicePixelRatio;
 
-  const scissorX = clampInt(
-    Math.floor(plotLeftDevice),
-    0,
-    Math.max(0, canvasWidth),
-  );
-  const scissorY = clampInt(
-    Math.floor(plotTopDevice),
-    0,
-    Math.max(0, canvasHeight),
-  );
-  const scissorR = clampInt(
-    Math.ceil(plotRightDevice),
-    0,
-    Math.max(0, canvasWidth),
-  );
-  const scissorB = clampInt(
-    Math.ceil(plotBottomDevice),
-    0,
-    Math.max(0, canvasHeight),
-  );
+  const scissorX = clampInt(Math.floor(plotLeftDevice), 0, Math.max(0, canvasWidth));
+  const scissorY = clampInt(Math.floor(plotTopDevice), 0, Math.max(0, canvasHeight));
+  const scissorR = clampInt(Math.ceil(plotRightDevice), 0, Math.max(0, canvasWidth));
+  const scissorB = clampInt(Math.ceil(plotBottomDevice), 0, Math.max(0, canvasHeight));
   const scissorW = Math.max(0, scissorR - scissorX);
   const scissorH = Math.max(0, scissorB - scissorY);
 
   return { x: scissorX, y: scissorY, w: scissorW, h: scissorH };
 };
 
-export function createScatterRenderer(
-  device: GPUDevice,
-  options?: ScatterRendererOptions,
-): ScatterRenderer {
+export function createScatterRenderer(device: GPUDevice, options?: ScatterRendererOptions): ScatterRenderer {
   let disposed = false;
   const targetFormat = options?.targetFormat ?? DEFAULT_TARGET_FORMAT;
   // Be resilient: coerce invalid values to 1 (no MSAA).
   const sampleCountRaw = options?.sampleCount ?? 1;
-  const sampleCount = Number.isFinite(sampleCountRaw)
-    ? Math.max(1, Math.floor(sampleCountRaw))
-    : 1;
+  const sampleCount = Number.isFinite(sampleCountRaw) ? Math.max(1, Math.floor(sampleCountRaw)) : 1;
   const pipelineCache = options?.pipelineCache;
 
   const bindGroupLayout = device.createBindGroupLayout({
@@ -185,22 +147,22 @@ export function createScatterRenderer(
       {
         binding: 0,
         visibility: GPUShaderStage.VERTEX,
-        buffer: { type: "uniform" },
+        buffer: { type: 'uniform' },
       },
       {
         binding: 1,
         visibility: GPUShaderStage.FRAGMENT,
-        buffer: { type: "uniform" },
+        buffer: { type: 'uniform' },
       },
     ],
   });
 
   // VSUniforms: mat4x4 (64) + viewportPx vec2 (8) + radiusPx f32 (4) + pad (4) = 80 bytes.
   const vsUniformBuffer = createUniformBuffer(device, 80, {
-    label: "scatterRenderer/vsUniforms",
+    label: 'scatterRenderer/vsUniforms',
   });
   const fsUniformBuffer = createUniformBuffer(device, 16, {
-    label: "scatterRenderer/fsUniforms",
+    label: 'scatterRenderer/fsUniforms',
   });
 
   // Reused CPU-side staging for uniform writes (avoid per-frame allocations).
@@ -218,14 +180,14 @@ export function createScatterRenderer(
 
   const blendState = {
     color: {
-      operation: "add" as const,
-      srcFactor: "src-alpha" as const,
-      dstFactor: "one-minus-src-alpha" as const,
+      operation: 'add' as const,
+      srcFactor: 'src-alpha' as const,
+      dstFactor: 'one-minus-src-alpha' as const,
     },
     alpha: {
-      operation: "add" as const,
-      srcFactor: "one" as const,
-      dstFactor: "one-minus-src-alpha" as const,
+      operation: 'add' as const,
+      srcFactor: 'one' as const,
+      dstFactor: 'one-minus-src-alpha' as const,
     },
   };
 
@@ -233,65 +195,63 @@ export function createScatterRenderer(
   const pipeline = createRenderPipeline(
     device,
     {
-      label: "scatterRenderer/pipeline",
+      label: 'scatterRenderer/pipeline',
       bindGroupLayouts: [bindGroupLayout],
       vertex: {
         code: scatterWgsl,
-        label: "scatter.wgsl",
-        entryPoint: "vsMain",
+        label: 'scatter.wgsl',
+        entryPoint: 'vsMain',
         buffers: [
           {
             arrayStride: INSTANCE_STRIDE_BYTES,
-            stepMode: "instance",
+            stepMode: 'instance',
             attributes: [
-              { shaderLocation: 0, format: "float32x2", offset: 0 },
-              { shaderLocation: 1, format: "float32", offset: 8 },
+              { shaderLocation: 0, format: 'float32x2', offset: 0 },
+              { shaderLocation: 1, format: 'float32', offset: 8 },
             ],
           },
         ],
       },
       fragment: {
         code: scatterWgsl,
-        label: "scatter.wgsl",
+        label: 'scatter.wgsl',
         formats: targetFormat,
         blend: blendState,
       },
-      primitive: { topology: "triangle-list", cullMode: "none" },
+      primitive: { topology: 'triangle-list', cullMode: 'none' },
       multisample: { count: sampleCount },
     },
-    pipelineCache,
+    pipelineCache
   );
 
   // Constant radius: instance buffer is tightly packed [x,y] only (half bandwidth).
   const pipelineConstRadius = createRenderPipeline(
     device,
     {
-      label: "scatterRenderer/pipelineConstRadius",
+      label: 'scatterRenderer/pipelineConstRadius',
       bindGroupLayouts: [bindGroupLayout],
       vertex: {
         code: scatterWgsl,
-        label: "scatter.wgsl",
-        entryPoint: "vsMainConstRadius",
+        label: 'scatter.wgsl',
+        entryPoint: 'vsMainConstRadius',
         buffers: [
           {
             arrayStride: CONST_RADIUS_STRIDE_BYTES,
-            stepMode: "instance",
-            attributes: [
-              { shaderLocation: 0, format: "float32x2", offset: 0 },
-            ],
+            stepMode: 'instance',
+            attributes: [{ shaderLocation: 0, format: 'float32x2', offset: 0 }],
           },
         ],
       },
       fragment: {
         code: scatterWgsl,
-        label: "scatter.wgsl",
+        label: 'scatter.wgsl',
         formats: targetFormat,
         blend: blendState,
       },
-      primitive: { topology: "triangle-list", cullMode: "none" },
+      primitive: { topology: 'triangle-list', cullMode: 'none' },
       multisample: { count: sampleCount },
     },
-    pipelineCache,
+    pipelineCache
   );
 
   let instanceBuffer: GPUBuffer | null = null;
@@ -301,6 +261,15 @@ export function createScatterRenderer(
   let lastConstRadiusDevicePx = 0;
   let cpuInstanceStagingBuffer = new ArrayBuffer(0);
   let cpuInstanceStagingF32 = new Float32Array(cpuInstanceStagingBuffer);
+
+  // Geometry identity cache (issue 1.2): domain-space instances + size mode.
+  // Pure pan/zoom only updates VS/FS uniforms; skip instance writeBuffer.
+  let boundDataRef: CartesianSeriesData | null = null;
+  let boundSizeMode: 'const' | 'variable' | null = null;
+  /** Const-radius CSS size (layout signature). */
+  let boundConstRadiusCss: number | null = null;
+  /** DPR for variable-radius path (radius packed in device px). */
+  let boundDpr = Number.NaN;
 
   let lastCanvasWidth = 0;
   let lastCanvasHeight = 0;
@@ -313,7 +282,7 @@ export function createScatterRenderer(
   } | null = null;
 
   const assertNotDisposed = (): void => {
-    if (disposed) throw new Error("ScatterRenderer is disposed.");
+    if (disposed) throw new Error('ScatterRenderer is disposed.');
   };
 
   const ensureCpuInstanceCapacityFloats = (requiredFloats: number): void => {
@@ -330,7 +299,7 @@ export function createScatterRenderer(
     by: number,
     viewportW: number,
     viewportH: number,
-    radiusDevicePx: number,
+    radiusDevicePx: number
   ): void => {
     const w = Number.isFinite(viewportW) && viewportW > 0 ? viewportW : 1;
     const h = Number.isFinite(viewportH) && viewportH > 0 ? viewportH : 1;
@@ -345,13 +314,7 @@ export function createScatterRenderer(
     lastViewportPx = [w, h];
   };
 
-  const prepare: ScatterRenderer["prepare"] = (
-    seriesConfig,
-    data,
-    xScale,
-    yScale,
-    gridArea,
-  ) => {
+  const prepare: ScatterRenderer['prepare'] = (seriesConfig, data, xScale, yScale, gridArea) => {
     assertNotDisposed();
 
     // Linear scales: affine is independent of data bounds — sample at 0 and 1
@@ -365,35 +328,27 @@ export function createScatterRenderer(
 
     const seriesSymbolSize = seriesConfig.symbolSize;
     // Scratch tuple for symbolSize function: reuse to avoid per-point allocations
-    const scratchTuple: [number, number, number | undefined] = [
-      0,
-      0,
-      undefined,
-    ];
+    const scratchTuple: [number, number, number | undefined] = [0, 0, undefined];
 
     const constantSymbolSizeCss =
-      typeof seriesSymbolSize === "number" && Number.isFinite(seriesSymbolSize)
+      typeof seriesSymbolSize === 'number' && Number.isFinite(seriesSymbolSize)
         ? seriesSymbolSize
-        : typeof seriesSymbolSize === "function"
+        : typeof seriesSymbolSize === 'function'
           ? null
           : DEFAULT_SCATTER_RADIUS_CSS_PX;
 
     const getSeriesSizeCssPx =
-      typeof seriesSymbolSize === "function"
+      typeof seriesSymbolSize === 'function'
         ? (x: number, y: number, size: number | undefined): number => {
             scratchTuple[0] = x;
             scratchTuple[1] = y;
             scratchTuple[2] = size;
             const v = seriesSymbolSize(scratchTuple);
-            return typeof v === "number" && Number.isFinite(v)
-              ? v
-              : DEFAULT_SCATTER_RADIUS_CSS_PX;
+            return typeof v === 'number' && Number.isFinite(v) ? v : DEFAULT_SCATTER_RADIUS_CSS_PX;
           }
         : constantSymbolSizeCss != null
-          ? (_x: number, _y: number, _size: number | undefined): number =>
-              constantSymbolSizeCss
-          : (_x: number, _y: number, _size: number | undefined): number =>
-              DEFAULT_SCATTER_RADIUS_CSS_PX;
+          ? (_x: number, _y: number, _size: number | undefined): number => constantSymbolSizeCss
+          : (_x: number, _y: number, _size: number | undefined): number => DEFAULT_SCATTER_RADIUS_CSS_PX;
 
     const count = getPointCount(data);
 
@@ -402,15 +357,8 @@ export function createScatterRenderer(
     // Size detection matches getSize semantics: tuples [x,y,size], object.size,
     // XYArraysData.size, and sparse size on later points (not only data[0]).
     const constantRadiusDevicePx =
-      constantSymbolSizeCss != null
-        ? hasValidDpr
-          ? constantSymbolSizeCss * dpr
-          : constantSymbolSizeCss
-        : null;
-    const useConstRadius =
-      constantRadiusDevicePx != null &&
-      constantRadiusDevicePx > 0 &&
-      !hasAnyPerPointSize(data);
+      constantSymbolSizeCss != null ? (hasValidDpr ? constantSymbolSizeCss * dpr : constantSymbolSizeCss) : null;
+    const useConstRadius = constantRadiusDevicePx != null && constantRadiusDevicePx > 0 && !hasAnyPerPointSize(data);
 
     useConstRadiusPipeline = useConstRadius;
     lastConstRadiusDevicePx = useConstRadius ? constantRadiusDevicePx! : 0;
@@ -424,15 +372,7 @@ export function createScatterRenderer(
     } else {
       lastScissor = null;
     }
-    writeVsUniforms(
-      ax,
-      bx,
-      ay,
-      by,
-      viewportW,
-      viewportH,
-      lastConstRadiusDevicePx,
-    );
+    writeVsUniforms(ax, bx, ay, by, viewportW, viewportH, lastConstRadiusDevicePx);
 
     const [r, g, b, a] = parseSeriesColorToRgba01(seriesConfig.color);
     fsUniformScratchF32[0] = r;
@@ -441,9 +381,32 @@ export function createScatterRenderer(
     fsUniformScratchF32[3] = clamp01(a);
     writeUniformBuffer(device, fsUniformBuffer, fsUniformScratchF32);
 
-    const strideFloats = useConstRadius
-      ? CONST_RADIUS_STRIDE_FLOATS
-      : INSTANCE_STRIDE_FLOATS;
+    // Geometry identity skip: same data ref + size layout → uniforms only.
+    // Policy verb shared with line/DataStore via seriesResidency (issue 3.4).
+    const sizeMode: 'const' | 'variable' = useConstRadius ? 'const' : 'variable';
+    const geometryHit =
+      boundDataRef === data &&
+      boundSizeMode === sizeMode &&
+      instanceBuffer != null &&
+      (useConstRadius ? boundConstRadiusCss === constantSymbolSizeCss : boundDpr === dpr);
+    const policy = resolveUploadPolicy({
+      residency: {
+        kind: 'privateInstance',
+        gpuBuffer: instanceBuffer,
+        pointCount: instanceCount,
+        contentVersion: 0,
+        lastRef: boundDataRef,
+      },
+      dataRef: data,
+      geometryCacheHit: geometryHit,
+      appendedThisFrame: false,
+      needsGrowth: false,
+    });
+    if (policy === 'skip') {
+      return;
+    }
+
+    const strideFloats = useConstRadius ? CONST_RADIUS_STRIDE_FLOATS : INSTANCE_STRIDE_FLOATS;
     ensureCpuInstanceCapacityFloats(count * strideFloats);
     const f32 = cpuInstanceStagingF32;
     let outFloats = 0;
@@ -451,12 +414,10 @@ export function createScatterRenderer(
     if (useConstRadius) {
       // Tight [x,y] pack for all cartesian formats.
       if (Array.isArray(data)) {
-        const arr = data as ReadonlyArray<
-          readonly [number, number] | DataPointLike | null
-        >;
+        const arr = data as ReadonlyArray<readonly [number, number] | DataPointLike | null>;
         for (let i = 0; i < count; i++) {
           const p = arr[i];
-          if (p == null || typeof p !== "object") continue;
+          if (p == null || typeof p !== 'object') continue;
           let x: number;
           let y: number;
           if (Array.isArray(p)) {
@@ -502,9 +463,7 @@ export function createScatterRenderer(
         // Per-point size from data overrides series.symbolSize
         const pointSize = getSize(data, i);
         const sizeCss = pointSize ?? getSeriesSizeCssPx(x, y, pointSize);
-        const radiusCss = Number.isFinite(sizeCss)
-          ? Math.max(0, sizeCss)
-          : DEFAULT_SCATTER_RADIUS_CSS_PX;
+        const radiusCss = Number.isFinite(sizeCss) ? Math.max(0, sizeCss) : DEFAULT_SCATTER_RADIUS_CSS_PX;
         const radiusDevicePx = hasValidDpr ? radiusCss * dpr : radiusCss;
         if (!(radiusDevicePx > 0)) continue;
 
@@ -517,16 +476,11 @@ export function createScatterRenderer(
       instanceCount = outFloats / INSTANCE_STRIDE_FLOATS;
     }
 
-    const bytesPerInstance = useConstRadius
-      ? CONST_RADIUS_STRIDE_BYTES
-      : INSTANCE_STRIDE_BYTES;
+    const bytesPerInstance = useConstRadius ? CONST_RADIUS_STRIDE_BYTES : INSTANCE_STRIDE_BYTES;
     const requiredBytes = Math.max(4, instanceCount * bytesPerInstance);
 
     if (!instanceBuffer || instanceBuffer.size < requiredBytes) {
-      const grownBytes = Math.max(
-        Math.max(4, nextPow2(requiredBytes)),
-        instanceBuffer ? instanceBuffer.size : 0,
-      );
+      const grownBytes = Math.max(Math.max(4, nextPow2(requiredBytes)), instanceBuffer ? instanceBuffer.size : 0);
       if (instanceBuffer) {
         try {
           instanceBuffer.destroy();
@@ -535,40 +489,39 @@ export function createScatterRenderer(
         }
       }
       instanceBuffer = device.createBuffer({
-        label: "scatterRenderer/instanceBuffer",
+        label: 'scatterRenderer/instanceBuffer',
         size: grownBytes,
         usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
       });
     }
 
     if (instanceBuffer && instanceCount > 0) {
-      device.queue.writeBuffer(
-        instanceBuffer,
-        0,
-        cpuInstanceStagingBuffer,
-        0,
-        instanceCount * bytesPerInstance,
-      );
+      device.queue.writeBuffer(instanceBuffer, 0, cpuInstanceStagingBuffer, 0, instanceCount * bytesPerInstance);
     }
+
+    boundDataRef = data;
+    boundSizeMode = sizeMode;
+    boundConstRadiusCss = useConstRadius ? constantSymbolSizeCss : null;
+    boundDpr = dpr;
   };
 
-  const render: ScatterRenderer["render"] = (passEncoder) => {
+  const invalidateGeometry: ScatterRenderer['invalidateGeometry'] = () => {
+    boundDataRef = null;
+    boundSizeMode = null;
+    boundConstRadiusCss = null;
+    boundDpr = Number.NaN;
+  };
+
+  const render: ScatterRenderer['render'] = (passEncoder) => {
     assertNotDisposed();
     if (!instanceBuffer || instanceCount === 0) return;
 
     // Clip to plot area when available.
     if (lastScissor && lastCanvasWidth > 0 && lastCanvasHeight > 0) {
-      passEncoder.setScissorRect(
-        lastScissor.x,
-        lastScissor.y,
-        lastScissor.w,
-        lastScissor.h,
-      );
+      passEncoder.setScissorRect(lastScissor.x, lastScissor.y, lastScissor.w, lastScissor.h);
     }
 
-    passEncoder.setPipeline(
-      useConstRadiusPipeline ? pipelineConstRadius : pipeline,
-    );
+    passEncoder.setPipeline(useConstRadiusPipeline ? pipelineConstRadius : pipeline);
     passEncoder.setBindGroup(0, bindGroup);
     passEncoder.setVertexBuffer(0, instanceBuffer);
     passEncoder.draw(6, instanceCount);
@@ -579,7 +532,7 @@ export function createScatterRenderer(
     }
   };
 
-  const dispose: ScatterRenderer["dispose"] = () => {
+  const dispose: ScatterRenderer['dispose'] = () => {
     if (disposed) return;
     disposed = true;
 
@@ -608,7 +561,11 @@ export function createScatterRenderer(
     lastCanvasHeight = 0;
     lastViewportPx = [1, 1];
     lastScissor = null;
+    boundDataRef = null;
+    boundSizeMode = null;
+    boundConstRadiusCss = null;
+    boundDpr = Number.NaN;
   };
 
-  return { prepare, render, dispose };
+  return { prepare, invalidateGeometry, render, dispose };
 }

@@ -11,20 +11,12 @@ export function bucketStackedXKey(
   xCenterPx: number,
   categoryWidthPx: number,
   xDomain: number,
-  categoryStep: number,
+  categoryStep: number
 ): number {
-  if (
-    Number.isFinite(categoryStep) &&
-    categoryStep > 0 &&
-    Number.isFinite(xDomain)
-  ) {
+  if (Number.isFinite(categoryStep) && categoryStep > 0 && Number.isFinite(xDomain)) {
     return Math.round(xDomain / categoryStep);
   }
-  if (
-    Number.isFinite(categoryWidthPx) &&
-    categoryWidthPx > 0 &&
-    Number.isFinite(xCenterPx)
-  ) {
+  if (Number.isFinite(categoryWidthPx) && categoryWidthPx > 0 && Number.isFinite(xCenterPx)) {
     return Math.round(xCenterPx / categoryWidthPx);
   }
   return Math.round(xDomain * 1e6);

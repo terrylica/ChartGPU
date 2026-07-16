@@ -2,7 +2,7 @@
  * Tests for cartesianData helpers - guards against undefined/null entries.
  */
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect } from 'vitest';
 import {
   getX,
   getY,
@@ -18,11 +18,11 @@ import {
   isStagingRingView,
   stagingRingViewToRingXYColumns,
   hasNullGaps,
-} from "../cartesianData";
-import type { DataPoint } from "../../config/types";
+} from '../cartesianData';
+import type { DataPoint } from '../../config/types';
 
-describe("hasAnyPerPointSize", () => {
-  it("detects tuple [x,y,size] including sparse later size", () => {
+describe('hasAnyPerPointSize', () => {
+  it('detects tuple [x,y,size] including sparse later size', () => {
     const data: DataPoint[] = [
       [0, 1],
       [1, 2],
@@ -31,7 +31,7 @@ describe("hasAnyPerPointSize", () => {
     expect(hasAnyPerPointSize(data)).toBe(true);
   });
 
-  it("detects object size only on a later point", () => {
+  it('detects object size only on a later point', () => {
     const data: DataPoint[] = [
       { x: 0, y: 1 },
       { x: 1, y: 2, size: 4 },
@@ -39,45 +39,41 @@ describe("hasAnyPerPointSize", () => {
     expect(hasAnyPerPointSize(data)).toBe(true);
   });
 
-  it("is false for dense [x,y] tuples", () => {
+  it('is false for dense [x,y] tuples', () => {
     expect(
       hasAnyPerPointSize([
         [0, 1],
         [1, 2],
-      ]),
+      ])
     ).toBe(false);
   });
 
-  it("detects XYArraysData.size channel", () => {
+  it('detects XYArraysData.size channel', () => {
     expect(
       hasAnyPerPointSize({
         x: [0, 1],
         y: [1, 2],
         size: [undefined, 3],
-      }),
+      })
     ).toBe(true);
   });
 
-  it("is false for interleaved Float32Array", () => {
+  it('is false for interleaved Float32Array', () => {
     expect(hasAnyPerPointSize(new Float32Array([0, 1, 1, 2]))).toBe(false);
   });
 });
 
-describe("cartesianData - sparse array handling", () => {
-  describe("getX", () => {
-    it("returns NaN for undefined DataPoint entries", () => {
-      const sparseData: DataPoint[] = [
-        { x: 1, y: 2 },
-        undefined as any,
-        { x: 3, y: 4 },
-      ];
+describe('cartesianData - sparse array handling', () => {
+  describe('getX', () => {
+    it('returns NaN for undefined DataPoint entries', () => {
+      const sparseData: DataPoint[] = [{ x: 1, y: 2 }, undefined as any, { x: 3, y: 4 }];
 
       expect(getX(sparseData, 0)).toBe(1);
       expect(Number.isNaN(getX(sparseData, 1))).toBe(true);
       expect(getX(sparseData, 2)).toBe(3);
     });
 
-    it("returns NaN for null DataPoint entries", () => {
+    it('returns NaN for null DataPoint entries', () => {
       const invalidData: any = [{ x: 1, y: 2 }, null, { x: 3, y: 4 }];
 
       expect(getX(invalidData, 0)).toBe(1);
@@ -85,7 +81,7 @@ describe("cartesianData - sparse array handling", () => {
       expect(getX(invalidData, 2)).toBe(3);
     });
 
-    it("handles tuple format with undefined entries", () => {
+    it('handles tuple format with undefined entries', () => {
       const sparseData: DataPoint[] = [[1, 2], undefined as any, [3, 4]];
 
       expect(getX(sparseData, 0)).toBe(1);
@@ -94,20 +90,16 @@ describe("cartesianData - sparse array handling", () => {
     });
   });
 
-  describe("getY", () => {
-    it("returns NaN for undefined DataPoint entries", () => {
-      const sparseData: DataPoint[] = [
-        { x: 1, y: 2 },
-        undefined as any,
-        { x: 3, y: 4 },
-      ];
+  describe('getY', () => {
+    it('returns NaN for undefined DataPoint entries', () => {
+      const sparseData: DataPoint[] = [{ x: 1, y: 2 }, undefined as any, { x: 3, y: 4 }];
 
       expect(getY(sparseData, 0)).toBe(2);
       expect(Number.isNaN(getY(sparseData, 1))).toBe(true);
       expect(getY(sparseData, 2)).toBe(4);
     });
 
-    it("returns NaN for null DataPoint entries", () => {
+    it('returns NaN for null DataPoint entries', () => {
       const invalidData: any = [{ x: 1, y: 2 }, null, { x: 3, y: 4 }];
 
       expect(getY(invalidData, 0)).toBe(2);
@@ -115,7 +107,7 @@ describe("cartesianData - sparse array handling", () => {
       expect(getY(invalidData, 2)).toBe(4);
     });
 
-    it("handles tuple format with undefined entries", () => {
+    it('handles tuple format with undefined entries', () => {
       const sparseData: DataPoint[] = [[1, 2], undefined as any, [3, 4]];
 
       expect(getY(sparseData, 0)).toBe(2);
@@ -124,37 +116,25 @@ describe("cartesianData - sparse array handling", () => {
     });
   });
 
-  describe("getSize", () => {
-    it("returns undefined for undefined DataPoint entries", () => {
-      const sparseData: DataPoint[] = [
-        { x: 1, y: 2, size: 10 },
-        undefined as any,
-        { x: 3, y: 4, size: 20 },
-      ];
+  describe('getSize', () => {
+    it('returns undefined for undefined DataPoint entries', () => {
+      const sparseData: DataPoint[] = [{ x: 1, y: 2, size: 10 }, undefined as any, { x: 3, y: 4, size: 20 }];
 
       expect(getSize(sparseData, 0)).toBe(10);
       expect(getSize(sparseData, 1)).toBeUndefined();
       expect(getSize(sparseData, 2)).toBe(20);
     });
 
-    it("returns undefined for null DataPoint entries", () => {
-      const invalidData: any = [
-        { x: 1, y: 2, size: 10 },
-        null,
-        { x: 3, y: 4, size: 20 },
-      ];
+    it('returns undefined for null DataPoint entries', () => {
+      const invalidData: any = [{ x: 1, y: 2, size: 10 }, null, { x: 3, y: 4, size: 20 }];
 
       expect(getSize(invalidData, 0)).toBe(10);
       expect(getSize(invalidData, 1)).toBeUndefined();
       expect(getSize(invalidData, 2)).toBe(20);
     });
 
-    it("handles tuple format with undefined entries", () => {
-      const sparseData: DataPoint[] = [
-        [1, 2, 10],
-        undefined as any,
-        [3, 4, 20],
-      ];
+    it('handles tuple format with undefined entries', () => {
+      const sparseData: DataPoint[] = [[1, 2, 10], undefined as any, [3, 4, 20]];
 
       expect(getSize(sparseData, 0)).toBe(10);
       expect(getSize(sparseData, 1)).toBeUndefined();
@@ -162,15 +142,9 @@ describe("cartesianData - sparse array handling", () => {
     });
   });
 
-  describe("computeRawBoundsFromCartesianData", () => {
-    it("skips undefined and null DataPoint entries when computing bounds", () => {
-      const sparseData: DataPoint[] = [
-        { x: 1, y: 2 },
-        undefined as any,
-        { x: 3, y: 4 },
-        null as any,
-        { x: 5, y: 6 },
-      ];
+  describe('computeRawBoundsFromCartesianData', () => {
+    it('skips undefined and null DataPoint entries when computing bounds', () => {
+      const sparseData: DataPoint[] = [{ x: 1, y: 2 }, undefined as any, { x: 3, y: 4 }, null as any, { x: 5, y: 6 }];
 
       const bounds = computeRawBoundsFromCartesianData(sparseData);
 
@@ -183,8 +157,27 @@ describe("cartesianData - sparse array handling", () => {
   });
 });
 
-describe("packXYInto - null gap handling", () => {
-  it("writes NaN for null entries in DataPoint array", () => {
+describe('packXYInto - Float32 interleaved bulk set (issue 2.4)', () => {
+  it('bulk-sets Float32 interleaved when xOffset is 0', () => {
+    const src = new Float32Array([0, 1, 2, 3, 4, 5]);
+    const out = new Float32Array(6);
+    packXYInto(out, 0, src, 0, 3, 0);
+    expect(Array.from(out)).toEqual([0, 1, 2, 3, 4, 5]);
+  });
+
+  it('still subtracts xOffset per-element when non-zero', () => {
+    const src = new Float32Array([10, 1, 20, 2]);
+    const out = new Float32Array(4);
+    packXYInto(out, 0, src, 0, 2, 10);
+    expect(out[0]).toBe(0);
+    expect(out[1]).toBe(1);
+    expect(out[2]).toBe(10);
+    expect(out[3]).toBe(2);
+  });
+});
+
+describe('packXYInto - null gap handling', () => {
+  it('writes NaN for null entries in DataPoint array', () => {
     const data: (DataPoint | null)[] = [[0, 1], null, [2, 3]];
     const out = new Float32Array(6);
     packXYInto(out, 0, data as any, 0, 3, 0);
@@ -197,7 +190,7 @@ describe("packXYInto - null gap handling", () => {
     expect(out[5]).toBe(3); // y2
   });
 
-  it("handles consecutive null entries", () => {
+  it('handles consecutive null entries', () => {
     const data: (DataPoint | null)[] = [[0, 1], null, null, [3, 4]];
     const out = new Float32Array(8);
     packXYInto(out, 0, data as any, 0, 4, 0);
@@ -212,7 +205,7 @@ describe("packXYInto - null gap handling", () => {
     expect(out[7]).toBe(4);
   });
 
-  it("writes NaN for undefined entries in DataPoint array", () => {
+  it('writes NaN for undefined entries in DataPoint array', () => {
     const data: DataPoint[] = [[0, 1], undefined as any, [2, 3]];
     const out = new Float32Array(6);
     packXYInto(out, 0, data as any, 0, 3, 0);
@@ -225,7 +218,7 @@ describe("packXYInto - null gap handling", () => {
     expect(out[5]).toBe(3);
   });
 
-  it("applies xOffset correctly alongside null entries", () => {
+  it('applies xOffset correctly alongside null entries', () => {
     const data: (DataPoint | null)[] = [[10, 1], null, [20, 3]];
     const out = new Float32Array(6);
     packXYInto(out, 0, data as any, 0, 3, 10);
@@ -239,8 +232,8 @@ describe("packXYInto - null gap handling", () => {
   });
 });
 
-describe("dropPrefixXY", () => {
-  it("shifts x/y left and shortens length", () => {
+describe('dropPrefixXY', () => {
+  it('shifts x/y left and shortens length', () => {
     const x = [0, 1, 2, 3, 4];
     const y = [10, 11, 12, 13, 14];
     dropPrefixXY(x, y, 2);
@@ -248,7 +241,7 @@ describe("dropPrefixXY", () => {
     expect(y).toEqual([12, 13, 14]);
   });
 
-  it("clears when dropCount >= length", () => {
+  it('clears when dropCount >= length', () => {
     const x = [0, 1];
     const y = [10, 11];
     dropPrefixXY(x, y, 5);
@@ -256,7 +249,7 @@ describe("dropPrefixXY", () => {
     expect(y).toEqual([]);
   });
 
-  it("keeps size aligned when present", () => {
+  it('keeps size aligned when present', () => {
     const x = [0, 1, 2];
     const y = [10, 11, 12];
     const size: (number | undefined)[] = [1, 2, 3];
@@ -267,8 +260,8 @@ describe("dropPrefixXY", () => {
   });
 });
 
-describe("RingXYColumns (FIFO modular CPU columns)", () => {
-  it("fill then wrap keeps chronological getX/getY and count at capacity", () => {
+describe('RingXYColumns (FIFO modular CPU columns)', () => {
+  it('fill then wrap keeps chronological getX/getY and count at capacity', () => {
     const ring = createRingXYColumns(4);
     appendIntoRingXY(
       ring,
@@ -278,7 +271,7 @@ describe("RingXYColumns (FIFO modular CPU columns)", () => {
       },
       0,
       4,
-      0,
+      0
     );
     expect(getPointCount(ring as any)).toBe(4);
     expect(getX(ring as any, 0)).toBe(0);
@@ -292,29 +285,23 @@ describe("RingXYColumns (FIFO modular CPU columns)", () => {
     expect(getY(ring as any, 3)).toBe(50);
   });
 
-  it("strict replace via drop-all then keep tail", () => {
+  it('strict replace via drop-all then keep tail', () => {
     const ring = createRingXYColumns(3);
-    appendIntoRingXY(
-      ring,
-      { x: [0, 1], y: [0, 1] },
-      0,
-      2,
-      0,
-    );
+    appendIntoRingXY(ring, { x: [0, 1], y: [0, 1] }, 0, 2, 0);
     // newCount > capacity: drop all prev, keep last 3 of new batch
     appendIntoRingXY(
       ring,
       { x: [10, 11, 12, 13], y: [20, 21, 22, 23] },
       1, // newSrcOffset
       3,
-      2, // drop all previous
+      2 // drop all previous
     );
     expect(getPointCount(ring as any)).toBe(3);
     expect(getX(ring as any, 0)).toBe(11);
     expect(getX(ring as any, 2)).toBe(13);
   });
 
-  it("multi-wrap advances start and keeps capacity", () => {
+  it('multi-wrap advances start and keeps capacity', () => {
     const ring = createRingXYColumns(4);
     appendIntoRingXY(ring, { x: [0, 1, 2, 3], y: [0, 1, 2, 3] }, 0, 4, 0);
     for (let i = 0; i < 5; i++) {
@@ -328,7 +315,7 @@ describe("RingXYColumns (FIFO modular CPU columns)", () => {
     expect(getX(ring as any, 3)).toBe(104);
   });
 
-  it("packXYInto on chronological linear XY layout", () => {
+  it('packXYInto on chronological linear XY layout', () => {
     const out = new Float32Array(8);
     packXYInto(
       out,
@@ -339,12 +326,12 @@ describe("RingXYColumns (FIFO modular CPU columns)", () => {
       },
       0,
       4,
-      0,
+      0
     );
     expect(Array.from(out)).toEqual([1, 10, 2, 20, 3, 30, 4, 40]);
   });
 
-  it("packXYInto from modular RingXYColumns (start ≠ 0) is chronological", () => {
+  it('packXYInto from modular RingXYColumns (start ≠ 0) is chronological', () => {
     const ring = createRingXYColumns(4);
     appendIntoRingXY(ring, { x: [0, 1, 2, 3], y: [10, 11, 12, 13] }, 0, 4, 0);
     // Two wraps → start advances; logical [2,3,100,101]
@@ -359,7 +346,7 @@ describe("RingXYColumns (FIFO modular CPU columns)", () => {
     expect(Array.from(out)).toEqual([2, 12, 3, 13, 100, 110, 101, 111]);
   });
 
-  it("bounds skip OOB and empty ring", () => {
+  it('bounds skip OOB and empty ring', () => {
     const empty = createRingXYColumns(4);
     expect(getPointCount(empty as any)).toBe(0);
     expect(Number.isNaN(getX(empty as any, 0))).toBe(true);
@@ -375,13 +362,11 @@ describe("RingXYColumns (FIFO modular CPU columns)", () => {
   });
 });
 
-describe("StagingRingView (zero-copy DataStore staging alias)", () => {
-  it("reads modular staging with xOffset restored", () => {
+describe('StagingRingView (zero-copy DataStore staging alias)', () => {
+  it('reads modular staging with xOffset restored', () => {
     // Physical: [p2, p3, p0, p1] with start=2, capacity=4, count=4
     // logical 0→phys2=(10,100), 1→phys3=(11,110), 2→phys0=(12,120), 3→phys1=(13,130)
-    const staging = new Float32Array([
-      12, 120, 13, 130, 10, 100, 11, 110,
-    ]);
+    const staging = new Float32Array([12, 120, 13, 130, 10, 100, 11, 110]);
     const view = createStagingRingView(staging, 2, 4, 4, 1000);
     expect(isStagingRingView(view)).toBe(true);
     expect(getPointCount(view as any)).toBe(4);
@@ -392,7 +377,7 @@ describe("StagingRingView (zero-copy DataStore staging alias)", () => {
     expect(hasNullGaps(view as any)).toBe(false);
   });
 
-  it("reuses object identity on createStagingRingView", () => {
+  it('reuses object identity on createStagingRingView', () => {
     const staging = new Float32Array([1, 2, 3, 4]);
     const a = createStagingRingView(staging, 0, 0, 2, 0);
     const b = createStagingRingView(staging, 1, 2, 2, 5, a);
@@ -402,7 +387,7 @@ describe("StagingRingView (zero-copy DataStore staging alias)", () => {
     expect(a.count).toBe(2);
   });
 
-  it("linear layout (capacity 0) indexes staging directly", () => {
+  it('linear layout (capacity 0) indexes staging directly', () => {
     const staging = new Float32Array([1, 10, 2, 20, 3, 30]);
     const view = createStagingRingView(staging, 0, 0, 3, 0);
     expect(getX(view as any, 1)).toBe(2);
@@ -412,12 +397,10 @@ describe("StagingRingView (zero-copy DataStore staging alias)", () => {
     expect(Array.from(out)).toEqual([1, 10, 2, 20, 3, 30]);
   });
 
-  it("stagingRingViewToRingXYColumns preserves capacity and chronological domain x", () => {
+  it('stagingRingViewToRingXYColumns preserves capacity and chronological domain x', () => {
     // Physical modular: start=2, capacity=4, count=4, xOffset=1000
     // logical 0→phys2=(10+1000), 1→phys3=(11+1000), 2→phys0=(12+1000), 3→phys1=(13+1000)
-    const staging = new Float32Array([
-      12, 120, 13, 130, 10, 100, 11, 110,
-    ]);
+    const staging = new Float32Array([12, 120, 13, 130, 10, 100, 11, 110]);
     const view = createStagingRingView(staging, 2, 4, 4, 1000);
     const ring = stagingRingViewToRingXYColumns(view);
     expect(ring.capacity).toBe(4);
@@ -431,7 +414,7 @@ describe("StagingRingView (zero-copy DataStore staging alias)", () => {
     expect(ring.x.length).toBe(4);
   });
 
-  it("stagingRingViewToRingXYColumns uses count as capacity when layout is linear", () => {
+  it('stagingRingViewToRingXYColumns uses count as capacity when layout is linear', () => {
     const staging = new Float32Array([1, 10, 2, 20, 3, 30]);
     const view = createStagingRingView(staging, 0, 0, 3, 50);
     const ring = stagingRingViewToRingXYColumns(view);

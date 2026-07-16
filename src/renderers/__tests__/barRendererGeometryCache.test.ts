@@ -6,12 +6,12 @@
 
 /// <reference types="@webgpu/types" />
 
-import { describe, it, expect, beforeAll, beforeEach, vi } from "vitest";
-import { createLinearScale } from "../../utils/scales";
-import type { ResolvedBarSeriesConfig } from "../../config/OptionResolver";
-import type { DataPoint } from "../../config/types";
-import type { GridArea } from "../createGridRenderer";
-import type { DataStore } from "../../data/createDataStore";
+import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
+import { createLinearScale } from '../../utils/scales';
+import type { ResolvedBarSeriesConfig } from '../../config/OptionResolver';
+import type { DataPoint } from '../../config/types';
+import type { GridArea } from '../createGridRenderer';
+import type { DataStore } from '../../data/createDataStore';
 
 beforeAll(() => {
   // @ts-ignore
@@ -31,10 +31,10 @@ beforeAll(() => {
   };
 });
 
-import { createBarRenderer } from "../createBarRenderer";
-import { writeUniformBuffer } from "../rendererUtils";
+import { createBarRenderer } from '../createBarRenderer';
+import { writeUniformBuffer } from '../rendererUtils';
 
-vi.mock("../rendererUtils", () => ({
+vi.mock('../rendererUtils', () => ({
   createRenderPipeline: vi.fn(() => ({})),
   createUniformBuffer: vi.fn(() => ({ destroy: vi.fn() })),
   writeUniformBuffer: vi.fn(),
@@ -44,7 +44,7 @@ const writeUniformBufferMock = writeUniformBuffer as ReturnType<typeof vi.fn>;
 
 function createMockDevice() {
   return {
-    label: "mockDevice",
+    label: 'mockDevice',
     limits: {
       maxUniformBufferBindingSize: 65536,
       minUniformBufferOffsetAlignment: 256,
@@ -67,17 +67,17 @@ function createMockDevice() {
 
 function barConfig(
   data: ReadonlyArray<DataPoint>,
-  extra: Partial<ResolvedBarSeriesConfig> = {},
+  extra: Partial<ResolvedBarSeriesConfig> = {}
 ): ResolvedBarSeriesConfig {
   return {
-    type: "bar",
-    name: "b",
+    type: 'bar',
+    name: 'b',
     data,
     rawData: data,
-    color: "#0af",
-    sampling: "none",
+    color: '#0af',
+    sampling: 'none',
     samplingThreshold: 5000,
-    yAxis: "y",
+    yAxis: 'y',
     visible: true,
     ...extra,
   } as ResolvedBarSeriesConfig;
@@ -116,9 +116,7 @@ function plotClipFor(ga: GridArea): {
 }
 
 /** Read packed instance floats from the last queue.writeBuffer call. */
-function lastInstanceFloats(
-  writeBuffer: ReturnType<typeof vi.fn>,
-): Float32Array {
+function lastInstanceFloats(writeBuffer: ReturnType<typeof vi.fn>): Float32Array {
   const call = writeBuffer.mock.calls[writeBuffer.mock.calls.length - 1];
   expect(call).toBeTruthy();
   const staging = call[2] as ArrayBuffer;
@@ -134,8 +132,40 @@ beforeEach(() => {
   writeUniformBufferMock.mockClear();
 });
 
-describe("createBarRenderer geometry cache", () => {
-  it("skips instance writeBuffer on second prepare with same data ref (axes-only y domain)", () => {
+describe('createBarRenderer uniform dirty-skip (issue 2.5)', () => {
+  it('skips uniform writes on second prepare with identical inputs; scale change writes', () => {
+    const device = createMockDevice();
+    writeUniformBufferMock.mockClear();
+    const renderer = createBarRenderer(device);
+    const data: DataPoint[] = [
+      [0, 1],
+      [1, 2],
+      [2, 0],
+    ];
+    const ga = gridArea();
+    const clip = plotClipFor(ga);
+    const xScale = createLinearScale().domain(0, 2).range(clip.left, clip.right);
+    const yScale = createLinearScale().domain(0, 2).range(clip.bottom, clip.top);
+    const cfg = barConfig(data);
+
+    renderer.prepare([cfg], emptyDataStore, xScale, yScale, ga);
+    const afterFirst = writeUniformBufferMock.mock.calls.length;
+    expect(afterFirst).toBeGreaterThan(0);
+
+    writeUniformBufferMock.mockClear();
+    renderer.prepare([cfg], emptyDataStore, xScale, yScale, ga);
+    expect(writeUniformBufferMock).not.toHaveBeenCalled();
+
+    writeUniformBufferMock.mockClear();
+    const y2 = createLinearScale().domain(-1, 3).range(clip.bottom, clip.top);
+    renderer.prepare([cfg], emptyDataStore, xScale, y2, ga);
+    expect(writeUniformBufferMock.mock.calls.length).toBeGreaterThan(0);
+    renderer.dispose();
+  });
+});
+
+describe('createBarRenderer geometry cache', () => {
+  it('skips instance writeBuffer on second prepare with same data ref (axes-only y domain)', () => {
     const device = createMockDevice();
     const writeBuffer = device.queue.writeBuffer as ReturnType<typeof vi.fn>;
     const renderer = createBarRenderer(device);
@@ -163,14 +193,12 @@ describe("createBarRenderer geometry cache", () => {
     renderer.prepare([cfg], emptyDataStore, xScale, yScaleB, ga);
     expect(writeBuffer).toHaveBeenCalledTimes(1);
     // Uniforms must still refresh on the cache hit.
-    expect(writeUniformBufferMock.mock.calls.length).toBeGreaterThan(
-      uniformsAfterFirst,
-    );
+    expect(writeUniformBufferMock.mock.calls.length).toBeGreaterThan(uniformsAfterFirst);
 
     renderer.dispose();
   });
 
-  it("re-uploads instances when data reference changes", () => {
+  it('re-uploads instances when data reference changes', () => {
     const device = createMockDevice();
     const writeBuffer = device.queue.writeBuffer as ReturnType<typeof vi.fn>;
     const renderer = createBarRenderer(device);
@@ -189,26 +217,14 @@ describe("createBarRenderer geometry cache", () => {
     const xScale = createLinearScale().domain(0, 2).range(clip.left, clip.right);
     const yScale = createLinearScale().domain(0, 10).range(clip.bottom, clip.top);
 
-    renderer.prepare(
-      [barConfig(data1)],
-      emptyDataStore,
-      xScale,
-      yScale,
-      ga,
-    );
-    renderer.prepare(
-      [barConfig(data2)],
-      emptyDataStore,
-      xScale,
-      yScale,
-      ga,
-    );
+    renderer.prepare([barConfig(data1)], emptyDataStore, xScale, yScale, ga);
+    renderer.prepare([barConfig(data2)], emptyDataStore, xScale, yScale, ga);
     expect(writeBuffer).toHaveBeenCalledTimes(2);
     expect(writeBuffer.mock.calls[1][4]).toBe(3 * INSTANCE_STRIDE_BYTES);
     renderer.dispose();
   });
 
-  it("re-uploads after invalidateGeometry even with same data ref", () => {
+  it('re-uploads after invalidateGeometry even with same data ref', () => {
     const device = createMockDevice();
     const writeBuffer = device.queue.writeBuffer as ReturnType<typeof vi.fn>;
     const renderer = createBarRenderer(device);
@@ -232,7 +248,7 @@ describe("createBarRenderer geometry cache", () => {
     renderer.dispose();
   });
 
-  it("re-uploads when baselineDomain flips (0 leaves visible y range)", () => {
+  it('re-uploads when baselineDomain flips (0 leaves visible y range)', () => {
     const device = createMockDevice();
     const writeBuffer = device.queue.writeBuffer as ReturnType<typeof vi.fn>;
     const renderer = createBarRenderer(device);
@@ -245,12 +261,8 @@ describe("createBarRenderer geometry cache", () => {
     const clip = plotClipFor(ga);
     const xScale = createLinearScale().domain(0, 2).range(clip.left, clip.right);
     // 0 in range → baseline 0; then all-positive range → baseline = yMin (1).
-    const yScaleWithZero = createLinearScale()
-      .domain(0, 5)
-      .range(clip.bottom, clip.top);
-    const yScaleAboveZero = createLinearScale()
-      .domain(1, 5)
-      .range(clip.bottom, clip.top);
+    const yScaleWithZero = createLinearScale().domain(0, 5).range(clip.bottom, clip.top);
+    const yScaleAboveZero = createLinearScale().domain(1, 5).range(clip.bottom, clip.top);
     const cfg = barConfig(data);
 
     renderer.prepare([cfg], emptyDataStore, xScale, yScaleWithZero, ga);
@@ -260,7 +272,7 @@ describe("createBarRenderer geometry cache", () => {
     renderer.dispose();
   });
 
-  it("CSS-px barWidth: re-packs on x-scale change, skips on y-only change", () => {
+  it('CSS-px barWidth: re-packs on x-scale change, skips on y-only change', () => {
     const device = createMockDevice();
     const writeBuffer = device.queue.writeBuffer as ReturnType<typeof vi.fn>;
     const renderer = createBarRenderer(device);
@@ -290,7 +302,7 @@ describe("createBarRenderer geometry cache", () => {
     renderer.dispose();
   });
 
-  it("x-scale-only with auto and percent widths stays uniform-only", () => {
+  it('x-scale-only with auto and percent widths stays uniform-only', () => {
     const device = createMockDevice();
     const writeBuffer = device.queue.writeBuffer as ReturnType<typeof vi.fn>;
     const renderer = createBarRenderer(device);
@@ -312,14 +324,14 @@ describe("createBarRenderer geometry cache", () => {
 
     writeBuffer.mockClear();
     renderer.invalidateGeometry();
-    const pctCfg = barConfig(data, { barWidth: "50%" });
+    const pctCfg = barConfig(data, { barWidth: '50%' });
     renderer.prepare([pctCfg], emptyDataStore, xScaleA, yScale, ga);
     renderer.prepare([pctCfg], emptyDataStore, xScaleB, yScale, ga);
     expect(writeBuffer).toHaveBeenCalledTimes(1);
     renderer.dispose();
   });
 
-  it("clustered multi-series: axes-only skip and distinct left offsets", () => {
+  it('clustered multi-series: axes-only skip and distinct left offsets', () => {
     const device = createMockDevice();
     const writeBuffer = device.queue.writeBuffer as ReturnType<typeof vi.fn>;
     const renderer = createBarRenderer(device);
@@ -336,10 +348,7 @@ describe("createBarRenderer geometry cache", () => {
     const xScale = createLinearScale().domain(0, 1).range(clip.left, clip.right);
     const yScaleA = createLinearScale().domain(0, 5).range(clip.bottom, clip.top);
     const yScaleB = createLinearScale().domain(-1, 6).range(clip.bottom, clip.top);
-    const series = [
-      barConfig(dataA, { color: "#f00" }),
-      barConfig(dataB, { color: "#0f0" }),
-    ];
+    const series = [barConfig(dataA, { color: '#f00' }), barConfig(dataB, { color: '#0f0' })];
 
     renderer.prepare(series, emptyDataStore, xScale, yScaleA, ga);
     expect(writeBuffer).toHaveBeenCalledTimes(1);
@@ -356,7 +365,7 @@ describe("createBarRenderer geometry cache", () => {
     renderer.dispose();
   });
 
-  it("packs stacked series domain heights correctly and skips re-upload on y-scale change", () => {
+  it('packs stacked series domain heights correctly and skips re-upload on y-scale change', () => {
     const device = createMockDevice();
     const writeBuffer = device.queue.writeBuffer as ReturnType<typeof vi.fn>;
     const renderer = createBarRenderer(device);
@@ -373,10 +382,7 @@ describe("createBarRenderer geometry cache", () => {
     const xScale = createLinearScale().domain(0, 1).range(clip.left, clip.right);
     const yScaleA = createLinearScale().domain(0, 5).range(clip.bottom, clip.top);
     const yScaleB = createLinearScale().domain(-2, 8).range(clip.bottom, clip.top);
-    const series = [
-      barConfig(dataA, { stack: "s1", color: "#f00" }),
-      barConfig(dataB, { stack: "s1", color: "#0f0" }),
-    ];
+    const series = [barConfig(dataA, { stack: 's1', color: '#f00' }), barConfig(dataB, { stack: 's1', color: '#0f0' })];
 
     renderer.prepare(series, emptyDataStore, xScale, yScaleA, ga);
     expect(writeBuffer).toHaveBeenCalledTimes(1);
@@ -402,7 +408,7 @@ describe("createBarRenderer geometry cache", () => {
     renderer.dispose();
   });
 
-  it("reverse-x single-series bar stays centered on domain x", () => {
+  it('reverse-x single-series bar stays centered on domain x', () => {
     const device = createMockDevice();
     const writeBuffer = device.queue.writeBuffer as ReturnType<typeof vi.fn>;
     const renderer = createBarRenderer(device);
@@ -414,9 +420,7 @@ describe("createBarRenderer geometry cache", () => {
     const ga = gridArea();
     const clip = plotClipFor(ga);
     // Reversed x range: ax < 0
-    const xScale = createLinearScale()
-      .domain(0, 2)
-      .range(clip.right, clip.left);
+    const xScale = createLinearScale().domain(0, 2).range(clip.right, clip.left);
     const yScale = createLinearScale().domain(0, 5).range(clip.bottom, clip.top);
     const cfg = barConfig(data);
 
@@ -433,7 +437,7 @@ describe("createBarRenderer geometry cache", () => {
     renderer.dispose();
   });
 
-  it("reverse-x multi-series: cluster centered on x; series 0 left in clip", () => {
+  it('reverse-x multi-series: cluster centered on x; series 0 left in clip', () => {
     const device = createMockDevice();
     const writeBuffer = device.queue.writeBuffer as ReturnType<typeof vi.fn>;
     const renderer = createBarRenderer(device);
@@ -441,14 +445,9 @@ describe("createBarRenderer geometry cache", () => {
     const dataB: DataPoint[] = [[1, 4]];
     const ga = gridArea();
     const clip = plotClipFor(ga);
-    const xScale = createLinearScale()
-      .domain(0, 2)
-      .range(clip.right, clip.left); // ax < 0
+    const xScale = createLinearScale().domain(0, 2).range(clip.right, clip.left); // ax < 0
     const yScale = createLinearScale().domain(0, 5).range(clip.bottom, clip.top);
-    const series = [
-      barConfig(dataA, { color: "#f00" }),
-      barConfig(dataB, { color: "#0f0" }),
-    ];
+    const series = [barConfig(dataA, { color: '#f00' }), barConfig(dataB, { color: '#0f0' })];
 
     renderer.prepare(series, emptyDataStore, xScale, yScale, ga);
     const f32 = lastInstanceFloats(writeBuffer);
@@ -470,9 +469,7 @@ describe("createBarRenderer geometry cache", () => {
     // Forward x for contrast: series 0 should have lower domain center.
     writeBuffer.mockClear();
     renderer.invalidateGeometry();
-    const xForward = createLinearScale()
-      .domain(0, 2)
-      .range(clip.left, clip.right);
+    const xForward = createLinearScale().domain(0, 2).range(clip.left, clip.right);
     renderer.prepare(series, emptyDataStore, xForward, yScale, ga);
     const f32fwd = lastInstanceFloats(writeBuffer);
     const centerAf = f32fwd[0] + f32fwd[2] / 2;

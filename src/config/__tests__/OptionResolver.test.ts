@@ -1,19 +1,15 @@
-import { describe, it, expect, vi } from "vitest";
-import {
-  resolveOptions,
-  resolveSeriesContentHash,
-  type ResolvedSeriesConfig,
-} from "../OptionResolver";
-import type { DataPoint, OHLCDataPoint } from "../types";
-import { getPointCount } from "../../data/cartesianData";
-import * as seriesContentHashModule from "../../data/seriesContentHash";
+import { describe, it, expect, vi } from 'vitest';
+import { resolveOptions, resolveSeriesContentHash, type ResolvedSeriesConfig } from '../OptionResolver';
+import type { DataPoint, OHLCDataPoint } from '../types';
+import { getPointCount } from '../../data/cartesianData';
+import * as seriesContentHashModule from '../../data/seriesContentHash';
 
-describe("OptionResolver - connectNulls", () => {
-  it("defaults connectNulls to false for line series", () => {
+describe('OptionResolver - connectNulls', () => {
+  it('defaults connectNulls to false for line series', () => {
     const resolved = resolveOptions({
       series: [
         {
-          type: "line",
+          type: 'line',
           data: [
             [0, 1],
             [1, 2],
@@ -22,17 +18,17 @@ describe("OptionResolver - connectNulls", () => {
       ],
     });
     const series = resolved.series[0];
-    expect(series.type).toBe("line");
-    if (series.type === "line") {
+    expect(series.type).toBe('line');
+    if (series.type === 'line') {
       expect(series.connectNulls).toBe(false);
     }
   });
 
-  it("resolves connectNulls: true for line series", () => {
+  it('resolves connectNulls: true for line series', () => {
     const resolved = resolveOptions({
       series: [
         {
-          type: "line",
+          type: 'line',
           data: [
             [0, 1],
             [1, 2],
@@ -42,16 +38,16 @@ describe("OptionResolver - connectNulls", () => {
       ],
     });
     const series = resolved.series[0];
-    if (series.type === "line") {
+    if (series.type === 'line') {
       expect(series.connectNulls).toBe(true);
     }
   });
 
-  it("defaults connectNulls to false for area series", () => {
+  it('defaults connectNulls to false for area series', () => {
     const resolved = resolveOptions({
       series: [
         {
-          type: "area",
+          type: 'area',
           data: [
             [0, 1],
             [1, 2],
@@ -60,17 +56,17 @@ describe("OptionResolver - connectNulls", () => {
       ],
     });
     const series = resolved.series[0];
-    expect(series.type).toBe("area");
-    if (series.type === "area") {
+    expect(series.type).toBe('area');
+    if (series.type === 'area') {
       expect(series.connectNulls).toBe(false);
     }
   });
 
-  it("resolves connectNulls: true for area series", () => {
+  it('resolves connectNulls: true for area series', () => {
     const resolved = resolveOptions({
       series: [
         {
-          type: "area",
+          type: 'area',
           data: [
             [0, 1],
             [1, 2],
@@ -80,14 +76,14 @@ describe("OptionResolver - connectNulls", () => {
       ],
     });
     const series = resolved.series[0];
-    if (series.type === "area") {
+    if (series.type === 'area') {
       expect(series.connectNulls).toBe(true);
     }
   });
 });
 
-describe("OptionResolver - sampling bypass with gaps", () => {
-  it("bypasses LTTB sampling when line data contains null gaps", () => {
+describe('OptionResolver - sampling bypass with gaps', () => {
+  it('bypasses LTTB sampling when line data contains null gaps', () => {
     const dataWithGaps: (DataPoint | null)[] = [];
     for (let i = 0; i < 10000; i++) {
       dataWithGaps.push(i === 5000 ? null : [i, Math.sin(i)]);
@@ -95,21 +91,21 @@ describe("OptionResolver - sampling bypass with gaps", () => {
     const resolved = resolveOptions({
       series: [
         {
-          type: "line",
+          type: 'line',
           data: dataWithGaps,
-          sampling: "lttb",
+          sampling: 'lttb',
           samplingThreshold: 5000,
         },
       ],
     });
     const series = resolved.series[0];
-    if (series.type === "line") {
+    if (series.type === 'line') {
       // Data should not be downsampled — null gaps must be preserved
       expect(getPointCount(series.data)).toBe(10000);
     }
   });
 
-  it("bypasses LTTB sampling when area data contains null gaps", () => {
+  it('bypasses LTTB sampling when area data contains null gaps', () => {
     const dataWithGaps: (DataPoint | null)[] = [];
     for (let i = 0; i < 10000; i++) {
       dataWithGaps.push(i === 5000 ? null : [i, Math.sin(i)]);
@@ -117,21 +113,21 @@ describe("OptionResolver - sampling bypass with gaps", () => {
     const resolved = resolveOptions({
       series: [
         {
-          type: "area",
+          type: 'area',
           data: dataWithGaps,
-          sampling: "lttb",
+          sampling: 'lttb',
           samplingThreshold: 5000,
         },
       ],
     });
     const series = resolved.series[0];
-    if (series.type === "area") {
+    if (series.type === 'area') {
       // Data should not be downsampled — null gaps must be preserved
       expect(getPointCount(series.data)).toBe(10000);
     }
   });
 
-  it("applies sampling normally when line data has no null gaps", () => {
+  it('applies sampling normally when line data has no null gaps', () => {
     const data: DataPoint[] = [];
     for (let i = 0; i < 10000; i++) {
       data.push([i, Math.sin(i)]);
@@ -139,20 +135,20 @@ describe("OptionResolver - sampling bypass with gaps", () => {
     const resolved = resolveOptions({
       series: [
         {
-          type: "line",
+          type: 'line',
           data,
-          sampling: "lttb",
+          sampling: 'lttb',
           samplingThreshold: 5000,
         },
       ],
     });
     const series = resolved.series[0];
-    if (series.type === "line") {
+    if (series.type === 'line') {
       expect(getPointCount(series.data)).toBeLessThanOrEqual(5000);
     }
   });
 
-  it("applies sampling normally when area data has no null gaps", () => {
+  it('applies sampling normally when area data has no null gaps', () => {
     const data: DataPoint[] = [];
     for (let i = 0; i < 10000; i++) {
       data.push([i, Math.sin(i)]);
@@ -160,34 +156,34 @@ describe("OptionResolver - sampling bypass with gaps", () => {
     const resolved = resolveOptions({
       series: [
         {
-          type: "area",
+          type: 'area',
           data,
-          sampling: "lttb",
+          sampling: 'lttb',
           samplingThreshold: 5000,
         },
       ],
     });
     const series = resolved.series[0];
-    if (series.type === "area") {
+    if (series.type === 'area') {
       expect(getPointCount(series.data)).toBeLessThanOrEqual(5000);
     }
   });
 });
 
-describe("resolveSeriesContentHash", () => {
-  it("reuses previous hash when type and raw data identity match", () => {
+describe('resolveSeriesContentHash', () => {
+  it('reuses previous hash when type and raw data identity match', () => {
     const data: DataPoint[] = [
       [0, 1],
       [1, 2],
     ];
     const prev = {
-      type: "line",
+      type: 'line',
       rawData: data,
       data,
       contentHash: 0xabc,
     } as unknown as ResolvedSeriesConfig;
     let hashCalls = 0;
-    const hash = resolveSeriesContentHash(prev, "line", data, () => {
+    const hash = resolveSeriesContentHash(prev, 'line', data, () => {
       hashCalls++;
       return 0xdead;
     });
@@ -195,73 +191,73 @@ describe("resolveSeriesContentHash", () => {
     expect(hashCalls).toBe(0);
   });
 
-  it("recomputes when data reference changes", () => {
+  it('recomputes when data reference changes', () => {
     const prevData: DataPoint[] = [[0, 1]];
     const nextData: DataPoint[] = [[0, 2]];
     const prev = {
-      type: "bar",
+      type: 'bar',
       rawData: prevData,
       data: prevData,
       contentHash: 1,
     } as unknown as ResolvedSeriesConfig;
-    const hash = resolveSeriesContentHash(prev, "bar", nextData, () => 42);
+    const hash = resolveSeriesContentHash(prev, 'bar', nextData, () => 42);
     expect(hash).toBe(42);
   });
 
-  it("recomputes when series type changes", () => {
+  it('recomputes when series type changes', () => {
     const data: DataPoint[] = [[0, 1]];
     const prev = {
-      type: "line",
+      type: 'line',
       rawData: data,
       data,
       contentHash: 7,
     } as unknown as ResolvedSeriesConfig;
-    const hash = resolveSeriesContentHash(prev, "bar", data, () => 99);
+    const hash = resolveSeriesContentHash(prev, 'bar', data, () => 99);
     expect(hash).toBe(99);
   });
 
-  it("recomputes when previous contentHash is missing", () => {
+  it('recomputes when previous contentHash is missing', () => {
     const data: DataPoint[] = [[0, 1]];
     const prev = {
-      type: "scatter",
+      type: 'scatter',
       rawData: data,
       data,
     } as unknown as ResolvedSeriesConfig;
-    const hash = resolveSeriesContentHash(prev, "scatter", data, () => 11);
+    const hash = resolveSeriesContentHash(prev, 'scatter', data, () => 11);
     expect(hash).toBe(11);
   });
 });
 
-describe("OptionResolver candlestick contentHash reuse", () => {
-  it("reuses OHLC contentHash without full scan on stable data ref", () => {
+describe('OptionResolver candlestick contentHash reuse', () => {
+  it('reuses OHLC contentHash without full scan on stable data ref', () => {
     const data: OHLCDataPoint[] = [
       [0, 1, 2, 0.5, 2.5],
       [1, 2, 1.5, 1, 2.2],
     ];
     // Suppress one-time candlestick warning.
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const first = resolveOptions({
-      series: [{ type: "candlestick", data, sampling: "none" }],
+      series: [{ type: 'candlestick', data, sampling: 'none' }],
     });
-    const hashSpy = vi.spyOn(seriesContentHashModule, "hashOHLCSeriesData");
+    const hashSpy = vi.spyOn(seriesContentHashModule, 'hashOHLCSeriesData');
     const second = resolveOptions(
       {
-        series: [{ type: "candlestick", data, sampling: "none", color: "#f00" }],
+        series: [{ type: 'candlestick', data, sampling: 'none', color: '#f00' }],
         yAxis: { min: 0, max: 10 },
       },
-      { previousResolved: first },
+      { previousResolved: first }
     );
     expect(hashSpy).not.toHaveBeenCalled();
     expect((second.series[0] as { contentHash?: number }).contentHash).toBe(
-      (first.series[0] as { contentHash?: number }).contentHash,
+      (first.series[0] as { contentHash?: number }).contentHash
     );
     hashSpy.mockRestore();
     warnSpy.mockRestore();
   });
 });
 
-describe("OptionResolver full series rewrite path", () => {
-  it("does not full-scan hashCartesianSeriesData when data ref changes", () => {
+describe('OptionResolver full series rewrite path', () => {
+  it('does not full-scan hashCartesianSeriesData when data ref changes', () => {
     const a: DataPoint[] = [
       [0, 1],
       [1, 2],
@@ -273,43 +269,34 @@ describe("OptionResolver full series rewrite path", () => {
       [2, 3.1],
     ];
     const first = resolveOptions({
-      series: [{ type: "scatter", data: a, sampling: "none" }],
+      series: [{ type: 'scatter', data: a, sampling: 'none' }],
       xAxis: { min: 0, max: 10 },
       yAxis: { min: 0, max: 10 },
     });
-    const fullHashSpy = vi.spyOn(
-      seriesContentHashModule,
-      "hashCartesianSeriesData",
-    );
-    const cheapSpy = vi.spyOn(
-      seriesContentHashModule,
-      "cheapCartesianContentStamp",
-    );
+    const fullHashSpy = vi.spyOn(seriesContentHashModule, 'hashCartesianSeriesData');
+    const cheapSpy = vi.spyOn(seriesContentHashModule, 'cheapCartesianContentStamp');
     const second = resolveOptions(
       {
-        series: [{ type: "scatter", data: b, sampling: "none" }],
+        series: [{ type: 'scatter', data: b, sampling: 'none' }],
         xAxis: { min: 0, max: 10 },
         yAxis: { min: 0, max: 10 },
       },
-      { previousResolved: first },
+      { previousResolved: first }
     );
     expect(fullHashSpy).not.toHaveBeenCalled();
     expect(cheapSpy).toHaveBeenCalled();
     expect((second.series[0] as { contentHash?: number }).contentHash).not.toBe(
-      (first.series[0] as { contentHash?: number }).contentHash,
+      (first.series[0] as { contentHash?: number }).contentHash
     );
     fullHashSpy.mockRestore();
     cheapSpy.mockRestore();
   });
 
-  it("skips O(n) bounds scan when all axis domains are explicit", () => {
+  it('skips O(n) bounds scan when all axis domains are explicit', () => {
     const a: DataPoint[] = Array.from({ length: 200 }, (_, i) => [i, i * 0.5]);
-    const b: DataPoint[] = Array.from({ length: 200 }, (_, i) => [
-      i + 0.1,
-      i * 0.5 + 0.1,
-    ]);
+    const b: DataPoint[] = Array.from({ length: 200 }, (_, i) => [i + 0.1, i * 0.5 + 0.1]);
     const first = resolveOptions({
-      series: [{ type: "line", data: a, sampling: "none" }],
+      series: [{ type: 'line', data: a, sampling: 'none' }],
       xAxis: { min: -10, max: 110 },
       yAxis: { min: -10, max: 60 },
     });
@@ -319,25 +306,25 @@ describe("OptionResolver full series rewrite path", () => {
     });
     const second = resolveOptions(
       {
-        series: [{ type: "line", data: b, sampling: "none" }],
+        series: [{ type: 'line', data: b, sampling: 'none' }],
         xAxis: { min: -10, max: 110 },
         yAxis: { min: -10, max: 60 },
       },
-      { previousResolved: first },
+      { previousResolved: first }
     );
     expect(second.series[0]).toMatchObject({
       rawBounds: { xMin: -10, xMax: 110, yMin: -10, yMax: 60 },
     });
   });
 
-  it("still computes data x-extent when x axis is auto and y is fixed (group 4)", () => {
+  it('still computes data x-extent when x axis is auto and y is fixed (group 4)', () => {
     const data: DataPoint[] = [
       [0, 1],
       [1, 5],
       [2, 3],
     ];
     const resolved = resolveOptions({
-      series: [{ type: "scatter", data, sampling: "none" }],
+      series: [{ type: 'scatter', data, sampling: 'none' }],
       // x auto, y fixed — y bounds come from axis, not data extrema
       yAxis: { min: -10, max: 60 },
     });
@@ -346,65 +333,60 @@ describe("OptionResolver full series rewrite path", () => {
     });
   });
 
-  it("does not keep synthetic rawBounds when axes switch to auto under same data ref", () => {
+  it('does not keep synthetic rawBounds when axes switch to auto under same data ref', () => {
     const data: DataPoint[] = [
       [0, 1],
       [10, 50],
       [20, 25],
     ];
     const first = resolveOptions({
-      series: [{ type: "line", data, sampling: "none" }],
+      series: [{ type: 'line', data, sampling: 'none' }],
       xAxis: { min: -100, max: 100 },
       yAxis: { min: -100, max: 100 },
     });
     expect(first.series[0]).toMatchObject({
       rawBounds: { xMin: -100, xMax: 100, yMin: -100, yMax: 100 },
-      rawBoundsMode: "synthetic",
+      rawBoundsMode: 'synthetic',
     });
     const second = resolveOptions(
       {
-        series: [{ type: "line", data, sampling: "none" }],
+        series: [{ type: 'line', data, sampling: 'none' }],
         // auto axes
       },
-      { previousResolved: first },
+      { previousResolved: first }
     );
-    expect((second.series[0] as { rawBoundsMode?: string }).rawBoundsMode).toBe(
-      "data",
-    );
+    expect((second.series[0] as { rawBoundsMode?: string }).rawBoundsMode).toBe('data');
     expect(second.series[0]).toMatchObject({
       rawBounds: { xMin: 0, xMax: 20, yMin: 1, yMax: 50 },
     });
   });
 
-  it("y-fixed + non-index x uses data-driven x extent (not 0..n-1)", () => {
+  it('y-fixed + non-index x uses data-driven x extent (not 0..n-1)', () => {
     const data: DataPoint[] = [
       [5, 1],
       [15, 2],
       [25, 3],
     ];
     const resolved = resolveOptions({
-      series: [{ type: "scatter", data, sampling: "none" }],
+      series: [{ type: 'scatter', data, sampling: 'none' }],
       yAxis: { min: -10, max: 60 },
     });
     expect(resolved.series[0]).toMatchObject({
-      rawBoundsMode: "xDataYAxis",
+      rawBoundsMode: 'xDataYAxis',
       rawBounds: { xMin: 5, xMax: 25, yMin: -10, yMax: 60 },
     });
   });
 
-  it("uses cheapOHLCContentStamp on candlestick data ref change", () => {
+  it('uses cheapOHLCContentStamp on candlestick data ref change', () => {
     const a: OHLCDataPoint[] = [[0, 1, 2, 0.5, 1.5]];
     const b: OHLCDataPoint[] = [[0, 1, 2, 0.5, 1.8]];
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const first = resolveOptions({
-      series: [{ type: "candlestick", data: a, sampling: "none" }],
+      series: [{ type: 'candlestick', data: a, sampling: 'none' }],
     });
-    const fullSpy = vi.spyOn(seriesContentHashModule, "hashOHLCSeriesData");
-    const cheapSpy = vi.spyOn(seriesContentHashModule, "cheapOHLCContentStamp");
-    resolveOptions(
-      { series: [{ type: "candlestick", data: b, sampling: "none" }] },
-      { previousResolved: first },
-    );
+    const fullSpy = vi.spyOn(seriesContentHashModule, 'hashOHLCSeriesData');
+    const cheapSpy = vi.spyOn(seriesContentHashModule, 'cheapOHLCContentStamp');
+    resolveOptions({ series: [{ type: 'candlestick', data: b, sampling: 'none' }] }, { previousResolved: first });
     expect(fullSpy).not.toHaveBeenCalled();
     expect(cheapSpy).toHaveBeenCalled();
     fullSpy.mockRestore();

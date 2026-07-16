@@ -1,5 +1,5 @@
-import type { EventManager, ChartGPUEventPayload } from "./createEventManager";
-import type { ZoomState } from "./createZoomState";
+import type { EventManager, ChartGPUEventPayload } from './createEventManager';
+import type { ZoomState } from './createZoomState';
 
 export type InsideZoom = Readonly<{
   enable(): void;
@@ -7,8 +7,7 @@ export type InsideZoom = Readonly<{
   dispose(): void;
 }>;
 
-const clamp = (v: number, lo: number, hi: number): number =>
-  Math.min(hi, Math.max(lo, v));
+const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
 
 const normalizeWheelDelta = (e: WheelEvent, basisCssPx: number): number => {
   const raw = e.deltaY;
@@ -21,9 +20,7 @@ const normalizeWheelDelta = (e: WheelEvent, basisCssPx: number): number => {
     case WheelEvent.DOM_DELTA_LINE:
       return raw * 16;
     case WheelEvent.DOM_DELTA_PAGE:
-      return (
-        raw * (Number.isFinite(basisCssPx) && basisCssPx > 0 ? basisCssPx : 800)
-      );
+      return raw * (Number.isFinite(basisCssPx) && basisCssPx > 0 ? basisCssPx : 800);
     default:
       return raw;
   }
@@ -40,9 +37,7 @@ const normalizeWheelDeltaX = (e: WheelEvent, basisCssPx: number): number => {
     case WheelEvent.DOM_DELTA_LINE:
       return raw * 16;
     case WheelEvent.DOM_DELTA_PAGE:
-      return (
-        raw * (Number.isFinite(basisCssPx) && basisCssPx > 0 ? basisCssPx : 800)
-      );
+      return raw * (Number.isFinite(basisCssPx) && basisCssPx > 0 ? basisCssPx : 800);
     default:
       return raw;
   }
@@ -59,11 +54,9 @@ const wheelDeltaToZoomFactor = (deltaCssPx: number): number => {
   return Math.exp(capped * sensitivity);
 };
 
-const isMiddleButtonDrag = (e: PointerEvent): boolean =>
-  e.pointerType === "mouse" && (e.buttons & 4) !== 0;
+const isMiddleButtonDrag = (e: PointerEvent): boolean => e.pointerType === 'mouse' && (e.buttons & 4) !== 0;
 
-const isShiftLeftDrag = (e: PointerEvent): boolean =>
-  e.pointerType === "mouse" && e.shiftKey && (e.buttons & 1) !== 0;
+const isShiftLeftDrag = (e: PointerEvent): boolean => e.pointerType === 'mouse' && e.shiftKey && (e.buttons & 1) !== 0;
 
 /**
  * Internal “inside” zoom interaction:
@@ -72,10 +65,7 @@ const isShiftLeftDrag = (e: PointerEvent): boolean =>
  * - single-finger touch drag pans left/right (only when inside grid)
  * - two-finger pinch-to-zoom centered at finger midpoint (only when inside grid)
  */
-export function createInsideZoom(
-  eventManager: EventManager,
-  zoomState: ZoomState,
-): InsideZoom {
+export function createInsideZoom(eventManager: EventManager, zoomState: ZoomState): InsideZoom {
   let disposed = false;
   let enabled = false;
 
@@ -84,11 +74,10 @@ export function createInsideZoom(
   let lastPanGridX = 0;
 
   // --- Touch state ---
-  const isTouchDevice =
-    typeof navigator !== "undefined" && navigator.maxTouchPoints > 0;
+  const isTouchDevice = typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0;
   const activePointers = new Map<number, { x: number; y: number }>();
   let previousPinchDist = 0;
-  let savedTouchAction = "";
+  let savedTouchAction = '';
 
   const resetPinchState = (): void => {
     previousPinchDist = 0;
@@ -107,8 +96,7 @@ export function createInsideZoom(
 
     // Pan only for mouse drags, only when inside grid.
     const e = payload.originalEvent;
-    const shouldPan =
-      payload.isInGrid && (isShiftLeftDrag(e) || isMiddleButtonDrag(e));
+    const shouldPan = payload.isInGrid && (isShiftLeftDrag(e) || isMiddleButtonDrag(e));
 
     if (!shouldPan) {
       clearPan();
@@ -200,10 +188,7 @@ export function createInsideZoom(
   // --- Touch pointer handlers (on canvas) ---
 
   /** Fallback grid check when lastPointer isn't available yet (e.g. touch-only device). */
-  const isPointInGrid = (
-    e: PointerEvent,
-    canvas: HTMLCanvasElement,
-  ): boolean => {
+  const isPointInGrid = (e: PointerEvent, canvas: HTMLCanvasElement): boolean => {
     const rect = canvas.getBoundingClientRect();
     if (rect.width === 0 || rect.height === 0) return false;
     const x = e.clientX - rect.left;
@@ -213,7 +198,7 @@ export function createInsideZoom(
 
   const onTouchPointerDown = (e: PointerEvent): void => {
     if (!enabled || disposed) return;
-    if (e.pointerType !== "touch") return;
+    if (e.pointerType !== 'touch') return;
 
     // Prevent default to suppress browser scroll/zoom on touch.
     e.preventDefault();
@@ -221,9 +206,7 @@ export function createInsideZoom(
     // Only start tracking if the pointer is inside the grid.
     // Use lastPointer when available (precise grid margins); fall back to canvas bounds
     // so touch-only devices (where mousemove may never fire) are not locked out.
-    const inGrid = lastPointer
-      ? lastPointer.isInGrid
-      : isPointInGrid(e, eventManager.canvas);
+    const inGrid = lastPointer ? lastPointer.isInGrid : isPointInGrid(e, eventManager.canvas);
 
     if (!inGrid) return;
 
@@ -241,7 +224,7 @@ export function createInsideZoom(
 
   const onTouchPointerMove = (e: PointerEvent): void => {
     if (!enabled || disposed) return;
-    if (e.pointerType !== "touch") return;
+    if (e.pointerType !== 'touch') return;
     if (!activePointers.has(e.pointerId)) return;
 
     const pointerCount = activePointers.size;
@@ -325,59 +308,59 @@ export function createInsideZoom(
 
   const onTouchPointerUp = (e: PointerEvent): void => {
     if (!enabled || disposed) return;
-    if (e.pointerType !== "touch") return;
+    if (e.pointerType !== 'touch') return;
     activePointers.delete(e.pointerId);
     resetPinchState();
   };
 
   const onTouchPointerCancel = (e: PointerEvent): void => {
     if (!enabled || disposed) return;
-    if (e.pointerType !== "touch") return;
+    if (e.pointerType !== 'touch') return;
     activePointers.delete(e.pointerId);
     resetPinchState();
   };
 
   // --- Enable / disable / dispose ---
 
-  const enable: InsideZoom["enable"] = () => {
+  const enable: InsideZoom['enable'] = () => {
     if (disposed || enabled) return;
     enabled = true;
-    eventManager.on("mousemove", onMouseMove);
-    eventManager.on("mouseleave", onMouseLeave);
-    eventManager.canvas.addEventListener("wheel", onWheel, { passive: false });
+    eventManager.on('mousemove', onMouseMove);
+    eventManager.on('mouseleave', onMouseLeave);
+    eventManager.canvas.addEventListener('wheel', onWheel, { passive: false });
 
     // Touch gesture listeners on canvas (only on touch-capable devices to avoid
     // registering passive-false pointermove on desktop where it degrades scroll perf).
     if (isTouchDevice) {
       const canvas = eventManager.canvas;
       savedTouchAction = canvas.style.touchAction;
-      canvas.style.touchAction = "none";
-      canvas.addEventListener("pointerdown", onTouchPointerDown, {
+      canvas.style.touchAction = 'none';
+      canvas.addEventListener('pointerdown', onTouchPointerDown, {
         passive: false,
       });
-      canvas.addEventListener("pointermove", onTouchPointerMove, {
+      canvas.addEventListener('pointermove', onTouchPointerMove, {
         passive: false,
       });
-      canvas.addEventListener("pointerup", onTouchPointerUp);
-      canvas.addEventListener("pointercancel", onTouchPointerCancel);
+      canvas.addEventListener('pointerup', onTouchPointerUp);
+      canvas.addEventListener('pointercancel', onTouchPointerCancel);
     }
   };
 
-  const disable: InsideZoom["disable"] = () => {
+  const disable: InsideZoom['disable'] = () => {
     if (disposed || !enabled) return;
     enabled = false;
-    eventManager.off("mousemove", onMouseMove);
-    eventManager.off("mouseleave", onMouseLeave);
-    eventManager.canvas.removeEventListener("wheel", onWheel);
+    eventManager.off('mousemove', onMouseMove);
+    eventManager.off('mouseleave', onMouseLeave);
+    eventManager.canvas.removeEventListener('wheel', onWheel);
 
     // Remove touch gesture listeners.
     if (isTouchDevice) {
       const canvas = eventManager.canvas;
       canvas.style.touchAction = savedTouchAction;
-      canvas.removeEventListener("pointerdown", onTouchPointerDown);
-      canvas.removeEventListener("pointermove", onTouchPointerMove);
-      canvas.removeEventListener("pointerup", onTouchPointerUp);
-      canvas.removeEventListener("pointercancel", onTouchPointerCancel);
+      canvas.removeEventListener('pointerdown', onTouchPointerDown);
+      canvas.removeEventListener('pointermove', onTouchPointerMove);
+      canvas.removeEventListener('pointerup', onTouchPointerUp);
+      canvas.removeEventListener('pointercancel', onTouchPointerCancel);
     }
 
     activePointers.clear();
@@ -386,7 +369,7 @@ export function createInsideZoom(
     clearPan();
   };
 
-  const dispose: InsideZoom["dispose"] = () => {
+  const dispose: InsideZoom['dispose'] = () => {
     if (disposed) return;
     disable();
     disposed = true;

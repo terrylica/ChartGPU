@@ -1,13 +1,8 @@
-import { describe, it, expect } from "vitest";
-import {
-  maxPointsPeakRetention,
-  maxPointsSoftLimit,
-  normalizeMaxPoints,
-  planMaxPointsWindow,
-} from "../maxPointsWindow";
+import { describe, it, expect } from 'vitest';
+import { maxPointsPeakRetention, normalizeMaxPoints, planMaxPointsWindow } from '../maxPointsWindow';
 
-describe("normalizeMaxPoints", () => {
-  it("returns undefined for missing/invalid values", () => {
+describe('normalizeMaxPoints', () => {
+  it('returns undefined for missing/invalid values', () => {
     expect(normalizeMaxPoints(undefined)).toBeUndefined();
     expect(normalizeMaxPoints(null)).toBeUndefined();
     expect(normalizeMaxPoints(0)).toBeUndefined();
@@ -15,14 +10,14 @@ describe("normalizeMaxPoints", () => {
     expect(normalizeMaxPoints(NaN)).toBeUndefined();
   });
 
-  it("floors positive finite values", () => {
+  it('floors positive finite values', () => {
     expect(normalizeMaxPoints(4.9)).toBe(4);
     expect(normalizeMaxPoints(1)).toBe(1);
   });
 });
 
-describe("planMaxPointsWindow (fixed-capacity ring)", () => {
-  it("pure append without maxPoints", () => {
+describe('planMaxPointsWindow (fixed-capacity ring)', () => {
+  it('pure append without maxPoints', () => {
     const p = planMaxPointsWindow(10, 3, undefined);
     expect(p).toMatchObject({
       nextCount: 13,
@@ -36,7 +31,7 @@ describe("planMaxPointsWindow (fixed-capacity ring)", () => {
     });
   });
 
-  it("pure append under ring capacity (fill phase)", () => {
+  it('pure append under ring capacity (fill phase)', () => {
     // prev=4, new=2, max=8 → uncapped 6 ≤ 8
     const p = planMaxPointsWindow(4, 2, 8);
     expect(p).toMatchObject({
@@ -50,7 +45,7 @@ describe("planMaxPointsWindow (fixed-capacity ring)", () => {
     });
   });
 
-  it("ring wrap when uncapped exceeds maxPoints (no soft 2×)", () => {
+  it('ring wrap when uncapped exceeds maxPoints (no soft 2×)', () => {
     // prev=8, new=1, max=4 → drop 5, next=4 (hard cap, not soft 2×)
     const p = planMaxPointsWindow(8, 1, 4);
     expect(p).toMatchObject({
@@ -65,7 +60,7 @@ describe("planMaxPointsWindow (fixed-capacity ring)", () => {
     });
   });
 
-  it("ring wrap when full: prev=max, append n → drop n", () => {
+  it('ring wrap when full: prev=max, append n → drop n', () => {
     // Steady-state FIFO: capacity full, append batch < capacity.
     const p = planMaxPointsWindow(1000, 100, 1000);
     expect(p).toMatchObject({
@@ -78,7 +73,7 @@ describe("planMaxPointsWindow (fixed-capacity ring)", () => {
     });
   });
 
-  it("strict replace when newCount === maxPoints (suite FIFO 100/100)", () => {
+  it('strict replace when newCount === maxPoints (suite FIFO 100/100)', () => {
     const p = planMaxPointsWindow(100, 100, 100);
     expect(p).toMatchObject({
       nextCount: 100,
@@ -91,7 +86,7 @@ describe("planMaxPointsWindow (fixed-capacity ring)", () => {
     });
   });
 
-  it("strict replace keeps only tail when newCount > maxPoints", () => {
+  it('strict replace keeps only tail when newCount > maxPoints', () => {
     const p = planMaxPointsWindow(50, 10, 4);
     expect(p).toMatchObject({
       nextCount: 4,
@@ -103,7 +98,7 @@ describe("planMaxPointsWindow (fixed-capacity ring)", () => {
     });
   });
 
-  it("maxPoints=1 always strict-replaces non-empty batches", () => {
+  it('maxPoints=1 always strict-replaces non-empty batches', () => {
     const p = planMaxPointsWindow(20, 3, 1);
     expect(p).toMatchObject({
       nextCount: 1,
@@ -114,12 +109,11 @@ describe("planMaxPointsWindow (fixed-capacity ring)", () => {
     });
   });
 
-  it("peak retention helpers equal maxPoints (ring, not soft 2×)", () => {
-    expect(maxPointsSoftLimit(5)).toBe(5);
+  it('peak retention equals maxPoints (ring, not soft 2×)', () => {
     expect(maxPointsPeakRetention(5)).toBe(5);
   });
 
-  it("newCount === 0 is a no-op keep of prev", () => {
+  it('newCount === 0 is a no-op keep of prev', () => {
     const p = planMaxPointsWindow(10, 0, 8);
     expect(p).toMatchObject({
       nextCount: 10,
@@ -132,7 +126,7 @@ describe("planMaxPointsWindow (fixed-capacity ring)", () => {
     });
   });
 
-  it("exact fill prev + new === maxPoints is pure append under ring", () => {
+  it('exact fill prev + new === maxPoints is pure append under ring', () => {
     const p = planMaxPointsWindow(6, 2, 8);
     expect(p).toMatchObject({
       nextCount: 8,

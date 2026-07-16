@@ -5,10 +5,10 @@
 
 /// <reference types="@webgpu/types" />
 
-import { describe, it, expect, beforeAll, vi } from "vitest";
-import { createLinearScale } from "../../utils/scales";
-import type { ResolvedAreaSeriesConfig } from "../../config/OptionResolver";
-import type { DataPoint } from "../../config/types";
+import { describe, it, expect, beforeAll, vi } from 'vitest';
+import { createLinearScale } from '../../utils/scales';
+import type { ResolvedAreaSeriesConfig } from '../../config/OptionResolver';
+import type { DataPoint } from '../../config/types';
 
 beforeAll(() => {
   // @ts-ignore
@@ -28,17 +28,20 @@ beforeAll(() => {
   };
 });
 
-import { createAreaRenderer } from "../createAreaRenderer";
+import { createAreaRenderer } from '../createAreaRenderer';
+import { writeUniformBuffer } from '../rendererUtils';
 
-vi.mock("../rendererUtils", () => ({
+vi.mock('../rendererUtils', () => ({
   createRenderPipeline: vi.fn(() => ({})),
   createUniformBuffer: vi.fn(() => ({ destroy: vi.fn() })),
   writeUniformBuffer: vi.fn(),
 }));
 
+const writeUniformBufferMock = writeUniformBuffer as ReturnType<typeof vi.fn>;
+
 function createMockDevice() {
   return {
-    label: "mockDevice",
+    label: 'mockDevice',
     limits: {
       maxUniformBufferBindingSize: 65536,
       minUniformBufferOffsetAlignment: 256,
@@ -61,26 +64,26 @@ function createMockDevice() {
 
 function areaConfig(
   data: ReadonlyArray<DataPoint>,
-  extra: Partial<ResolvedAreaSeriesConfig> = {},
+  extra: Partial<ResolvedAreaSeriesConfig> = {}
 ): ResolvedAreaSeriesConfig {
   return {
-    type: "area",
-    name: "a",
+    type: 'area',
+    name: 'a',
     data,
     rawData: data,
-    color: "#0af",
-    areaStyle: { opacity: 0.3, color: "#0af" },
-    sampling: "none",
+    color: '#0af',
+    areaStyle: { opacity: 0.3, color: '#0af' },
+    sampling: 'none',
     samplingThreshold: 5000,
     connectNulls: false,
-    yAxis: "y",
+    yAxis: 'y',
     visible: true,
     ...extra,
   } as ResolvedAreaSeriesConfig;
 }
 
-describe("createAreaRenderer geometry cache", () => {
-  it("skips vertex writeBuffer on second prepare with same data ref (axes-only)", () => {
+describe('createAreaRenderer geometry cache', () => {
+  it('skips vertex writeBuffer on second prepare with same data ref (axes-only)', () => {
     const device = createMockDevice();
     const writeBuffer = device.queue.writeBuffer as ReturnType<typeof vi.fn>;
     const renderer = createAreaRenderer(device);
@@ -105,7 +108,7 @@ describe("createAreaRenderer geometry cache", () => {
     renderer.dispose();
   });
 
-  it("re-uploads vertices when data reference changes", () => {
+  it('re-uploads vertices when data reference changes', () => {
     const device = createMockDevice();
     const writeBuffer = device.queue.writeBuffer as ReturnType<typeof vi.fn>;
     const renderer = createAreaRenderer(device);
@@ -128,7 +131,7 @@ describe("createAreaRenderer geometry cache", () => {
     renderer.dispose();
   });
 
-  it("re-uploads after invalidateGeometry even with same data ref", () => {
+  it('re-uploads after invalidateGeometry even with same data ref', () => {
     const device = createMockDevice();
     const writeBuffer = device.queue.writeBuffer as ReturnType<typeof vi.fn>;
     const renderer = createAreaRenderer(device);
@@ -147,6 +150,83 @@ describe("createAreaRenderer geometry cache", () => {
     renderer.invalidateGeometry();
     renderer.prepare(cfg, data, xScale, yScale, 0);
     expect(writeBuffer).toHaveBeenCalledTimes(2);
+    renderer.dispose();
+  });
+
+  it('packs N*8 bytes (not N*16 strip expansion) into private storage (1.4)', () => {
+    const device = createMockDevice();
+    const writeBuffer = device.queue.writeBuffer as ReturnType<typeof vi.fn>;
+    const renderer = createAreaRenderer(device);
+    const n = 10;
+    const data: DataPoint[] = Array.from({ length: n }, (_, i) => [i, i]);
+    const xScale = createLinearScale().domain(0, n).range(0, 100);
+    const yScale = createLinearScale().domain(0, n).range(100, 0);
+
+    renderer.prepare(areaConfig(data), data, xScale, yScale, 0);
+    const sizes = writeBuffer.mock.calls.map((c) => c[4]).filter((s): s is number => typeof s === 'number');
+    expect(sizes).toContain(n * 8);
+    expect(sizes).not.toContain(n * 16);
+    renderer.dispose();
+  });
+
+  it('skips private writeBuffer when binding external storage buffer', () => {
+    const device = createMockDevice();
+    const writeBuffer = device.queue.writeBuffer as ReturnType<typeof vi.fn>;
+    const renderer = createAreaRenderer(device);
+    const data: DataPoint[] = [
+      [0, 1],
+      [1, 2],
+      [2, 3],
+    ];
+    const xScale = createLinearScale().domain(0, 2).range(0, 100);
+    const yScale = createLinearScale().domain(0, 3).range(100, 0);
+    const external = { size: 1024, destroy: vi.fn() } as unknown as GPUBuffer;
+
+    renderer.prepare(areaConfig(data), data, xScale, yScale, 0, external, 3, 0);
+    expect(writeBuffer).not.toHaveBeenCalled();
+    renderer.dispose();
+  });
+
+  it('throws when storageBuffer is set without pointCountOverride', () => {
+    const device = createMockDevice();
+    const renderer = createAreaRenderer(device);
+    const data: DataPoint[] = [
+      [0, 1],
+      [1, 2],
+    ];
+    const xScale = createLinearScale().domain(0, 2).range(0, 100);
+    const yScale = createLinearScale().domain(0, 3).range(100, 0);
+    const external = { size: 1024, destroy: vi.fn() } as unknown as GPUBuffer;
+    expect(() => renderer.prepare(areaConfig(data), data, xScale, yScale, 0, external)).toThrow(/pointCountOverride/);
+    renderer.dispose();
+  });
+
+  it('skips uniform writes on second prepare with identical inputs (issue 2.5)', () => {
+    const device = createMockDevice();
+    writeUniformBufferMock.mockClear();
+    const renderer = createAreaRenderer(device);
+    const data: DataPoint[] = [
+      [0, 1],
+      [1, 2],
+      [2, 0],
+    ];
+    const xScale = createLinearScale().domain(0, 2).range(0, 100);
+    const yScale = createLinearScale().domain(0, 2).range(100, 0);
+    const cfg = areaConfig(data);
+
+    renderer.prepare(cfg, data, xScale, yScale, 0);
+    const afterFirst = writeUniformBufferMock.mock.calls.length;
+    expect(afterFirst).toBeGreaterThan(0);
+
+    writeUniformBufferMock.mockClear();
+    renderer.prepare(cfg, data, xScale, yScale, 0);
+    expect(writeUniformBufferMock).not.toHaveBeenCalled();
+
+    // Scale change → VS uniform write.
+    writeUniformBufferMock.mockClear();
+    const y2 = createLinearScale().domain(-1, 3).range(100, 0);
+    renderer.prepare(cfg, data, xScale, y2, 0);
+    expect(writeUniformBufferMock.mock.calls.length).toBeGreaterThan(0);
     renderer.dispose();
   });
 });

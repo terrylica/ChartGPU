@@ -11,7 +11,7 @@
  * algorithm so we lock the contract without a live GPU.
  */
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect } from 'vitest';
 
 /** Mirror of `umul64` in decimation.wgsl — returns [hi, lo]. */
 function umul64(a: number, b: number): [number, number] {
@@ -75,8 +75,8 @@ function mulDivU32Naive(a: number, b: number, denom: number): number {
   return Math.floor(prod / denom);
 }
 
-describe("decimation mulDivU32 (bucket index overflow regression)", () => {
-  it("matches exact floor(a*b/d) across the full interior range for 2.9M-span LTTB", () => {
+describe('decimation mulDivU32 (bucket index overflow regression)', () => {
+  it('matches exact floor(a*b/d) across the full interior range for 2.9M-span LTTB', () => {
     const span = 2_900_000 - 2;
     const interior = 5000 - 2; // default samplingThreshold
     for (let b = 0; b <= interior; b++) {
@@ -86,7 +86,7 @@ describe("decimation mulDivU32 (bucket index overflow regression)", () => {
     }
   });
 
-  it("naive u32 mul diverges past ~859k span (documents the production bug)", () => {
+  it('naive u32 mul diverges past ~859k span (documents the production bug)', () => {
     const interior = 4998;
     const span = 2_900_000 - 2;
     // High bucket ids wrap under naive mul — this is the visual "cut".
@@ -99,21 +99,15 @@ describe("decimation mulDivU32 (bucket index overflow regression)", () => {
     expect(naive).toBeLessThan(exp);
   });
 
-  it("first overflows for last interior bucket near span ≈ 859509", () => {
+  it('first overflows for last interior bucket near span ≈ 859509', () => {
     const interior = 4998;
     const lastB = interior - 1;
     // Below threshold: naive still matches
     const okSpan = 859_000;
-    expect(mulDivU32Naive(okSpan, lastB, interior)).toBe(
-      Math.floor((okSpan * lastB) / interior),
-    );
+    expect(mulDivU32Naive(okSpan, lastB, interior)).toBe(Math.floor((okSpan * lastB) / interior));
     // Above threshold: naive wraps
     const badSpan = 860_000;
-    expect(mulDivU32Naive(badSpan, lastB, interior)).not.toBe(
-      Math.floor((badSpan * lastB) / interior),
-    );
-    expect(mulDivU32(badSpan, lastB, interior)).toBe(
-      Math.floor((badSpan * lastB) / interior),
-    );
+    expect(mulDivU32Naive(badSpan, lastB, interior)).not.toBe(Math.floor((badSpan * lastB) / interior));
+    expect(mulDivU32(badSpan, lastB, interior)).toBe(Math.floor((badSpan * lastB) / interior));
   });
 });

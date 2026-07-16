@@ -7,32 +7,23 @@
  * @module renderOverlays
  */
 
-import type { ResolvedChartGPUOptions } from "../../../config/OptionResolver";
-import type { LinearScale } from "../../../utils/scales";
-import type { GridRenderer } from "../../../renderers/createGridRenderer";
-import type { AxisRenderer } from "../../../renderers/createAxisRenderer";
-import type {
-  CrosshairRenderer,
-  CrosshairRenderOptions,
-} from "../../../renderers/createCrosshairRenderer";
-import type {
-  HighlightRenderer,
-  HighlightPoint,
-} from "../../../renderers/createHighlightRenderer";
-import type { GridArea } from "../../../renderers/createGridRenderer";
-import {
-  findNearestPoint,
-  type NearestPointMatch,
-} from "../../../interaction/findNearestPoint";
-import { getPointXY } from "../utils/dataPointUtils";
-import { computePlotScissorDevicePx } from "../utils/axisUtils";
+import type { ResolvedChartGPUOptions } from '../../../config/OptionResolver';
+import type { LinearScale } from '../../../utils/scales';
+import type { GridRenderer } from '../../../renderers/createGridRenderer';
+import type { AxisRenderer } from '../../../renderers/createAxisRenderer';
+import type { CrosshairRenderer, CrosshairRenderOptions } from '../../../renderers/createCrosshairRenderer';
+import type { HighlightRenderer, HighlightPoint } from '../../../renderers/createHighlightRenderer';
+import type { GridArea } from '../../../renderers/createGridRenderer';
+import { findNearestPoint, type NearestPointMatch } from '../../../interaction/findNearestPoint';
+import { getPointXY } from '../utils/dataPointUtils';
+import { computePlotScissorDevicePx } from '../utils/axisUtils';
 import {
   type OverlayPrepareMemo,
   buildGridPrepareSignature,
   gridPrepareSignaturesEqual,
   buildAxisPrepareSignature,
   axisPrepareSignaturesEqual,
-} from "./overlayPrepareMemo";
+} from './overlayPrepareMemo';
 
 const DEFAULT_TICK_COUNT = 5;
 const DEFAULT_CROSSHAIR_LINE_WIDTH_CSS_PX = 1;
@@ -62,7 +53,7 @@ export interface OverlayPrepareContext {
   effectivePointer: {
     hasPointer: boolean;
     isInGrid: boolean;
-    source: "mouse" | "sync";
+    source: 'mouse' | 'sync';
     x: number;
     y: number;
     gridX: number;
@@ -108,10 +99,7 @@ export interface OverlayRenderContext {
  * @param renderers - Overlay renderer instances
  * @param context - Rendering context with scales, options, and pointer state
  */
-export function prepareOverlays(
-  renderers: OverlayRenderers,
-  context: OverlayPrepareContext,
-): void {
+export function prepareOverlays(renderers: OverlayRenderers, context: OverlayPrepareContext): void {
   const {
     currentOptions,
     xScale,
@@ -130,13 +118,8 @@ export function prepareOverlays(
   // unless the memo signature matches (geometry/colors unchanged).
   const gridLinesConfig = currentOptions.gridLines;
   const horizontalCount =
-    gridLinesConfig.show && gridLinesConfig.horizontal.show
-      ? gridLinesConfig.horizontal.count
-      : 0;
-  const verticalCount =
-    gridLinesConfig.show && gridLinesConfig.vertical.show
-      ? gridLinesConfig.vertical.count
-      : 0;
+    gridLinesConfig.show && gridLinesConfig.horizontal.show ? gridLinesConfig.horizontal.count : 0;
+  const verticalCount = gridLinesConfig.show && gridLinesConfig.vertical.show ? gridLinesConfig.vertical.count : 0;
 
   const gridSig = buildGridPrepareSignature({
     gridArea,
@@ -147,8 +130,7 @@ export function prepareOverlays(
     verticalColor: gridLinesConfig.vertical.color,
   });
 
-  const gridUnchanged =
-    memo != null && gridPrepareSignaturesEqual(memo.grid, gridSig);
+  const gridUnchanged = memo != null && gridPrepareSignaturesEqual(memo.grid, gridSig);
 
   if (!gridUnchanged) {
     // Clear grid when hidden (or when both counts are zero).
@@ -173,10 +155,7 @@ export function prepareOverlays(
       });
     } else {
       // Single color (either both directions share a color, or only one direction is enabled).
-      const color =
-        horizontalCount > 0
-          ? gridLinesConfig.horizontal.color
-          : gridLinesConfig.vertical.color;
+      const color = horizontalCount > 0 ? gridLinesConfig.horizontal.color : gridLinesConfig.vertical.color;
       renderers.gridRenderer.prepare(gridArea, {
         lineCount: { horizontal: horizontalCount, vertical: verticalCount },
         color,
@@ -193,24 +172,23 @@ export function prepareOverlays(
     const xSig = buildAxisPrepareSignature({
       axisConfig: currentOptions.xAxis,
       scale: xScale,
-      orientation: "x",
-      axisId: "x",
+      orientation: 'x',
+      axisId: 'x',
       gridArea,
       axisLineColor,
       axisTickColor,
       tickCount: xTickCount,
     });
-    const xUnchanged =
-      memo != null && axisPrepareSignaturesEqual(memo.xAxis, xSig);
+    const xUnchanged = memo != null && axisPrepareSignaturesEqual(memo.xAxis, xSig);
     if (!xUnchanged) {
       renderers.xAxisRenderer.prepare(
         currentOptions.xAxis,
         xScale,
-        "x",
+        'x',
         gridArea,
         axisLineColor,
         axisTickColor,
-        xTickCount,
+        xTickCount
       );
       if (memo) memo.xAxis = xSig;
     }
@@ -222,30 +200,20 @@ export function prepareOverlays(
       const yAxisRenderer = renderers.yAxisRenderers.get(axisId);
       if (!yAxisRenderer) continue;
       const axisYScale = yScales.get(axisId) ?? yScales.values().next().value!;
-      const yTickCount =
-        (yAxisConfig as { tickCount?: number }).tickCount ?? DEFAULT_TICK_COUNT;
+      const yTickCount = (yAxisConfig as { tickCount?: number }).tickCount ?? DEFAULT_TICK_COUNT;
       const ySig = buildAxisPrepareSignature({
         axisConfig: yAxisConfig,
         scale: axisYScale,
-        orientation: "y",
+        orientation: 'y',
         axisId,
         gridArea,
         axisLineColor,
         axisTickColor,
         tickCount: yTickCount,
       });
-      const yUnchanged =
-        memo != null && axisPrepareSignaturesEqual(memo.yAxes.get(axisId), ySig);
+      const yUnchanged = memo != null && axisPrepareSignaturesEqual(memo.yAxes.get(axisId), ySig);
       if (!yUnchanged) {
-        yAxisRenderer.prepare(
-          yAxisConfig,
-          axisYScale,
-          "y",
-          gridArea,
-          axisLineColor,
-          axisTickColor,
-          yTickCount,
-        );
+        yAxisRenderer.prepare(yAxisConfig, axisYScale, 'y', gridArea, axisLineColor, axisTickColor, yTickCount);
         if (memo) memo.yAxes.set(axisId, ySig);
       }
     }
@@ -262,16 +230,11 @@ export function prepareOverlays(
     const crosshairOptions: CrosshairRenderOptions = {
       showX: true,
       // Sync has no meaningful y, so avoid horizontal line.
-      showY: effectivePointer.source !== "sync",
+      showY: effectivePointer.source !== 'sync',
       color: withAlpha(currentOptions.theme.axisLineColor, 0.6),
       lineWidth: DEFAULT_CROSSHAIR_LINE_WIDTH_CSS_PX,
     };
-    renderers.crosshairRenderer.prepare(
-      effectivePointer.x,
-      effectivePointer.y,
-      gridArea,
-      crosshairOptions,
-    );
+    renderers.crosshairRenderer.prepare(effectivePointer.x, effectivePointer.y, gridArea, crosshairOptions);
     renderers.crosshairRenderer.setVisible(true);
   } else {
     renderers.crosshairRenderer.setVisible(false);
@@ -280,11 +243,7 @@ export function prepareOverlays(
   // Highlight preparation (on hover, find nearest point).
   // Prefer a shared match from the coordinator (P0-5) so tooltip + highlight
   // do not each run findNearestPoint on the same frame.
-  if (
-    effectivePointer.source === "mouse" &&
-    effectivePointer.hasPointer &&
-    effectivePointer.isInGrid
-  ) {
+  if (effectivePointer.source === 'mouse' && effectivePointer.hasPointer && effectivePointer.isInGrid) {
     if (interactionScales) {
       const match =
         context.nearestMatch !== undefined
@@ -294,16 +253,16 @@ export function prepareOverlays(
               effectivePointer.gridX,
               effectivePointer.gridY,
               interactionScales.xScale,
-              interactionScales.yScales.values().next().value!,
+              interactionScales.yScales.values().next().value!
             );
 
       if (match) {
         const { x, y } = getPointXY(match.point);
         const xGridCss = interactionScales.xScale.scale(x);
         const matchedSeriesCfg = seriesForRender[match.seriesIndex] as any;
-        const matchedAxisId = matchedSeriesCfg?.yAxis || "y";
-        const matchedYScale = interactionScales.yScales.get(matchedAxisId)
-          ?? interactionScales.yScales.values().next().value!;
+        const matchedAxisId = matchedSeriesCfg?.yAxis || 'y';
+        const matchedYScale =
+          interactionScales.yScales.get(matchedAxisId) ?? interactionScales.yScales.values().next().value!;
         const yGridCss = matchedYScale.scale(y);
 
         if (Number.isFinite(xGridCss) && Number.isFinite(yGridCss)) {
@@ -320,13 +279,8 @@ export function prepareOverlays(
             scissor: plotScissor,
           };
 
-          const seriesColor =
-            currentOptions.series[match.seriesIndex]?.color ?? "#888";
-          renderers.highlightRenderer.prepare(
-            point,
-            seriesColor,
-            DEFAULT_HIGHLIGHT_SIZE_CSS_PX,
-          );
+          const seriesColor = currentOptions.series[match.seriesIndex]?.color ?? '#888';
+          renderers.highlightRenderer.prepare(point, seriesColor, DEFAULT_HIGHLIGHT_SIZE_CSS_PX);
           renderers.highlightRenderer.setVisible(true);
         } else {
           renderers.highlightRenderer.setVisible(false);
@@ -352,10 +306,7 @@ export function prepareOverlays(
  * @param renderers - Overlay renderer instances
  * @param context - Render pass context
  */
-export function renderOverlays(
-  renderers: OverlayRenderers,
-  context: OverlayRenderContext,
-): void {
+export function renderOverlays(renderers: OverlayRenderers, context: OverlayRenderContext): void {
   const { mainPass, overlayPass, hasCartesianSeries } = context;
 
   // Grid renders in main pass (background)

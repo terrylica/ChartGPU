@@ -20,14 +20,9 @@
  * the per-bucket indexing convention and the output layout contract.
  */
 
-import decimationWgsl from "../shaders/decimation.wgsl?raw";
-import type { PipelineCache } from "../core/PipelineCache";
-import {
-  createComputePipeline,
-  createShaderModule,
-  createUniformBuffer,
-  writeUniformBuffer,
-} from "./rendererUtils";
+import decimationWgsl from '../shaders/decimation.wgsl?raw';
+import type { PipelineCache } from '../core/PipelineCache';
+import { createComputePipeline, createShaderModule, createUniformBuffer, writeUniformBuffer } from './rendererUtils';
 
 /**
  * Algorithm selected by the caller. Mirrors the CPU `SeriesSampling` values
@@ -35,7 +30,7 @@ import {
  * `'auto'` to `'lttb'` before calling in (we do not re-encode that decision
  * here so the module stays policy-free).
  */
-export type DecimationAlgorithm = "lttb" | "min" | "max";
+export type DecimationAlgorithm = 'lttb' | 'min' | 'max';
 
 export interface DecimationComputePrepareParams {
   readonly algorithm: DecimationAlgorithm;
@@ -108,10 +103,7 @@ export interface DecimationCompute {
    * begin/end). Used by the coordinator to batch all series decimation into one
    * compute pass instead of 5× beginComputePass per frame.
    */
-  encodeCompute(
-    encoder: GPUCommandEncoder,
-    intoPass?: GPUComputePassEncoder,
-  ): void;
+  encodeCompute(encoder: GPUCommandEncoder, intoPass?: GPUComputePassEncoder): void;
 
   /**
    * GPU storage buffer holding the decimated `vec2<f32>` points. Stable across
@@ -149,82 +141,52 @@ const DECIMATION_UNIFORM_BYTES = 32;
 const MODE_MIN = 0;
 const MODE_MAX = 1;
 
-export function createDecimationCompute(
-  device: GPUDevice,
-  options?: DecimationComputeOptions,
-): DecimationCompute {
+export function createDecimationCompute(device: GPUDevice, options?: DecimationComputeOptions): DecimationCompute {
   let disposed = false;
   const pipelineCache = options?.pipelineCache;
 
   const bindGroupLayout = device.createBindGroupLayout({
-    label: "decimationCompute/bindGroupLayout",
+    label: 'decimationCompute/bindGroupLayout',
     entries: [
       {
         binding: 0,
         visibility: GPUShaderStage.COMPUTE,
-        buffer: { type: "uniform" },
+        buffer: { type: 'uniform' },
       },
       {
         binding: 1,
         visibility: GPUShaderStage.COMPUTE,
-        buffer: { type: "read-only-storage" },
+        buffer: { type: 'read-only-storage' },
       },
       {
         binding: 2,
         visibility: GPUShaderStage.COMPUTE,
-        buffer: { type: "storage" },
+        buffer: { type: 'storage' },
       },
       {
         binding: 3,
         visibility: GPUShaderStage.COMPUTE,
-        buffer: { type: "storage" },
+        buffer: { type: 'storage' },
       },
     ],
   });
 
-  const module = createShaderModule(
-    device,
-    decimationWgsl,
-    "decimation.wgsl",
-    pipelineCache,
-  );
-  // Surface WGSL compile errors at creation time. WebGPU's downstream validation
-  // only reports "previous error" on pipeline creation; the actual messages live
-  // in the shader module's compilation info. Fire-and-forget so we don't block
-  // pipeline creation in the common (error-free) case.
-  if (typeof module.getCompilationInfo === "function") {
-    module.getCompilationInfo().then((info) => {
-      for (const msg of info.messages) {
-        if (msg.type === "error") {
-          console.error(
-            `[decimation.wgsl:${msg.lineNum}:${msg.linePos}] ${msg.message}`,
-          );
-        } else if (msg.type === "warning") {
-          console.warn(
-            `[decimation.wgsl:${msg.lineNum}:${msg.linePos}] ${msg.message}`,
-          );
-        }
-      }
-    });
-  }
-
-  // Best-effort: surface WGSL compile errors with line-level precision. Without
-  // this, Chrome's pipeline-creation error message is just "ShaderModule
-  // invalid due to a previous error" — which makes even a one-line typo in the
-  // shader hard to diagnose.
+  const module = createShaderModule(device, decimationWgsl, 'decimation.wgsl', pipelineCache);
+  // Best-effort: surface WGSL compile errors with line-level precision (issue 3.3).
+  // Without this, Chrome's pipeline-creation error is just "ShaderModule
+  // invalid due to a previous error". Single getCompilationInfo block only.
   const getCompilationInfo = module.getCompilationInfo?.bind(module);
   if (getCompilationInfo) {
     getCompilationInfo()
       .then((info) => {
-        const errors = info.messages.filter((m) => m.type === "error");
-        if (errors.length > 0) {
-          const formatted = errors
-            .map((m) => `  ${m.lineNum ?? 0}:${m.linePos ?? 0} ${m.message}`)
-            .join("\n");
-          // eslint-disable-next-line no-console
-          console.error(
-            `[decimation.wgsl] compile errors:\n${formatted}`,
-          );
+        for (const msg of info.messages) {
+          if (msg.type === 'error') {
+            // eslint-disable-next-line no-console
+            console.error(`[decimation.wgsl:${msg.lineNum ?? 0}:${msg.linePos ?? 0}] ${msg.message}`);
+          } else if (msg.type === 'warning') {
+            // eslint-disable-next-line no-console
+            console.warn(`[decimation.wgsl:${msg.lineNum ?? 0}:${msg.linePos ?? 0}] ${msg.message}`);
+          }
         }
       })
       .catch(() => {
@@ -238,33 +200,33 @@ export function createDecimationCompute(
   const minMaxPipeline = createComputePipeline(
     device,
     {
-      label: "decimationCompute/minMaxPipeline",
+      label: 'decimationCompute/minMaxPipeline',
       layout: pipelineLayout,
-      compute: { module, entryPoint: "minMaxDecimate" },
+      compute: { module, entryPoint: 'minMaxDecimate' },
     },
-    pipelineCache,
+    pipelineCache
   );
   const averagesPipeline = createComputePipeline(
     device,
     {
-      label: "decimationCompute/averagesPipeline",
+      label: 'decimationCompute/averagesPipeline',
       layout: pipelineLayout,
-      compute: { module, entryPoint: "computeBucketAverages" },
+      compute: { module, entryPoint: 'computeBucketAverages' },
     },
-    pipelineCache,
+    pipelineCache
   );
   const lttbPipeline = createComputePipeline(
     device,
     {
-      label: "decimationCompute/lttbPipeline",
+      label: 'decimationCompute/lttbPipeline',
       layout: pipelineLayout,
-      compute: { module, entryPoint: "parallelLttbDecimate" },
+      compute: { module, entryPoint: 'parallelLttbDecimate' },
     },
-    pipelineCache,
+    pipelineCache
   );
 
   const uniformBuffer = createUniformBuffer(device, DECIMATION_UNIFORM_BYTES, {
-    label: "decimationCompute/uniforms",
+    label: 'decimationCompute/uniforms',
   });
   const uniformScratch = new ArrayBuffer(DECIMATION_UNIFORM_BYTES);
   const uniformScratchU32 = new Uint32Array(uniformScratch);
@@ -300,10 +262,7 @@ export function createDecimationCompute(
       return;
     }
 
-    bufferCapacityPoints = Math.max(
-      bufferCapacityPoints,
-      Math.max(MIN_OUTPUT_CAPACITY, nextPow2(required)),
-    );
+    bufferCapacityPoints = Math.max(bufferCapacityPoints, Math.max(MIN_OUTPUT_CAPACITY, nextPow2(required)));
     const byteSize = bufferCapacityPoints * 2 * 4; // vec2<f32> = 8 bytes
 
     if (outputBuffer) {
@@ -322,12 +281,12 @@ export function createDecimationCompute(
     }
 
     outputBuffer = device.createBuffer({
-      label: "decimationCompute/outputBuffer",
+      label: 'decimationCompute/outputBuffer',
       size: byteSize,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
     });
     averagesBuffer = device.createBuffer({
-      label: "decimationCompute/averagesBuffer",
+      label: 'decimationCompute/averagesBuffer',
       size: byteSize,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
     });
@@ -341,7 +300,7 @@ export function createDecimationCompute(
     if (!outputBuffer || !averagesBuffer) return;
 
     bindGroup = device.createBindGroup({
-      label: "decimationCompute/bindGroup",
+      label: 'decimationCompute/bindGroup',
       layout: bindGroupLayout,
       entries: [
         { binding: 0, resource: { buffer: uniformBuffer } },
@@ -354,10 +313,10 @@ export function createDecimationCompute(
   };
 
   const assertNotDisposed = (): void => {
-    if (disposed) throw new Error("DecimationCompute is disposed.");
+    if (disposed) throw new Error('DecimationCompute is disposed.');
   };
 
-  const prepare: DecimationCompute["prepare"] = (params) => {
+  const prepare: DecimationCompute['prepare'] = (params) => {
     assertNotDisposed();
 
     const {
@@ -381,8 +340,7 @@ export function createDecimationCompute(
     // transitions; stable undefined keeps skip behavior for tests that omit it.
     const version = contentVersion;
     const ringCap = Math.max(0, (ringCapacityIn ?? 0) | 0);
-    const ringStart =
-      ringCap > 0 ? Math.max(0, (ringStartIn ?? 0) | 0) % ringCap : 0;
+    const ringStart = ringCap > 0 ? Math.max(0, (ringStartIn ?? 0) | 0) % ringCap : 0;
 
     ensureBuffers(buckets);
     ensureBindGroup(rawBuffer);
@@ -390,7 +348,7 @@ export function createDecimationCompute(
     // Detect signature changes to decide whether to re-dispatch the compute.
     // contentVersion covers same-buffer same-N payload rewrites (WG-P0-2).
     // ringStart/capacity cover modular FIFO wrap without a full buffer rewrite.
-    if (
+    const signatureChanged =
       lastAlgorithm !== algorithm ||
       lastRawBuffer !== rawBuffer ||
       lastRawPointCount !== rawCount ||
@@ -399,8 +357,8 @@ export function createDecimationCompute(
       lastTargetBuckets !== buckets ||
       lastContentVersion !== version ||
       lastRingStart !== ringStart ||
-      lastRingCapacity !== ringCap
-    ) {
+      lastRingCapacity !== ringCap;
+    if (signatureChanged) {
       dirty = true;
       lastAlgorithm = algorithm;
       lastRawBuffer = rawBuffer;
@@ -418,32 +376,30 @@ export function createDecimationCompute(
     uniformScratchU32[1] = vs >>> 0;
     uniformScratchU32[2] = ve >>> 0;
     uniformScratchU32[3] = buckets >>> 0;
-    uniformScratchU32[4] =
-      algorithm === "max" ? MODE_MAX : algorithm === "min" ? MODE_MIN : 0;
+    uniformScratchU32[4] = algorithm === 'max' ? MODE_MAX : algorithm === 'min' ? MODE_MIN : 0;
     uniformScratchU32[5] = ringStart >>> 0;
     uniformScratchU32[6] = ringCap >>> 0;
     uniformScratchU32[7] = 0;
 
-    // Always upload uniforms on prepare — cheap and keeps the dirty path simple.
-    // (The `dirty` flag governs whether a compute pass is encoded, not the write.)
-    writeUniformBuffer(device, uniformBuffer, uniformScratch);
+    // Issue 2.5: skip uniform write when signature unchanged this prepare
+    // (dirty may still be true if encodeCompute has not run yet).
+    if (signatureChanged) {
+      writeUniformBuffer(device, uniformBuffer, uniformScratch);
+    }
 
     hasPrepared = true;
     lastOutputPointCount = buckets;
     return buckets;
   };
 
-  const needsEncode: DecimationCompute["needsEncode"] = () => {
+  const needsEncode: DecimationCompute['needsEncode'] = () => {
     if (disposed || !hasPrepared || !dirty || !bindGroup) return false;
     const buckets = lastTargetBuckets;
     const span = lastVisibleEnd - lastVisibleStart;
     return buckets >= 2 && span > 0;
   };
 
-  const encodeCompute: DecimationCompute["encodeCompute"] = (
-    encoder,
-    intoPass,
-  ) => {
+  const encodeCompute: DecimationCompute['encodeCompute'] = (encoder, intoPass) => {
     assertNotDisposed();
     if (!hasPrepared) return;
     if (!dirty) return;
@@ -461,11 +417,11 @@ export function createDecimationCompute(
     const pass =
       intoPass ??
       encoder.beginComputePass({
-        label: "decimationCompute/computePass",
+        label: 'decimationCompute/computePass',
       });
     pass.setBindGroup(0, bindGroup);
 
-    if (lastAlgorithm === "min" || lastAlgorithm === "max") {
+    if (lastAlgorithm === 'min' || lastAlgorithm === 'max') {
       // `minMaxDecimate` dispatches `max(buckets - 2, 1)` workgroups. Workgroup
       // 0 is responsible for both fixed anchors (first + last) via tid 0, so a
       // lone bucket still runs a single workgroup.
@@ -488,7 +444,7 @@ export function createDecimationCompute(
     dirty = false;
   };
 
-  const getOutputBuffer: DecimationCompute["getOutputBuffer"] = () => {
+  const getOutputBuffer: DecimationCompute['getOutputBuffer'] = () => {
     if (!outputBuffer) {
       // First call before ensureBuffers runs: allocate the minimum so the
       // renderer has a real buffer identity to cache its bind group against.
@@ -497,10 +453,9 @@ export function createDecimationCompute(
     return outputBuffer!;
   };
 
-  const getOutputPointCount: DecimationCompute["getOutputPointCount"] = () =>
-    lastOutputPointCount;
+  const getOutputPointCount: DecimationCompute['getOutputPointCount'] = () => lastOutputPointCount;
 
-  const dispose: DecimationCompute["dispose"] = () => {
+  const dispose: DecimationCompute['dispose'] = () => {
     if (disposed) return;
     disposed = true;
 

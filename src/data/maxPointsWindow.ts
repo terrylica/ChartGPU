@@ -57,9 +57,7 @@ export type MaxPointsWindowPlan = Readonly<{
  * Normalizes a caller-supplied `maxPoints` option to a positive integer, or
  * `undefined` when the option is absent / invalid.
  */
-export function normalizeMaxPoints(
-  maxPoints: number | undefined | null,
-): number | undefined {
+export function normalizeMaxPoints(maxPoints: number | undefined | null): number | undefined {
   if (maxPoints == null || !Number.isFinite(maxPoints) || maxPoints <= 0) {
     return undefined;
   }
@@ -74,23 +72,13 @@ export function maxPointsPeakRetention(maxPoints: number): number {
 }
 
 /**
- * Peak retained length under `maxPoints` (fixed ring capacity).
- *
- * @deprecated Soft-window used 2×; ring FIFO caps at `maxPoints`. Prefer
- * {@link maxPointsPeakRetention}. Kept as an alias for older call sites.
- */
-export function maxPointsSoftLimit(maxPoints: number): number {
-  return maxPointsPeakRetention(maxPoints);
-}
-
-/**
  * Plans how many points to keep after appending `newCount` onto a series of
  * length `prevCount` under optional `maxPoints` (fixed-capacity ring).
  */
 export function planMaxPointsWindow(
   prevCount: number,
   newCount: number,
-  maxPoints: number | undefined,
+  maxPoints: number | undefined
 ): MaxPointsWindowPlan {
   const prev = Math.max(0, prevCount | 0);
   const neu = Math.max(0, newCount | 0);

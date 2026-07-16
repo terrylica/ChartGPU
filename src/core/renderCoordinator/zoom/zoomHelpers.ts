@@ -7,7 +7,7 @@
  * @module zoomHelpers
  */
 
-import type { ZoomRange } from "../../../interaction/createZoomState";
+import type { ZoomRange } from '../../../interaction/createZoomState';
 
 /**
  * Domain boundaries with min and max values.
@@ -46,10 +46,7 @@ export interface VisibleDomain extends DomainBounds {
  * // Returns: { min: 250, max: 750, spanFraction: 0.5 }
  * ```
  */
-export function computeVisibleDomain(
-  baseDomain: DomainBounds,
-  zoomRange?: ZoomRange | null,
-): VisibleDomain {
+export function computeVisibleDomain(baseDomain: DomainBounds, zoomRange?: ZoomRange | null): VisibleDomain {
   if (!zoomRange) {
     return { ...baseDomain, spanFraction: 1 };
   }
@@ -94,9 +91,7 @@ export function computeVisibleDomain(
  * isFullSpanZoom({ start: 25, end: 75 });      // false
  * ```
  */
-export function isFullSpanZoom(
-  zoomRange: ZoomRange | null | undefined,
-): boolean {
+export function isFullSpanZoom(zoomRange: ZoomRange | null | undefined): boolean {
   if (zoomRange == null) return true;
 
   const { start, end } = zoomRange;
@@ -125,10 +120,7 @@ export function isFullSpanZoom(
  * // Returns: { min: 90, max: 210 } (±10% buffer)
  * ```
  */
-export function computeBufferedDomain(
-  visibleDomain: DomainBounds,
-  bufferPercent: number = 0.1,
-): DomainBounds {
+export function computeBufferedDomain(visibleDomain: DomainBounds, bufferPercent: number = 0.1): DomainBounds {
   const span = visibleDomain.max - visibleDomain.min;
   if (!Number.isFinite(span) || span <= 0) {
     return { ...visibleDomain };
@@ -157,10 +149,7 @@ export function computeBufferedDomain(
  * // Returns: 50
  * ```
  */
-export function domainValueToPercent(
-  value: number,
-  baseDomain: DomainBounds,
-): number {
+export function domainValueToPercent(value: number, baseDomain: DomainBounds): number {
   const span = baseDomain.max - baseDomain.min;
   if (!Number.isFinite(span) || span === 0) return 0;
 
@@ -184,10 +173,7 @@ export function domainValueToPercent(
  * // Returns: 500
  * ```
  */
-export function percentToDomainValue(
-  percent: number,
-  baseDomain: DomainBounds,
-): number {
+export function percentToDomainValue(percent: number, baseDomain: DomainBounds): number {
   const span = baseDomain.max - baseDomain.min;
   return baseDomain.min + (percent / 100) * span;
 }
@@ -199,10 +185,7 @@ export function percentToDomainValue(
  * @param baseDomain - The full base domain
  * @returns Span in percent [0-100]
  */
-export function calculateZoomSpan(
-  windowDomain: DomainBounds,
-  baseDomain: DomainBounds,
-): number {
+export function calculateZoomSpan(windowDomain: DomainBounds, baseDomain: DomainBounds): number {
   const baseSpan = baseDomain.max - baseDomain.min;
   const windowSpan = windowDomain.max - windowDomain.min;
 

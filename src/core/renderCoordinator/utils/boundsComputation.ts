@@ -8,10 +8,10 @@
  * @module boundsComputation
  */
 
-import type { DataPoint, OHLCDataPoint } from "../../../config/types";
-import type { ResolvedChartGPUOptions } from "../../../config/OptionResolver";
-import { getPointXY, isTupleOHLCDataPoint } from "./dataPointUtils";
-import { computeRawBoundsFromCartesianData } from "../../../data/cartesianData";
+import type { DataPoint, OHLCDataPoint } from '../../../config/types';
+import type { ResolvedChartGPUOptions } from '../../../config/OptionResolver';
+import { getPointXY, isTupleOHLCDataPoint } from './dataPointUtils';
+import { computeRawBoundsFromCartesianData } from '../../../data/cartesianData';
 
 /**
  * Bounds type for min/max x and y values.
@@ -31,9 +31,7 @@ export type Bounds = Readonly<{
  * @param data - Array of data points (tuple or object format)
  * @returns Bounds object or null if no finite points
  */
-export const computeRawBoundsFromData = (
-  data: ReadonlyArray<DataPoint>,
-): Bounds | null => {
+export const computeRawBoundsFromData = (data: ReadonlyArray<DataPoint>): Bounds | null => {
   let xMin = Number.POSITIVE_INFINITY;
   let xMax = Number.NEGATIVE_INFINITY;
   let yMin = Number.POSITIVE_INFINITY;
@@ -48,12 +46,7 @@ export const computeRawBoundsFromData = (
     if (y > yMax) yMax = y;
   }
 
-  if (
-    !Number.isFinite(xMin) ||
-    !Number.isFinite(xMax) ||
-    !Number.isFinite(yMin) ||
-    !Number.isFinite(yMax)
-  ) {
+  if (!Number.isFinite(xMin) || !Number.isFinite(xMax) || !Number.isFinite(yMin) || !Number.isFinite(yMax)) {
     return null;
   }
 
@@ -72,10 +65,7 @@ export const computeRawBoundsFromData = (
  * @param points - New points to extend bounds with
  * @returns Updated bounds or null if no finite points
  */
-export const extendBoundsWithDataPoints = (
-  bounds: Bounds | null,
-  points: ReadonlyArray<DataPoint>,
-): Bounds | null => {
+export const extendBoundsWithDataPoints = (bounds: Bounds | null, points: ReadonlyArray<DataPoint>): Bounds | null => {
   if (points.length === 0) return bounds;
 
   let b = bounds;
@@ -117,7 +107,7 @@ export const extendBoundsWithDataPoints = (
  */
 export const extendBoundsWithOHLCDataPoints = (
   bounds: Bounds | null,
-  points: ReadonlyArray<OHLCDataPoint>,
+  points: ReadonlyArray<OHLCDataPoint>
 ): Bounds | null => {
   if (points.length === 0) return bounds;
 
@@ -132,24 +122,14 @@ export const extendBoundsWithOHLCDataPoints = (
     const low = isTupleOHLCDataPoint(p) ? p[3] : p.low;
     const high = isTupleOHLCDataPoint(p) ? p[4] : p.high;
 
-    if (
-      !Number.isFinite(timestamp) ||
-      !Number.isFinite(low) ||
-      !Number.isFinite(high)
-    )
-      continue;
+    if (!Number.isFinite(timestamp) || !Number.isFinite(low) || !Number.isFinite(high)) continue;
     if (timestamp < xMin) xMin = timestamp;
     if (timestamp > xMax) xMax = timestamp;
     if (low < yMin) yMin = low;
     if (high > yMax) yMax = high;
   }
 
-  if (
-    !Number.isFinite(xMin) ||
-    !Number.isFinite(xMax) ||
-    !Number.isFinite(yMin) ||
-    !Number.isFinite(yMax)
-  ) {
+  if (!Number.isFinite(xMin) || !Number.isFinite(xMax) || !Number.isFinite(yMin) || !Number.isFinite(yMax)) {
     return bounds;
   }
 
@@ -169,8 +149,8 @@ export const extendBoundsWithOHLCDataPoints = (
  * @returns Global bounds across all series, defaults to (0,1) x (0,1) if no finite data
  */
 export const computeGlobalBounds = (
-  series: ResolvedChartGPUOptions["series"],
-  runtimeRawBoundsByIndex?: ReadonlyArray<Bounds | null> | null,
+  series: ResolvedChartGPUOptions['series'],
+  runtimeRawBoundsByIndex?: ReadonlyArray<Bounds | null> | null
 ): Bounds => {
   let xMin = Number.POSITIVE_INFINITY;
   let xMax = Number.NEGATIVE_INFINITY;
@@ -180,17 +160,12 @@ export const computeGlobalBounds = (
   for (let s = 0; s < series.length; s++) {
     const seriesConfig = series[s];
     // Pie series are non-cartesian; they don't participate in x/y bounds.
-    if (seriesConfig.type === "pie") continue;
+    if (seriesConfig.type === 'pie') continue;
 
     const runtimeBoundsCandidate = runtimeRawBoundsByIndex?.[s] ?? null;
     if (runtimeBoundsCandidate) {
       const b = runtimeBoundsCandidate;
-      if (
-        Number.isFinite(b.xMin) &&
-        Number.isFinite(b.xMax) &&
-        Number.isFinite(b.yMin) &&
-        Number.isFinite(b.yMax)
-      ) {
+      if (Number.isFinite(b.xMin) && Number.isFinite(b.xMax) && Number.isFinite(b.yMin) && Number.isFinite(b.yMax)) {
         if (b.xMin < xMin) xMin = b.xMin;
         if (b.xMax > xMax) xMax = b.xMax;
         if (b.yMin < yMin) yMin = b.yMin;
@@ -204,12 +179,7 @@ export const computeGlobalBounds = (
     const rawBoundsCandidate = seriesConfig.rawBounds;
     if (rawBoundsCandidate) {
       const b = rawBoundsCandidate;
-      if (
-        Number.isFinite(b.xMin) &&
-        Number.isFinite(b.xMax) &&
-        Number.isFinite(b.yMin) &&
-        Number.isFinite(b.yMax)
-      ) {
+      if (Number.isFinite(b.xMin) && Number.isFinite(b.xMax) && Number.isFinite(b.yMin) && Number.isFinite(b.yMax)) {
         if (b.xMin < xMin) xMin = b.xMin;
         if (b.xMax > xMax) xMax = b.xMax;
         if (b.yMin < yMin) yMin = b.yMin;
@@ -220,21 +190,15 @@ export const computeGlobalBounds = (
 
     // Candlestick series: bounds should be precomputed in OptionResolver from timestamp/low/high.
     // If we reach here, `rawBounds` was undefined; fall back to a raw OHLC scan so axes don't break.
-    if (seriesConfig.type === "candlestick") {
-      const rawOHLC = (seriesConfig.rawData ??
-        seriesConfig.data) as ReadonlyArray<OHLCDataPoint>;
+    if (seriesConfig.type === 'candlestick') {
+      const rawOHLC = (seriesConfig.rawData ?? seriesConfig.data) as ReadonlyArray<OHLCDataPoint>;
       for (let i = 0; i < rawOHLC.length; i++) {
         const p = rawOHLC[i]!;
         if (isTupleOHLCDataPoint(p)) {
           const timestamp = p[0];
           const low = p[3];
           const high = p[4];
-          if (
-            !Number.isFinite(timestamp) ||
-            !Number.isFinite(low) ||
-            !Number.isFinite(high)
-          )
-            continue;
+          if (!Number.isFinite(timestamp) || !Number.isFinite(low) || !Number.isFinite(high)) continue;
 
           const yLow = Math.min(low, high);
           const yHigh = Math.max(low, high);
@@ -247,12 +211,7 @@ export const computeGlobalBounds = (
           const timestamp = p.timestamp;
           const low = p.low;
           const high = p.high;
-          if (
-            !Number.isFinite(timestamp) ||
-            !Number.isFinite(low) ||
-            !Number.isFinite(high)
-          )
-            continue;
+          if (!Number.isFinite(timestamp) || !Number.isFinite(low) || !Number.isFinite(high)) continue;
 
           const yLow = Math.min(low, high);
           const yHigh = Math.max(low, high);
@@ -267,9 +226,7 @@ export const computeGlobalBounds = (
     }
 
     // Compute bounds from CartesianSeriesData (supports all three formats)
-    const cartesianBounds = computeRawBoundsFromCartesianData(
-      seriesConfig.data,
-    );
+    const cartesianBounds = computeRawBoundsFromCartesianData(seriesConfig.data);
     if (cartesianBounds) {
       const b = cartesianBounds;
       if (b.xMin < xMin) xMin = b.xMin;
@@ -279,12 +236,7 @@ export const computeGlobalBounds = (
     }
   }
 
-  if (
-    !Number.isFinite(xMin) ||
-    !Number.isFinite(xMax) ||
-    !Number.isFinite(yMin) ||
-    !Number.isFinite(yMax)
-  ) {
+  if (!Number.isFinite(xMin) || !Number.isFinite(xMax) || !Number.isFinite(yMin) || !Number.isFinite(yMax)) {
     return { xMin: 0, xMax: 1, yMin: 0, yMax: 1 };
   }
 
@@ -304,7 +256,7 @@ export const computeGlobalBounds = (
  */
 export const normalizeDomain = (
   minCandidate: number,
-  maxCandidate: number,
+  maxCandidate: number
 ): { readonly min: number; readonly max: number } => {
   let min = minCandidate;
   let max = maxCandidate;

@@ -2,16 +2,10 @@
  * Chart configuration types (Phase 1).
  */
 
-import type { ThemeConfig } from "../themes/types";
+import type { ThemeConfig } from '../themes/types';
 
-export type AxisType = "value" | "time" | "category";
-export type SeriesType =
-  | "line"
-  | "area"
-  | "bar"
-  | "scatter"
-  | "pie"
-  | "candlestick";
+export type AxisType = 'value' | 'time' | 'category';
+export type SeriesType = 'line' | 'area' | 'bar' | 'scatter' | 'pie' | 'candlestick';
 
 /**
  * Render mode for chart rendering.
@@ -19,16 +13,14 @@ export type SeriesType =
  * - `'auto'` (default): ChartGPU schedules renders automatically using requestAnimationFrame
  * - `'external'`: Application is responsible for calling renderFrame() on each frame
  */
-export type RenderMode = "auto" | "external";
+export type RenderMode = 'auto' | 'external';
 
 /**
  * A single data point for a series.
  */
 export type DataPointTuple = readonly [x: number, y: number, size?: number];
 
-export type DataPoint =
-  | DataPointTuple
-  | Readonly<{ x: number; y: number; size?: number }>;
+export type DataPoint = DataPointTuple | Readonly<{ x: number; y: number; size?: number }>;
 
 /**
  * Separate x/y/size arrays for cartesian series data.
@@ -56,10 +48,7 @@ export type InterleavedXYData = ArrayBufferView;
  * - Separate x/y arrays (XYArraysData)
  * - Pre-interleaved typed array (InterleavedXYData)
  */
-export type CartesianSeriesData =
-  | ReadonlyArray<DataPoint | null>
-  | XYArraysData
-  | InterleavedXYData;
+export type CartesianSeriesData = ReadonlyArray<DataPoint | null> | XYArraysData | InterleavedXYData;
 
 /**
  * OHLC (Open-High-Low-Close) data point for candlestick charts.
@@ -77,20 +66,14 @@ export type OHLCDataPointObject = Readonly<{
 
 export type OHLCDataPoint = OHLCDataPointTuple | OHLCDataPointObject;
 
-export type SeriesSampling =
-  | "none"
-  | "lttb"
-  | "average"
-  | "max"
-  | "min"
-  | "ohlc";
+export type SeriesSampling = 'none' | 'lttb' | 'average' | 'max' | 'min' | 'ohlc';
 
 /**
  * Scatter points use the tuple form `[x, y, size?]`.
  */
 export type ScatterPointTuple = DataPointTuple;
 
-export type ScatterSymbol = "circle" | "rect" | "triangle";
+export type ScatterSymbol = 'circle' | 'rect' | 'triangle';
 
 /**
  * Grid/padding around the plot area, in CSS pixels.
@@ -104,7 +87,7 @@ export interface GridConfig {
 
 export interface AxisConfig {
   readonly id?: string;
-  readonly position?: "left" | "right";
+  readonly position?: 'left' | 'right';
   readonly type: AxisType;
   readonly min?: number;
   readonly max?: number;
@@ -119,7 +102,7 @@ export interface AxisConfig {
    * Note: explicit `min`/`max` always take precedence over auto-bounds.
    * This option is primarily intended for `yAxis` (it has no effect on `xAxis` currently).
    */
-  readonly autoBounds?: "global" | "visible";
+  readonly autoBounds?: 'global' | 'visible';
   /**
    * Custom formatter for axis tick labels.
    * When provided, replaces the built-in tick label formatting.
@@ -130,7 +113,7 @@ export interface AxisConfig {
 }
 
 export interface DataZoomConfig {
-  readonly type: "inside" | "slider";
+  readonly type: 'inside' | 'slider';
   readonly xAxisIndex?: number;
   /** Start percent in [0, 100]. */
   readonly start?: number;
@@ -179,7 +162,7 @@ export interface SeriesConfigBase {
 }
 
 export interface LineSeriesConfig extends SeriesConfigBase {
-  readonly type: "line";
+  readonly type: 'line';
   readonly lineStyle?: LineStyleConfig;
   /**
    * Optional filled-area styling for a line series.
@@ -194,7 +177,7 @@ export interface LineSeriesConfig extends SeriesConfigBase {
 }
 
 export interface AreaSeriesConfig extends SeriesConfigBase {
-  readonly type: "area";
+  readonly type: 'area';
   /**
    * Baseline in data-space used as the filled area floor.
    * If omitted, ChartGPU will default to the y-axis minimum.
@@ -215,7 +198,7 @@ export interface BarItemStyleConfig {
 }
 
 export interface BarSeriesConfig extends SeriesConfigBase {
-  readonly type: "bar";
+  readonly type: 'bar';
   /**
    * Bar width in CSS pixels, or as a percentage of the category width (e.g. '50%').
    */
@@ -234,14 +217,14 @@ export interface BarSeriesConfig extends SeriesConfigBase {
 }
 
 export interface ScatterSeriesConfig extends SeriesConfigBase {
-  readonly type: "scatter";
+  readonly type: 'scatter';
   /**
    * Scatter rendering mode.
    *
    * - `'points'` (default): draw point markers (current behavior).
    * - `'density'`: render a binned density heatmap in screen space.
    */
-  readonly mode?: "points" | "density";
+  readonly mode?: 'points' | 'density';
   /**
    * Density bin size in CSS pixels (used only when `mode === 'density'`).
    *
@@ -254,16 +237,12 @@ export interface ScatterSeriesConfig extends SeriesConfigBase {
    * - Named: `'viridis' | 'plasma' | 'inferno'`
    * - Custom: a low→high `string[]` of CSS colors
    */
-  readonly densityColormap?:
-    | "viridis"
-    | "plasma"
-    | "inferno"
-    | readonly string[];
+  readonly densityColormap?: 'viridis' | 'plasma' | 'inferno' | readonly string[];
   /**
    * Normalization curve applied to per-bin counts before mapping to the colormap
    * (used only when `mode === 'density'`).
    */
-  readonly densityNormalization?: "linear" | "sqrt" | "log";
+  readonly densityNormalization?: 'linear' | 'sqrt' | 'log';
   /**
    * Scatter symbol size in CSS pixels. When a function is provided, it receives
    * the point tuple `[x, y, size?]`.
@@ -289,17 +268,11 @@ export interface PieItemStyleConfig {
   readonly borderWidth?: number;
 }
 
-export type PieRadius =
-  | number
-  | string
-  | readonly [inner: number | string, outer: number | string];
+export type PieRadius = number | string | readonly [inner: number | string, outer: number | string];
 export type PieCenter = readonly [x: number | string, y: number | string];
 
-export interface PieSeriesConfig extends Omit<
-  SeriesConfigBase,
-  "data" | "sampling" | "samplingThreshold"
-> {
-  readonly type: "pie";
+export interface PieSeriesConfig extends Omit<SeriesConfigBase, 'data' | 'sampling' | 'samplingThreshold'> {
+  readonly type: 'pie';
   /**
    * Radius in CSS pixels, as a percent string (e.g. '50%'), or a tuple [inner, outer].
    * When inner > 0, the series renders as a donut.
@@ -317,7 +290,7 @@ export interface PieSeriesConfig extends Omit<
   readonly itemStyle?: PieItemStyleConfig;
 }
 
-export type CandlestickStyle = "classic" | "hollow";
+export type CandlestickStyle = 'classic' | 'hollow';
 
 export interface CandlestickItemStyleConfig {
   readonly upColor?: string;
@@ -327,11 +300,8 @@ export interface CandlestickItemStyleConfig {
   readonly borderWidth?: number;
 }
 
-export interface CandlestickSeriesConfig extends Omit<
-  SeriesConfigBase,
-  "data"
-> {
-  readonly type: "candlestick";
+export interface CandlestickSeriesConfig extends Omit<SeriesConfigBase, 'data'> {
+  readonly type: 'candlestick';
   readonly data: ReadonlyArray<OHLCDataPoint>;
   readonly style?: CandlestickStyle;
   readonly itemStyle?: CandlestickItemStyleConfig;
@@ -341,7 +311,7 @@ export interface CandlestickSeriesConfig extends Omit<
   /**
    * Sampling strategy for candlestick data. Only 'none' and 'ohlc' are supported.
    */
-  readonly sampling?: "none" | "ohlc";
+  readonly sampling?: 'none' | 'ohlc';
 }
 
 export type SeriesConfig =
@@ -364,9 +334,7 @@ export interface TooltipParams {
    * - Cartesian series (line, area, bar, scatter): [x, y]
    * - Candlestick series: [timestamp, open, close, low, high]
    */
-  readonly value:
-    | readonly [number, number]
-    | readonly [number, number, number, number, number];
+  readonly value: readonly [number, number] | readonly [number, number, number, number, number];
   readonly color: string;
 }
 
@@ -375,16 +343,14 @@ export interface TooltipParams {
  */
 export interface TooltipConfig {
   readonly show?: boolean;
-  readonly trigger?: "item" | "axis";
+  readonly trigger?: 'item' | 'axis';
   /**
    * Custom formatter function for tooltip content.
    * When trigger is 'item', receives a single TooltipParams.
    * When trigger is 'axis', receives an array of TooltipParams.
    * When trigger is undefined, formatter should handle both signatures.
    */
-  readonly formatter?:
-    | ((params: TooltipParams) => string)
-    | ((params: ReadonlyArray<TooltipParams>) => string);
+  readonly formatter?: ((params: TooltipParams) => string) | ((params: ReadonlyArray<TooltipParams>) => string);
 }
 
 /**
@@ -396,7 +362,7 @@ export interface TooltipConfig {
 export interface AnimationConfig {
   /** Animation duration in ms (default: 300). */
   readonly duration?: number;
-  readonly easing?: "linear" | "cubicOut" | "cubicInOut" | "bounceOut";
+  readonly easing?: 'linear' | 'cubicOut' | 'cubicInOut' | 'bounceOut';
   /** Animation delay in ms. */
   readonly delay?: number;
 }
@@ -404,7 +370,7 @@ export interface AnimationConfig {
 /**
  * Legend position within the chart.
  */
-export type LegendPosition = "top" | "bottom" | "left" | "right";
+export type LegendPosition = 'top' | 'bottom' | 'left' | 'right';
 
 /**
  * Legend configuration for series display.
@@ -418,19 +384,19 @@ export interface LegendConfig {
  * Branded type for exact FPS measurements.
  * Use this to distinguish FPS from other numeric values at compile time.
  */
-export type ExactFPS = number & { readonly __brand: "ExactFPS" };
+export type ExactFPS = number & { readonly __brand: 'ExactFPS' };
 
 /**
  * Branded type for millisecond durations.
  * Use this to distinguish milliseconds from other numeric values at compile time.
  */
-export type Milliseconds = number & { readonly __brand: "Milliseconds" };
+export type Milliseconds = number & { readonly __brand: 'Milliseconds' };
 
 /**
  * Branded type for byte sizes.
  * Use this to distinguish bytes from other numeric values at compile time.
  */
-export type Bytes = number & { readonly __brand: "Bytes" };
+export type Bytes = number & { readonly __brand: 'Bytes' };
 
 /**
  * Statistics for frame time measurements.
@@ -524,7 +490,7 @@ export interface PerformanceCapabilities {
   readonly performanceMetricsSupported: boolean;
 }
 
-export type AnnotationLayer = "belowSeries" | "aboveSeries";
+export type AnnotationLayer = 'belowSeries' | 'aboveSeries';
 
 export interface AnnotationStyle {
   readonly color?: string;
@@ -533,7 +499,7 @@ export interface AnnotationStyle {
   readonly opacity?: number;
 }
 
-export type AnnotationLabelAnchor = "start" | "center" | "end";
+export type AnnotationLabelAnchor = 'start' | 'center' | 'end';
 
 export type AnnotationLabelPadding = number | readonly [top: number, right: number, bottom: number, left: number];
 
@@ -567,11 +533,11 @@ export interface AnnotationLabel {
 }
 
 export type AnnotationPosition =
-  | Readonly<{ space: "data"; x: number; y: number }>
-  | Readonly<{ space: "plot"; x: number; y: number }>;
+  | Readonly<{ space: 'data'; x: number; y: number }>
+  | Readonly<{ space: 'plot'; x: number; y: number }>;
 
 export interface AnnotationLineX {
-  readonly type: "lineX";
+  readonly type: 'lineX';
   /** Data-space x coordinate for a vertical line. */
   readonly x: number;
   /**
@@ -582,7 +548,7 @@ export interface AnnotationLineX {
 }
 
 export interface AnnotationLineY {
-  readonly type: "lineY";
+  readonly type: 'lineY';
   /** Data-space y coordinate for a horizontal line. */
   readonly y: number;
   /**
@@ -600,20 +566,20 @@ export interface AnnotationPointMarker {
 }
 
 export interface AnnotationPoint {
-  readonly type: "point";
+  readonly type: 'point';
   readonly x: number;
   readonly y: number;
   readonly marker?: AnnotationPointMarker;
 }
 
 export interface AnnotationText {
-  readonly type: "text";
+  readonly type: 'text';
   readonly position: AnnotationPosition;
   readonly text: string;
 }
 
 export interface AnnotationBandX {
-  readonly type: "bandX";
+  readonly type: 'bandX';
   /** Data-space x start of the filled vertical region. */
   readonly from: number;
   /** Data-space x end of the filled vertical region. */
@@ -720,7 +686,7 @@ export interface ChartGPUOptions {
    * Chart theme used for styling and palette defaults.
    * Accepts a built-in theme name or a custom ThemeConfig override.
    */
-  readonly theme?: "dark" | "light" | ThemeConfig;
+  readonly theme?: 'dark' | 'light' | ThemeConfig;
   /**
    * Color palette used for series color assignment when a series does not
    * explicitly specify `color`. Colors should be valid CSS color strings.

@@ -1,5 +1,5 @@
-import type { ZoomRange, ZoomState } from "../interaction/createZoomState";
-import type { ThemeConfig } from "../themes/types";
+import type { ZoomRange, ZoomState } from '../interaction/createZoomState';
+import type { ThemeConfig } from '../themes/types';
 
 export interface DataZoomSlider {
   update(theme: ThemeConfig): void;
@@ -13,8 +13,7 @@ export interface DataZoomSliderOptions {
   readonly showPreview?: boolean;
 }
 
-const clamp = (v: number, lo: number, hi: number): number =>
-  Math.min(hi, Math.max(lo, v));
+const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
 
 const normalizeRange = (range: ZoomRange): ZoomRange => {
   let { start, end } = range;
@@ -26,88 +25,88 @@ const normalizeRange = (range: ZoomRange): ZoomRange => {
   return { start: clamp(start, 0, 100), end: clamp(end, 0, 100) };
 };
 
-type DragMode = "left-handle" | "right-handle" | "pan-window";
+type DragMode = 'left-handle' | 'right-handle' | 'pan-window';
 
 export function createDataZoomSlider(
   container: HTMLElement,
   zoomState: ZoomState,
-  options?: DataZoomSliderOptions,
+  options?: DataZoomSliderOptions
 ): DataZoomSlider {
   const height = options?.height ?? 32;
   const marginTop = options?.marginTop ?? 8;
   const zIndex = options?.zIndex ?? 4;
   const showPreview = options?.showPreview ?? false;
 
-  const root = document.createElement("div");
-  root.style.display = "block";
-  root.style.width = "100%";
+  const root = document.createElement('div');
+  root.style.display = 'block';
+  root.style.width = '100%';
   root.style.height = `${height}px`;
   root.style.marginTop = `${marginTop}px`;
-  root.style.boxSizing = "border-box";
-  root.style.position = "relative";
+  root.style.boxSizing = 'border-box';
+  root.style.position = 'relative';
   root.style.zIndex = `${zIndex}`;
-  root.style.userSelect = "none";
-  root.style.touchAction = "none";
+  root.style.userSelect = 'none';
+  root.style.touchAction = 'none';
 
   // track: full-width bar that hosts preview + window selection.
-  const track = document.createElement("div");
-  track.style.position = "relative";
-  track.style.height = "100%";
-  track.style.width = "100%";
-  track.style.boxSizing = "border-box";
-  track.style.borderRadius = "8px";
-  track.style.borderStyle = "solid";
-  track.style.borderWidth = "1px";
-  track.style.overflow = "hidden";
+  const track = document.createElement('div');
+  track.style.position = 'relative';
+  track.style.height = '100%';
+  track.style.width = '100%';
+  track.style.boxSizing = 'border-box';
+  track.style.borderRadius = '8px';
+  track.style.borderStyle = 'solid';
+  track.style.borderWidth = '1px';
+  track.style.overflow = 'hidden';
   root.appendChild(track);
 
   // preview: miniature context under the selection (optional; can be a solid bar for now).
-  const preview = document.createElement("div");
-  preview.style.position = "absolute";
-  preview.style.inset = "0";
-  preview.style.pointerEvents = "none";
-  preview.style.opacity = "0.4";
-  preview.style.display = showPreview ? "block" : "none";
+  const preview = document.createElement('div');
+  preview.style.position = 'absolute';
+  preview.style.inset = '0';
+  preview.style.pointerEvents = 'none';
+  preview.style.opacity = '0.4';
+  preview.style.display = showPreview ? 'block' : 'none';
   track.appendChild(preview);
 
   // window: the selected range.
-  const windowEl = document.createElement("div");
-  windowEl.style.position = "absolute";
-  windowEl.style.top = "0";
-  windowEl.style.bottom = "0";
-  windowEl.style.left = "0%";
-  windowEl.style.width = "100%";
-  windowEl.style.boxSizing = "border-box";
-  windowEl.style.cursor = "grab";
+  const windowEl = document.createElement('div');
+  windowEl.style.position = 'absolute';
+  windowEl.style.top = '0';
+  windowEl.style.bottom = '0';
+  windowEl.style.left = '0%';
+  windowEl.style.width = '100%';
+  windowEl.style.boxSizing = 'border-box';
+  windowEl.style.cursor = 'grab';
   track.appendChild(windowEl);
 
   // left/right handles.
-  const leftHandle = document.createElement("div");
-  leftHandle.style.position = "absolute";
-  leftHandle.style.left = "0";
-  leftHandle.style.top = "0";
-  leftHandle.style.bottom = "0";
-  leftHandle.style.width = "10px";
-  leftHandle.style.cursor = "ew-resize";
+  const leftHandle = document.createElement('div');
+  leftHandle.style.position = 'absolute';
+  leftHandle.style.left = '0';
+  leftHandle.style.top = '0';
+  leftHandle.style.bottom = '0';
+  leftHandle.style.width = '10px';
+  leftHandle.style.cursor = 'ew-resize';
   windowEl.appendChild(leftHandle);
 
-  const rightHandle = document.createElement("div");
-  rightHandle.style.position = "absolute";
-  rightHandle.style.right = "0";
-  rightHandle.style.top = "0";
-  rightHandle.style.bottom = "0";
-  rightHandle.style.width = "10px";
-  rightHandle.style.cursor = "ew-resize";
+  const rightHandle = document.createElement('div');
+  rightHandle.style.position = 'absolute';
+  rightHandle.style.right = '0';
+  rightHandle.style.top = '0';
+  rightHandle.style.bottom = '0';
+  rightHandle.style.width = '10px';
+  rightHandle.style.cursor = 'ew-resize';
   windowEl.appendChild(rightHandle);
 
   // center grip (hit target for panning).
-  const centerGrip = document.createElement("div");
-  centerGrip.style.position = "absolute";
-  centerGrip.style.left = "10px";
-  centerGrip.style.right = "10px";
-  centerGrip.style.top = "0";
-  centerGrip.style.bottom = "0";
-  centerGrip.style.cursor = "grab";
+  const centerGrip = document.createElement('div');
+  centerGrip.style.position = 'absolute';
+  centerGrip.style.left = '10px';
+  centerGrip.style.right = '10px';
+  centerGrip.style.top = '0';
+  centerGrip.style.bottom = '0';
+  centerGrip.style.cursor = 'grab';
   windowEl.appendChild(centerGrip);
 
   container.appendChild(root);
@@ -135,10 +134,7 @@ export function createDataZoomSlider(
     return Number.isFinite(p) ? p : null;
   };
 
-  const setPointerCaptureBestEffort = (
-    el: Element,
-    pointerId: number,
-  ): void => {
+  const setPointerCaptureBestEffort = (el: Element, pointerId: number): void => {
     try {
       (el as HTMLElement).setPointerCapture(pointerId);
     } catch {
@@ -146,10 +142,7 @@ export function createDataZoomSlider(
     }
   };
 
-  const releasePointerCaptureBestEffort = (
-    el: Element,
-    pointerId: number,
-  ): void => {
+  const releasePointerCaptureBestEffort = (el: Element, pointerId: number): void => {
     try {
       (el as HTMLElement).releasePointerCapture(pointerId);
     } catch {
@@ -170,13 +163,12 @@ export function createDataZoomSlider(
     const dragStartX = e.clientX;
     const startRange = zoomState.getRange();
 
-    const target =
-      e.currentTarget instanceof Element ? e.currentTarget : windowEl;
+    const target = e.currentTarget instanceof Element ? e.currentTarget : windowEl;
     setPointerCaptureBestEffort(target, e.pointerId);
 
-    if (mode === "pan-window") {
-      windowEl.style.cursor = "grabbing";
-      centerGrip.style.cursor = "grabbing";
+    if (mode === 'pan-window') {
+      windowEl.style.cursor = 'grabbing';
+      centerGrip.style.cursor = 'grabbing';
     }
 
     const onMove = (ev: PointerEvent): void => {
@@ -189,53 +181,36 @@ export function createDataZoomSlider(
       if (dxPercent === null) return;
 
       switch (mode) {
-        case "left-handle": {
+        case 'left-handle': {
           // UX: don't allow handle crossing; clamp left <= current end.
-          const nextStart = Math.min(
-            startRange.end,
-            startRange.start + dxPercent,
-          );
+          const nextStart = Math.min(startRange.end, startRange.start + dxPercent);
           const anchored = zoomState as unknown as Partial<{
-            setRangeAnchored: (
-              start: number,
-              end: number,
-              anchor: "start" | "end" | "center",
-            ) => void;
+            setRangeAnchored: (start: number, end: number, anchor: 'start' | 'end' | 'center') => void;
           }>;
           if (anchored.setRangeAnchored) {
             // When clamped by minSpan/maxSpan, keep the right edge anchored (prevents jumpiness).
-            anchored.setRangeAnchored(nextStart, startRange.end, "end");
+            anchored.setRangeAnchored(nextStart, startRange.end, 'end');
           } else {
             zoomState.setRange(nextStart, startRange.end);
           }
           return;
         }
-        case "right-handle": {
+        case 'right-handle': {
           // UX: don't allow handle crossing; clamp right >= current start.
-          const nextEnd = Math.max(
-            startRange.start,
-            startRange.end + dxPercent,
-          );
+          const nextEnd = Math.max(startRange.start, startRange.end + dxPercent);
           const anchored = zoomState as unknown as Partial<{
-            setRangeAnchored: (
-              start: number,
-              end: number,
-              anchor: "start" | "end" | "center",
-            ) => void;
+            setRangeAnchored: (start: number, end: number, anchor: 'start' | 'end' | 'center') => void;
           }>;
           if (anchored.setRangeAnchored) {
             // When clamped by minSpan/maxSpan, keep the left edge anchored (prevents jumpiness).
-            anchored.setRangeAnchored(startRange.start, nextEnd, "start");
+            anchored.setRangeAnchored(startRange.start, nextEnd, 'start');
           } else {
             zoomState.setRange(startRange.start, nextEnd);
           }
           return;
         }
-        case "pan-window": {
-          zoomState.setRange(
-            startRange.start + dxPercent,
-            startRange.end + dxPercent,
-          );
+        case 'pan-window': {
+          zoomState.setRange(startRange.start + dxPercent, startRange.end + dxPercent);
           return;
         }
       }
@@ -247,13 +222,13 @@ export function createDataZoomSlider(
       if (cleanedUp) return;
       cleanedUp = true;
 
-      window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", finish);
-      window.removeEventListener("pointercancel", finish);
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', finish);
+      window.removeEventListener('pointercancel', finish);
 
-      if (mode === "pan-window") {
-        windowEl.style.cursor = "grab";
-        centerGrip.style.cursor = "grab";
+      if (mode === 'pan-window') {
+        windowEl.style.cursor = 'grab';
+        centerGrip.style.cursor = 'grab';
       }
 
       releasePointerCaptureBestEffort(target, e.pointerId);
@@ -269,18 +244,18 @@ export function createDataZoomSlider(
 
     activeDragCleanup = cleanup;
 
-    window.addEventListener("pointermove", onMove, { passive: false });
-    window.addEventListener("pointerup", finish, { passive: true });
-    window.addEventListener("pointercancel", finish, { passive: true });
+    window.addEventListener('pointermove', onMove, { passive: false });
+    window.addEventListener('pointerup', finish, { passive: true });
+    window.addEventListener('pointercancel', finish, { passive: true });
   };
 
-  const onLeftDown = (e: PointerEvent): void => startDrag(e, "left-handle");
-  const onRightDown = (e: PointerEvent): void => startDrag(e, "right-handle");
-  const onPanDown = (e: PointerEvent): void => startDrag(e, "pan-window");
+  const onLeftDown = (e: PointerEvent): void => startDrag(e, 'left-handle');
+  const onRightDown = (e: PointerEvent): void => startDrag(e, 'right-handle');
+  const onPanDown = (e: PointerEvent): void => startDrag(e, 'pan-window');
 
-  leftHandle.addEventListener("pointerdown", onLeftDown, { passive: false });
-  rightHandle.addEventListener("pointerdown", onRightDown, { passive: false });
-  centerGrip.addEventListener("pointerdown", onPanDown, { passive: false });
+  leftHandle.addEventListener('pointerdown', onLeftDown, { passive: false });
+  rightHandle.addEventListener('pointerdown', onRightDown, { passive: false });
+  centerGrip.addEventListener('pointerdown', onPanDown, { passive: false });
 
   // Keep DOM in sync with state.
   const unsubscribe = zoomState.onChange((range) => {
@@ -291,7 +266,7 @@ export function createDataZoomSlider(
   // Initialize UI.
   applyRangeToDom(zoomState.getRange());
 
-  const update: DataZoomSlider["update"] = (theme) => {
+  const update: DataZoomSlider['update'] = (theme) => {
     if (disposed) return;
 
     // Baseline track styling.
@@ -304,8 +279,8 @@ export function createDataZoomSlider(
     // Window styling.
     windowEl.style.background = theme.gridLineColor;
     windowEl.style.border = `1px solid ${theme.axisTickColor}`;
-    windowEl.style.borderRadius = "8px";
-    windowEl.style.boxSizing = "border-box";
+    windowEl.style.borderRadius = '8px';
+    windowEl.style.boxSizing = 'border-box';
 
     // Handles styling.
     const handleBorder = `1px solid ${theme.axisLineColor}`;
@@ -315,13 +290,13 @@ export function createDataZoomSlider(
     rightHandle.style.borderLeft = handleBorder;
 
     // Center grip styling: subtle stripes.
-    centerGrip.style.background = "transparent";
+    centerGrip.style.background = 'transparent';
     centerGrip.style.backgroundImage =
-      "linear-gradient(90deg, rgba(255,255,255,0.0) 0, rgba(255,255,255,0.0) 42%, rgba(255,255,255,0.18) 42%, rgba(255,255,255,0.18) 46%, rgba(255,255,255,0.0) 46%, rgba(255,255,255,0.0) 54%, rgba(255,255,255,0.18) 54%, rgba(255,255,255,0.18) 58%, rgba(255,255,255,0.0) 58%, rgba(255,255,255,0.0) 100%)";
-    centerGrip.style.mixBlendMode = "normal";
+      'linear-gradient(90deg, rgba(255,255,255,0.0) 0, rgba(255,255,255,0.0) 42%, rgba(255,255,255,0.18) 42%, rgba(255,255,255,0.18) 46%, rgba(255,255,255,0.0) 46%, rgba(255,255,255,0.0) 54%, rgba(255,255,255,0.18) 54%, rgba(255,255,255,0.18) 58%, rgba(255,255,255,0.0) 58%, rgba(255,255,255,0.0) 100%)';
+    centerGrip.style.mixBlendMode = 'normal';
   };
 
-  const dispose: DataZoomSlider["dispose"] = () => {
+  const dispose: DataZoomSlider['dispose'] = () => {
     if (disposed) return;
     disposed = true;
 
@@ -335,9 +310,9 @@ export function createDataZoomSlider(
       // Best-effort.
     }
 
-    leftHandle.removeEventListener("pointerdown", onLeftDown);
-    rightHandle.removeEventListener("pointerdown", onRightDown);
-    centerGrip.removeEventListener("pointerdown", onPanDown);
+    leftHandle.removeEventListener('pointerdown', onLeftDown);
+    rightHandle.removeEventListener('pointerdown', onRightDown);
+    centerGrip.removeEventListener('pointerdown', onPanDown);
 
     root.remove();
   };

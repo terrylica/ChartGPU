@@ -6,33 +6,25 @@
  * setOption() does NOT emit, off() removes listener, and multiple listeners work correctly.
  */
 
-import {
-  describe,
-  it,
-  expect,
-  beforeEach,
-  vi,
-  beforeAll,
-  afterEach,
-} from "vitest";
-import { ChartGPU } from "../ChartGPU";
-import type { ChartGPUInstance, ChartGPUDataAppendPayload } from "../ChartGPU";
-import type { ChartGPUOptions } from "../config/types";
+import { describe, it, expect, beforeEach, vi, beforeAll, afterEach } from 'vitest';
+import { ChartGPU } from '../ChartGPU';
+import type { ChartGPUInstance, ChartGPUDataAppendPayload } from '../ChartGPU';
+import type { ChartGPUOptions } from '../config/types';
 
 // Mock WebGPU globals before importing the module
 beforeAll(() => {
   // Mock window global for SSR-safe checks
-  if (typeof window === "undefined") {
+  if (typeof window === 'undefined') {
     // @ts-ignore - Mock window global
     globalThis.window = globalThis;
   }
 
   // Mock document if not available
-  if (typeof document === "undefined") {
+  if (typeof document === 'undefined') {
     // @ts-ignore - Mock document global
     globalThis.document = {
       createElement: (tagName: string) => {
-        if (tagName === "canvas") {
+        if (tagName === 'canvas') {
           return createMockCanvas();
         }
         return {
@@ -93,7 +85,7 @@ function createMockCanvas(): HTMLCanvasElement {
       toJSON: () => ({}),
     })),
     getContext: vi.fn((contextId: string) => {
-      if (contextId === "webgpu") {
+      if (contextId === 'webgpu') {
         return {
           configure: vi.fn(),
           unconfigure: vi.fn(),
@@ -194,13 +186,11 @@ function createMockAdapter(): GPUAdapter {
 }
 
 // Mock navigator.gpu
-function setupMockNavigatorGPU(
-  adapter: GPUAdapter | null = createMockAdapter(),
-): void {
-  vi.stubGlobal("navigator", {
+function setupMockNavigatorGPU(adapter: GPUAdapter | null = createMockAdapter()): void {
+  vi.stubGlobal('navigator', {
     gpu: {
       requestAdapter: vi.fn(async () => adapter),
-      getPreferredCanvasFormat: vi.fn(() => "bgra8unorm"),
+      getPreferredCanvasFormat: vi.fn(() => 'bgra8unorm'),
     },
   });
 }
@@ -228,7 +218,7 @@ function createMockContainer(): HTMLElement {
   return container;
 }
 
-describe("ChartGPU - dataAppend event", () => {
+describe('ChartGPU - dataAppend event', () => {
   let mockContainer: HTMLElement;
   let warnSpy: ReturnType<typeof vi.spyOn> | null = null;
 
@@ -236,15 +226,15 @@ describe("ChartGPU - dataAppend event", () => {
     mockContainer = createMockContainer();
     setupMockNavigatorGPU();
     // Silence expected ChartGPU warnings in tests (e.g. streaming sampling hints, pie append warning).
-    warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     // Mock requestAnimationFrame
-    vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => {
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
       setTimeout(() => cb(performance.now()), 0);
       return 1;
     });
-    vi.stubGlobal("cancelAnimationFrame", vi.fn());
+    vi.stubGlobal('cancelAnimationFrame', vi.fn());
     // Mock devicePixelRatio
-    vi.stubGlobal("devicePixelRatio", 2);
+    vi.stubGlobal('devicePixelRatio', 2);
   });
 
   afterEach(() => {
@@ -254,13 +244,13 @@ describe("ChartGPU - dataAppend event", () => {
     vi.unstubAllGlobals();
   });
 
-  describe("Event emission with different data formats", () => {
-    it("emits dataAppend with InterleavedXYData: xExtent min/max correct, count correct", async () => {
+  describe('Event emission with different data formats', () => {
+    it('emits dataAppend with InterleavedXYData: xExtent min/max correct, count correct', async () => {
       const options: ChartGPUOptions = {
         series: [
           {
-            type: "line",
-            sampling: "none",
+            type: 'line',
+            sampling: 'none',
             data: [
               { x: 1, y: 10 },
               { x: 2, y: 20 },
@@ -272,7 +262,7 @@ describe("ChartGPU - dataAppend event", () => {
       const chart = await ChartGPU.create(mockContainer, options);
 
       const listener = vi.fn();
-      chart.on("dataAppend", listener);
+      chart.on('dataAppend', listener);
 
       // Append with Float32Array interleaved [x0, y0, x1, y1, x2, y2]
       const interleaved = new Float32Array([3, 30, 4, 40, 5, 50]);
@@ -292,12 +282,12 @@ describe("ChartGPU - dataAppend event", () => {
       await chart.dispose();
     });
 
-    it("emits dataAppend with XYArraysData: xExtent correct, count correct", async () => {
+    it('emits dataAppend with XYArraysData: xExtent correct, count correct', async () => {
       const options: ChartGPUOptions = {
         series: [
           {
-            type: "line",
-            sampling: "none",
+            type: 'line',
+            sampling: 'none',
             data: [{ x: 1, y: 10 }],
           },
         ],
@@ -306,7 +296,7 @@ describe("ChartGPU - dataAppend event", () => {
       const chart = await ChartGPU.create(mockContainer, options);
 
       const listener = vi.fn();
-      chart.on("dataAppend", listener);
+      chart.on('dataAppend', listener);
 
       // Append with separate arrays
       const xyArrays = {
@@ -329,11 +319,11 @@ describe("ChartGPU - dataAppend event", () => {
       await chart.dispose();
     });
 
-    it("emits dataAppend with DataPoint[] tuple: xExtent correct", async () => {
+    it('emits dataAppend with DataPoint[] tuple: xExtent correct', async () => {
       const options: ChartGPUOptions = {
         series: [
           {
-            type: "scatter",
+            type: 'scatter',
             data: [{ x: 1, y: 10 }],
           },
         ],
@@ -342,7 +332,7 @@ describe("ChartGPU - dataAppend event", () => {
       const chart = await ChartGPU.create(mockContainer, options);
 
       const listener = vi.fn();
-      chart.on("dataAppend", listener);
+      chart.on('dataAppend', listener);
 
       // Append with DataPoint tuples
       const tuples: Array<[number, number, number?]> = [
@@ -365,11 +355,11 @@ describe("ChartGPU - dataAppend event", () => {
       await chart.dispose();
     });
 
-    it("emits dataAppend with DataPoint[] object: xExtent correct", async () => {
+    it('emits dataAppend with DataPoint[] object: xExtent correct', async () => {
       const options: ChartGPUOptions = {
         series: [
           {
-            type: "area",
+            type: 'area',
             data: [{ x: 1, y: 10 }],
           },
         ],
@@ -378,7 +368,7 @@ describe("ChartGPU - dataAppend event", () => {
       const chart = await ChartGPU.create(mockContainer, options);
 
       const listener = vi.fn();
-      chart.on("dataAppend", listener);
+      chart.on('dataAppend', listener);
 
       // Append with DataPoint objects
       const objects = [
@@ -402,11 +392,11 @@ describe("ChartGPU - dataAppend event", () => {
       await chart.dispose();
     });
 
-    it("handles empty append gracefully (no event emission)", async () => {
+    it('handles empty append gracefully (no event emission)', async () => {
       const options: ChartGPUOptions = {
         series: [
           {
-            type: "line",
+            type: 'line',
             data: [{ x: 1, y: 10 }],
           },
         ],
@@ -415,7 +405,7 @@ describe("ChartGPU - dataAppend event", () => {
       const chart = await ChartGPU.create(mockContainer, options);
 
       const listener = vi.fn();
-      chart.on("dataAppend", listener);
+      chart.on('dataAppend', listener);
 
       // Append empty array
       chart.appendData(0, []);
@@ -428,11 +418,11 @@ describe("ChartGPU - dataAppend event", () => {
       await chart.dispose();
     });
 
-    it("handles xExtent when appending single point", async () => {
+    it('handles xExtent when appending single point', async () => {
       const options: ChartGPUOptions = {
         series: [
           {
-            type: "line",
+            type: 'line',
             data: [{ x: 1, y: 10 }],
           },
         ],
@@ -441,7 +431,7 @@ describe("ChartGPU - dataAppend event", () => {
       const chart = await ChartGPU.create(mockContainer, options);
 
       const listener = vi.fn();
-      chart.on("dataAppend", listener);
+      chart.on('dataAppend', listener);
 
       // Append single point
       chart.appendData(0, [{ x: 42, y: 100 }]);
@@ -458,11 +448,11 @@ describe("ChartGPU - dataAppend event", () => {
       await chart.dispose();
     });
 
-    it("handles negative and mixed x values correctly in xExtent", async () => {
+    it('handles negative and mixed x values correctly in xExtent', async () => {
       const options: ChartGPUOptions = {
         series: [
           {
-            type: "line",
+            type: 'line',
             data: [{ x: 0, y: 0 }],
           },
         ],
@@ -471,7 +461,7 @@ describe("ChartGPU - dataAppend event", () => {
       const chart = await ChartGPU.create(mockContainer, options);
 
       const listener = vi.fn();
-      chart.on("dataAppend", listener);
+      chart.on('dataAppend', listener);
 
       // Append with negative and positive values
       const data = new Float32Array([-5, 10, -2, 20, 3, 30, -10, 40]);
@@ -490,12 +480,12 @@ describe("ChartGPU - dataAppend event", () => {
     });
   });
 
-  describe("setOption() does NOT emit dataAppend", () => {
-    it("does not emit dataAppend when calling setOption with new data", async () => {
+  describe('setOption() does NOT emit dataAppend', () => {
+    it('does not emit dataAppend when calling setOption with new data', async () => {
       const options: ChartGPUOptions = {
         series: [
           {
-            type: "line",
+            type: 'line',
             data: [{ x: 1, y: 10 }],
           },
         ],
@@ -504,13 +494,13 @@ describe("ChartGPU - dataAppend event", () => {
       const chart = await ChartGPU.create(mockContainer, options);
 
       const listener = vi.fn();
-      chart.on("dataAppend", listener);
+      chart.on('dataAppend', listener);
 
       // Call setOption with different data
       chart.setOption({
         series: [
           {
-            type: "line",
+            type: 'line',
             data: [
               { x: 1, y: 10 },
               { x: 2, y: 20 },
@@ -528,11 +518,11 @@ describe("ChartGPU - dataAppend event", () => {
       await chart.dispose();
     });
 
-    it("does not emit dataAppend when setOption changes series type", async () => {
+    it('does not emit dataAppend when setOption changes series type', async () => {
       const options: ChartGPUOptions = {
         series: [
           {
-            type: "line",
+            type: 'line',
             data: [{ x: 1, y: 10 }],
           },
         ],
@@ -541,13 +531,13 @@ describe("ChartGPU - dataAppend event", () => {
       const chart = await ChartGPU.create(mockContainer, options);
 
       const listener = vi.fn();
-      chart.on("dataAppend", listener);
+      chart.on('dataAppend', listener);
 
       // Change series type via setOption
       chart.setOption({
         series: [
           {
-            type: "area",
+            type: 'area',
             data: [
               { x: 1, y: 10 },
               { x: 2, y: 20 },
@@ -564,12 +554,12 @@ describe("ChartGPU - dataAppend event", () => {
     });
   });
 
-  describe("off() removes listener", () => {
-    it("removes listener and stops receiving events", async () => {
+  describe('off() removes listener', () => {
+    it('removes listener and stops receiving events', async () => {
       const options: ChartGPUOptions = {
         series: [
           {
-            type: "line",
+            type: 'line',
             data: [{ x: 1, y: 10 }],
           },
         ],
@@ -578,7 +568,7 @@ describe("ChartGPU - dataAppend event", () => {
       const chart = await ChartGPU.create(mockContainer, options);
 
       const listener = vi.fn();
-      chart.on("dataAppend", listener);
+      chart.on('dataAppend', listener);
 
       // Append data - should trigger
       chart.appendData(0, [{ x: 2, y: 20 }]);
@@ -587,7 +577,7 @@ describe("ChartGPU - dataAppend event", () => {
       expect(listener).toHaveBeenCalledTimes(1);
 
       // Remove listener
-      chart.off("dataAppend", listener);
+      chart.off('dataAppend', listener);
 
       // Append more data - should NOT trigger
       chart.appendData(0, [{ x: 3, y: 30 }]);
@@ -599,11 +589,11 @@ describe("ChartGPU - dataAppend event", () => {
       await chart.dispose();
     });
 
-    it("off() with wrong callback reference does not affect listener", async () => {
+    it('off() with wrong callback reference does not affect listener', async () => {
       const options: ChartGPUOptions = {
         series: [
           {
-            type: "line",
+            type: 'line',
             data: [{ x: 1, y: 10 }],
           },
         ],
@@ -614,10 +604,10 @@ describe("ChartGPU - dataAppend event", () => {
       const listener = vi.fn();
       const differentListener = vi.fn();
 
-      chart.on("dataAppend", listener);
+      chart.on('dataAppend', listener);
 
       // Try to remove a different callback
-      chart.off("dataAppend", differentListener);
+      chart.off('dataAppend', differentListener);
 
       // Append data - should still trigger original listener
       chart.appendData(0, [{ x: 2, y: 20 }]);
@@ -630,12 +620,12 @@ describe("ChartGPU - dataAppend event", () => {
     });
   });
 
-  describe("Multiple listeners all fire", () => {
-    it("calls all registered listeners once with same payload", async () => {
+  describe('Multiple listeners all fire', () => {
+    it('calls all registered listeners once with same payload', async () => {
       const options: ChartGPUOptions = {
         series: [
           {
-            type: "line",
+            type: 'line',
             data: [{ x: 1, y: 10 }],
           },
         ],
@@ -647,9 +637,9 @@ describe("ChartGPU - dataAppend event", () => {
       const listener2 = vi.fn();
       const listener3 = vi.fn();
 
-      chart.on("dataAppend", listener1);
-      chart.on("dataAppend", listener2);
-      chart.on("dataAppend", listener3);
+      chart.on('dataAppend', listener1);
+      chart.on('dataAppend', listener2);
+      chart.on('dataAppend', listener3);
 
       // Append data
       chart.appendData(0, [
@@ -680,11 +670,11 @@ describe("ChartGPU - dataAppend event", () => {
       await chart.dispose();
     });
 
-    it("removing one listener does not affect others", async () => {
+    it('removing one listener does not affect others', async () => {
       const options: ChartGPUOptions = {
         series: [
           {
-            type: "line",
+            type: 'line',
             data: [{ x: 1, y: 10 }],
           },
         ],
@@ -696,12 +686,12 @@ describe("ChartGPU - dataAppend event", () => {
       const listener2 = vi.fn();
       const listener3 = vi.fn();
 
-      chart.on("dataAppend", listener1);
-      chart.on("dataAppend", listener2);
-      chart.on("dataAppend", listener3);
+      chart.on('dataAppend', listener1);
+      chart.on('dataAppend', listener2);
+      chart.on('dataAppend', listener3);
 
       // Remove middle listener
-      chart.off("dataAppend", listener2);
+      chart.off('dataAppend', listener2);
 
       // Append data
       chart.appendData(0, [{ x: 2, y: 20 }]);
@@ -716,15 +706,13 @@ describe("ChartGPU - dataAppend event", () => {
     });
   });
 
-  describe("Candlestick series support", () => {
-    it("emits dataAppend for candlestick series with correct xExtent from timestamp", async () => {
+  describe('Candlestick series support', () => {
+    it('emits dataAppend for candlestick series with correct xExtent from timestamp', async () => {
       const options: ChartGPUOptions = {
         series: [
           {
-            type: "candlestick",
-            data: [
-              { timestamp: 1000, open: 100, high: 110, low: 95, close: 105 },
-            ],
+            type: 'candlestick',
+            data: [{ timestamp: 1000, open: 100, high: 110, low: 95, close: 105 }],
           },
         ],
       };
@@ -732,7 +720,7 @@ describe("ChartGPU - dataAppend event", () => {
       const chart = await ChartGPU.create(mockContainer, options);
 
       const listener = vi.fn();
-      chart.on("dataAppend", listener);
+      chart.on('dataAppend', listener);
 
       // Append candlestick data
       chart.appendData(0, [
@@ -754,11 +742,11 @@ describe("ChartGPU - dataAppend event", () => {
       await chart.dispose();
     });
 
-    it("emits dataAppend for candlestick with tuple format", async () => {
+    it('emits dataAppend for candlestick with tuple format', async () => {
       const options: ChartGPUOptions = {
         series: [
           {
-            type: "candlestick",
+            type: 'candlestick',
             data: [
               [1000, 100, 105, 95, 110], // [timestamp, open, close, low, high]
             ],
@@ -769,7 +757,7 @@ describe("ChartGPU - dataAppend event", () => {
       const chart = await ChartGPU.create(mockContainer, options);
 
       const listener = vi.fn();
-      chart.on("dataAppend", listener);
+      chart.on('dataAppend', listener);
 
       // Append with tuple format
       chart.appendData(0, [
@@ -791,12 +779,12 @@ describe("ChartGPU - dataAppend event", () => {
     });
   });
 
-  describe("NaN and Infinity handling", () => {
-    it("skips NaN x-values and computes xExtent from valid values only (XYArrays)", async () => {
+  describe('NaN and Infinity handling', () => {
+    it('skips NaN x-values and computes xExtent from valid values only (XYArrays)', async () => {
       const options: ChartGPUOptions = {
         series: [
           {
-            type: "line",
+            type: 'line',
             data: [{ x: 1, y: 10 }],
           },
         ],
@@ -805,7 +793,7 @@ describe("ChartGPU - dataAppend event", () => {
       const chart = await ChartGPU.create(mockContainer, options);
 
       const listener = vi.fn();
-      chart.on("dataAppend", listener);
+      chart.on('dataAppend', listener);
 
       // Append with some NaN x-values
       const xyArrays = {
@@ -827,11 +815,11 @@ describe("ChartGPU - dataAppend event", () => {
       await chart.dispose();
     });
 
-    it("skips Infinity x-values and computes xExtent from finite values (Interleaved)", async () => {
+    it('skips Infinity x-values and computes xExtent from finite values (Interleaved)', async () => {
       const options: ChartGPUOptions = {
         series: [
           {
-            type: "line",
+            type: 'line',
             data: [{ x: 1, y: 10 }],
           },
         ],
@@ -840,7 +828,7 @@ describe("ChartGPU - dataAppend event", () => {
       const chart = await ChartGPU.create(mockContainer, options);
 
       const listener = vi.fn();
-      chart.on("dataAppend", listener);
+      chart.on('dataAppend', listener);
 
       // Append with Infinity values
       const interleaved = new Float32Array([
@@ -870,11 +858,11 @@ describe("ChartGPU - dataAppend event", () => {
       await chart.dispose();
     });
 
-    it("returns zero extent when all x-values are NaN (DataPoint array)", async () => {
+    it('returns zero extent when all x-values are NaN (DataPoint array)', async () => {
       const options: ChartGPUOptions = {
         series: [
           {
-            type: "scatter",
+            type: 'scatter',
             data: [{ x: 1, y: 10 }],
           },
         ],
@@ -883,7 +871,7 @@ describe("ChartGPU - dataAppend event", () => {
       const chart = await ChartGPU.create(mockContainer, options);
 
       const listener = vi.fn();
-      chart.on("dataAppend", listener);
+      chart.on('dataAppend', listener);
 
       // Append with all NaN x-values
       chart.appendData(0, [
@@ -905,14 +893,12 @@ describe("ChartGPU - dataAppend event", () => {
       await chart.dispose();
     });
 
-    it("returns zero extent when all x-values are Infinity (candlestick)", async () => {
+    it('returns zero extent when all x-values are Infinity (candlestick)', async () => {
       const options: ChartGPUOptions = {
         series: [
           {
-            type: "candlestick",
-            data: [
-              { timestamp: 1000, open: 100, high: 110, low: 95, close: 105 },
-            ],
+            type: 'candlestick',
+            data: [{ timestamp: 1000, open: 100, high: 110, low: 95, close: 105 }],
           },
         ],
       };
@@ -920,7 +906,7 @@ describe("ChartGPU - dataAppend event", () => {
       const chart = await ChartGPU.create(mockContainer, options);
 
       const listener = vi.fn();
-      chart.on("dataAppend", listener);
+      chart.on('dataAppend', listener);
 
       // Append with all Infinity timestamps
       chart.appendData(0, [
@@ -940,11 +926,11 @@ describe("ChartGPU - dataAppend event", () => {
       await chart.dispose();
     });
 
-    it("handles mixed NaN, Infinity, and valid values correctly", async () => {
+    it('handles mixed NaN, Infinity, and valid values correctly', async () => {
       const options: ChartGPUOptions = {
         series: [
           {
-            type: "line",
+            type: 'line',
             data: [{ x: 1, y: 10 }],
           },
         ],
@@ -953,7 +939,7 @@ describe("ChartGPU - dataAppend event", () => {
       const chart = await ChartGPU.create(mockContainer, options);
 
       const listener = vi.fn();
-      chart.on("dataAppend", listener);
+      chart.on('dataAppend', listener);
 
       // Mix of valid, NaN, and Infinity values
       chart.appendData(0, [
@@ -980,13 +966,13 @@ describe("ChartGPU - dataAppend event", () => {
     });
   });
 
-  describe("Zero-listener performance optimization", () => {
-    it("does not compute xExtent when no listeners are registered", async () => {
+  describe('Zero-listener performance optimization', () => {
+    it('does not compute xExtent when no listeners are registered', async () => {
       const options: ChartGPUOptions = {
         series: [
           {
-            type: "line",
-            sampling: "none",
+            type: 'line',
+            sampling: 'none',
             data: [{ x: 1, y: 10 }],
           },
         ],
@@ -1015,11 +1001,11 @@ describe("ChartGPU - dataAppend event", () => {
       await chart.dispose();
     });
 
-    it("computes xExtent only when at least one listener is registered", async () => {
+    it('computes xExtent only when at least one listener is registered', async () => {
       const options: ChartGPUOptions = {
         series: [
           {
-            type: "line",
+            type: 'line',
             data: [{ x: 1, y: 10 }],
           },
         ],
@@ -1033,7 +1019,7 @@ describe("ChartGPU - dataAppend event", () => {
 
       // Now register listener
       const listener = vi.fn();
-      chart.on("dataAppend", listener);
+      chart.on('dataAppend', listener);
 
       // Second append with listener - should emit
       chart.appendData(0, [{ x: 3, y: 30 }]);
@@ -1045,7 +1031,7 @@ describe("ChartGPU - dataAppend event", () => {
       expect(payload.xExtent.max).toBe(3);
 
       // Remove listener
-      chart.off("dataAppend", listener);
+      chart.off('dataAppend', listener);
 
       // Third append without listener - no event
       listener.mockClear();
@@ -1058,12 +1044,12 @@ describe("ChartGPU - dataAppend event", () => {
     });
   });
 
-  describe("Edge cases and error scenarios", () => {
-    it("does not emit for invalid series index", async () => {
+  describe('Edge cases and error scenarios', () => {
+    it('does not emit for invalid series index', async () => {
       const options: ChartGPUOptions = {
         series: [
           {
-            type: "line",
+            type: 'line',
             data: [{ x: 1, y: 10 }],
           },
         ],
@@ -1072,7 +1058,7 @@ describe("ChartGPU - dataAppend event", () => {
       const chart = await ChartGPU.create(mockContainer, options);
 
       const listener = vi.fn();
-      chart.on("dataAppend", listener);
+      chart.on('dataAppend', listener);
 
       // Try to append to non-existent series
       chart.appendData(999, [{ x: 2, y: 20 }]);
@@ -1083,14 +1069,14 @@ describe("ChartGPU - dataAppend event", () => {
       await chart.dispose();
     });
 
-    it("does not emit for pie series (not supported)", async () => {
+    it('does not emit for pie series (not supported)', async () => {
       const options: ChartGPUOptions = {
         series: [
           {
-            type: "pie",
+            type: 'pie',
             data: [
-              { name: "A", value: 10 },
-              { name: "B", value: 20 },
+              { name: 'A', value: 10 },
+              { name: 'B', value: 20 },
             ],
           },
         ],
@@ -1099,7 +1085,7 @@ describe("ChartGPU - dataAppend event", () => {
       const chart = await ChartGPU.create(mockContainer, options);
 
       const listener = vi.fn();
-      chart.on("dataAppend", listener);
+      chart.on('dataAppend', listener);
 
       // Try to append to pie series (should log warning but not crash)
       chart.appendData(0, [{ x: 3, y: 30 }] as any);
@@ -1110,11 +1096,11 @@ describe("ChartGPU - dataAppend event", () => {
       await chart.dispose();
     });
 
-    it("does not emit after chart is disposed", async () => {
+    it('does not emit after chart is disposed', async () => {
       const options: ChartGPUOptions = {
         series: [
           {
-            type: "line",
+            type: 'line',
             data: [{ x: 1, y: 10 }],
           },
         ],
@@ -1123,7 +1109,7 @@ describe("ChartGPU - dataAppend event", () => {
       const chart = await ChartGPU.create(mockContainer, options);
 
       const listener = vi.fn();
-      chart.on("dataAppend", listener);
+      chart.on('dataAppend', listener);
 
       await chart.dispose();
 
@@ -1134,15 +1120,15 @@ describe("ChartGPU - dataAppend event", () => {
       expect(listener).not.toHaveBeenCalled();
     });
 
-    it("handles multiple series correctly", async () => {
+    it('handles multiple series correctly', async () => {
       const options: ChartGPUOptions = {
         series: [
           {
-            type: "line",
+            type: 'line',
             data: [{ x: 1, y: 10 }],
           },
           {
-            type: "scatter",
+            type: 'scatter',
             data: [{ x: 1, y: 5 }],
           },
         ],
@@ -1151,7 +1137,7 @@ describe("ChartGPU - dataAppend event", () => {
       const chart = await ChartGPU.create(mockContainer, options);
 
       const listener = vi.fn();
-      chart.on("dataAppend", listener);
+      chart.on('dataAppend', listener);
 
       // Append to first series
       chart.appendData(0, [{ x: 2, y: 20 }]);
@@ -1174,20 +1160,20 @@ describe("ChartGPU - dataAppend event", () => {
   });
 });
 
-describe("ChartGPU - appendData maxPoints (FIFO)", () => {
+describe('ChartGPU - appendData maxPoints (FIFO)', () => {
   let mockContainer: HTMLElement;
   let warnSpy: ReturnType<typeof vi.spyOn> | null = null;
 
   beforeEach(() => {
     mockContainer = createMockContainer();
     setupMockNavigatorGPU();
-    warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-    vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => {
+    warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
       setTimeout(() => cb(performance.now()), 0);
       return 1;
     });
-    vi.stubGlobal("cancelAnimationFrame", vi.fn());
-    vi.stubGlobal("devicePixelRatio", 2);
+    vi.stubGlobal('cancelAnimationFrame', vi.fn());
+    vi.stubGlobal('devicePixelRatio', 2);
   });
 
   afterEach(() => {
@@ -1201,7 +1187,7 @@ describe("ChartGPU - appendData maxPoints (FIFO)", () => {
       clientY,
     }) as PointerEvent;
 
-  it("ring fill under capacity keeps hit-test on appended tail", async () => {
+  it('ring fill under capacity keeps hit-test on appended tail', async () => {
     // maxPoints=4, seed 2; append 1 → length 3, domain includes append.
     // tooltip on so hit-test store is maintained under maxPoints.
     const data: Array<[number, number]> = [
@@ -1213,12 +1199,10 @@ describe("ChartGPU - appendData maxPoints (FIFO)", () => {
       tooltip: { show: true },
       grid: { left: 0, right: 0, top: 0, bottom: 0 },
       yAxis: { min: -10, max: 60 },
-      series: [{ type: "line", data, sampling: "none" }],
+      series: [{ type: 'line', data, sampling: 'none' }],
     });
 
-    expect(() =>
-      chart.appendData(0, [[100, 50]], { maxPoints: 4 }),
-    ).not.toThrow();
+    expect(() => chart.appendData(0, [[100, 50]], { maxPoints: 4 })).not.toThrow();
 
     const hitRight = chart.hitTest(makePointer(799, 86));
     expect(hitRight.isInGrid).toBe(true);
@@ -1228,7 +1212,7 @@ describe("ChartGPU - appendData maxPoints (FIFO)", () => {
     await chart.dispose();
   });
 
-  it("ring wrap at maxPoints drops oldest from hit-test domain", async () => {
+  it('ring wrap at maxPoints drops oldest from hit-test domain', async () => {
     // maxPoints=2, seed 2; three unit appends each wrap to length 2.
     // Final retained: after [2], [3], [100] → [3, 100].
     const data: Array<[number, number]> = [
@@ -1240,7 +1224,7 @@ describe("ChartGPU - appendData maxPoints (FIFO)", () => {
       tooltip: { show: true },
       grid: { left: 0, right: 0, top: 0, bottom: 0 },
       yAxis: { min: -10, max: 60 },
-      series: [{ type: "line", data, sampling: "none" }],
+      series: [{ type: 'line', data, sampling: 'none' }],
     });
 
     chart.appendData(0, [[2, 20]], { maxPoints: 2 }); // [1, 2]
@@ -1266,7 +1250,7 @@ describe("ChartGPU - appendData maxPoints (FIFO)", () => {
     await chart.dispose();
   });
 
-  it("strict-replaces when batch size equals maxPoints (suite FIFO 100/100 shape)", async () => {
+  it('strict-replaces when batch size equals maxPoints (suite FIFO 100/100 shape)', async () => {
     const data: Array<[number, number]> = [
       [0, 0],
       [1, 1],
@@ -1278,7 +1262,7 @@ describe("ChartGPU - appendData maxPoints (FIFO)", () => {
       tooltip: { show: true },
       grid: { left: 0, right: 0, top: 0, bottom: 0 },
       yAxis: { min: -10, max: 60 },
-      series: [{ type: "line", data, sampling: "none" }],
+      series: [{ type: 'line', data, sampling: 'none' }],
     });
 
     // newCount === maxPoints → discard previous, keep only new batch.
@@ -1290,7 +1274,7 @@ describe("ChartGPU - appendData maxPoints (FIFO)", () => {
         [30, 30],
         [100, 50],
       ],
-      { maxPoints: 4 },
+      { maxPoints: 4 }
     );
 
     // y=50 → ~86; x=100 → right edge.
@@ -1310,7 +1294,7 @@ describe("ChartGPU - appendData maxPoints (FIFO)", () => {
     await chart.dispose();
   });
 
-  it("maxPoints: 1 retains a single hit-testable point after several appends", async () => {
+  it('maxPoints: 1 retains a single hit-testable point after several appends', async () => {
     const chart = await ChartGPU.create(mockContainer, {
       animation: false,
       tooltip: { show: true },
@@ -1320,12 +1304,12 @@ describe("ChartGPU - appendData maxPoints (FIFO)", () => {
       // via the last point's y=50 (x is expanded when min===max).
       series: [
         {
-          type: "line",
+          type: 'line',
           data: [
             [0, 0],
             [1, 1],
           ],
-          sampling: "none",
+          sampling: 'none',
         },
       ],
     });
@@ -1343,7 +1327,7 @@ describe("ChartGPU - appendData maxPoints (FIFO)", () => {
     await chart.dispose();
   });
 
-  it("skips hit-test columnar growth when maxPoints + tooltip off (dual-store relief)", async () => {
+  it('skips hit-test columnar growth when maxPoints + tooltip off (dual-store relief)', async () => {
     // Suite FIFO: tooltip false + maxPoints skips ChartGPU hit-test columns.
     // Proof of skip (not just resync): after skip-only appends, first *unbounded*
     // maintain append must not double-apply. Seed [0,1]; skip maxPoints:2 leaves
@@ -1358,7 +1342,7 @@ describe("ChartGPU - appendData maxPoints (FIFO)", () => {
       tooltip: { show: false },
       grid: { left: 0, right: 0, top: 0, bottom: 0 },
       yAxis: { min: -10, max: 60 },
-      series: [{ type: "line", data, sampling: "none" }],
+      series: [{ type: 'line', data, sampling: 'none' }],
     });
 
     chart.appendData(0, [[2, 2]], { maxPoints: 2 });
@@ -1385,7 +1369,7 @@ describe("ChartGPU - appendData maxPoints (FIFO)", () => {
     await chart.dispose();
   });
 
-  it("does not double-apply batch when first maintain append follows dual-store skip", async () => {
+  it('does not double-apply batch when first maintain append follows dual-store skip', async () => {
     // Explicit regression for Issue 1: resync-before-append ordering.
     // skip maxPoints path then first maxPoints+tooltip-on append via setOption
     // resync first, then append once — right edge is newest, not a duplicated tail.
@@ -1398,7 +1382,7 @@ describe("ChartGPU - appendData maxPoints (FIFO)", () => {
       tooltip: { show: false },
       grid: { left: 0, right: 0, top: 0, bottom: 0 },
       yAxis: { min: -10, max: 60 },
-      series: [{ type: "line", data, sampling: "none" }],
+      series: [{ type: 'line', data, sampling: 'none' }],
     });
 
     chart.appendData(0, [[2, 2]], { maxPoints: 3 });
@@ -1429,7 +1413,7 @@ describe("ChartGPU - appendData maxPoints (FIFO)", () => {
     await chart.dispose();
   });
 
-  it("tooltip-on control advances hit-test to newest under maxPoints", async () => {
+  it('tooltip-on control advances hit-test to newest under maxPoints', async () => {
     const data: Array<[number, number]> = [
       [0, 0],
       [1, 1],
@@ -1439,7 +1423,7 @@ describe("ChartGPU - appendData maxPoints (FIFO)", () => {
       tooltip: { show: true },
       grid: { left: 0, right: 0, top: 0, bottom: 0 },
       yAxis: { min: -10, max: 60 },
-      series: [{ type: "line", data, sampling: "none" }],
+      series: [{ type: 'line', data, sampling: 'none' }],
     });
 
     chart.appendData(0, [[2, 20]], { maxPoints: 2 });
@@ -1458,7 +1442,7 @@ describe("ChartGPU - appendData maxPoints (FIFO)", () => {
     await chart.dispose();
   });
 
-  it("re-enabling tooltip after dual-store skip resyncs hit-test domain", async () => {
+  it('re-enabling tooltip after dual-store skip resyncs hit-test domain', async () => {
     const data: Array<[number, number]> = [
       [0, 0],
       [1, 1],
@@ -1468,7 +1452,7 @@ describe("ChartGPU - appendData maxPoints (FIFO)", () => {
       tooltip: { show: false },
       grid: { left: 0, right: 0, top: 0, bottom: 0 },
       yAxis: { min: -10, max: 60 },
-      series: [{ type: "line", data, sampling: "none" }],
+      series: [{ type: 'line', data, sampling: 'none' }],
     });
 
     chart.appendData(0, [[50, 25]], { maxPoints: 2 });
@@ -1489,7 +1473,7 @@ describe("ChartGPU - appendData maxPoints (FIFO)", () => {
     await chart.dispose();
   });
 
-  it("tooltip re-enable resync resizes hit-test store when series count changes", async () => {
+  it('tooltip re-enable resync resizes hit-test store when series count changes', async () => {
     const data0: Array<[number, number]> = [
       [0, 0],
       [1, 1],
@@ -1499,7 +1483,7 @@ describe("ChartGPU - appendData maxPoints (FIFO)", () => {
       tooltip: { show: false },
       grid: { left: 0, right: 0, top: 0, bottom: 0 },
       yAxis: { min: -10, max: 60 },
-      series: [{ type: "line", data: data0, sampling: "none" }],
+      series: [{ type: 'line', data: data0, sampling: 'none' }],
     });
 
     chart.appendData(0, [[100, 50]], { maxPoints: 2 });
@@ -1510,14 +1494,14 @@ describe("ChartGPU - appendData maxPoints (FIFO)", () => {
       ...chart.options,
       tooltip: { show: true },
       series: [
-        { type: "line", data: data0, sampling: "none" },
+        { type: 'line', data: data0, sampling: 'none' },
         {
-          type: "line",
+          type: 'line',
           data: [
             [0, 10],
             [1, 11],
           ],
-          sampling: "none",
+          sampling: 'none',
         },
       ],
     });
@@ -1540,7 +1524,7 @@ describe("ChartGPU - appendData maxPoints (FIFO)", () => {
     await chart.dispose();
   });
 
-  it("axes explicit→auto under same data ref tracks data domain (sticky bounds)", async () => {
+  it('axes explicit→auto under same data ref tracks data domain (sticky bounds)', async () => {
     // Live path: presentation-only setOption must refresh rawBoundsMode + runtime
     // bounds when axes leave synthetic mode (same data ref).
     const data: Array<[number, number]> = [
@@ -1554,7 +1538,7 @@ describe("ChartGPU - appendData maxPoints (FIFO)", () => {
       grid: { left: 0, right: 0, top: 0, bottom: 0 },
       xAxis: { min: -1000, max: 1000 },
       yAxis: { min: -1000, max: 1000 },
-      series: [{ type: "line", data, sampling: "none" }],
+      series: [{ type: 'line', data, sampling: 'none' }],
     });
 
     // Switch to auto axes — same data ref. Domain must track data [0,100]×[5,40],
@@ -1563,7 +1547,7 @@ describe("ChartGPU - appendData maxPoints (FIFO)", () => {
       animation: false,
       tooltip: { show: true },
       grid: { left: 0, right: 0, top: 0, bottom: 0 },
-      series: [{ type: "line", data, sampling: "none" }],
+      series: [{ type: 'line', data, sampling: 'none' }],
     });
 
     // x=100 → right edge; y=40 with data domain ~5..40 → top of plot (clientY≈0).
@@ -1576,7 +1560,7 @@ describe("ChartGPU - appendData maxPoints (FIFO)", () => {
     await chart.dispose();
   });
 
-  it("explicit axes + append + auto axes same seed ref keeps append extrema", async () => {
+  it('explicit axes + append + auto axes same seed ref keeps append extrema', async () => {
     // Coordinator must recompute runtime bounds from owned columns on mode flip,
     // not only resolver seed rawBounds (which omit appends).
     const data: Array<[number, number]> = [
@@ -1589,7 +1573,7 @@ describe("ChartGPU - appendData maxPoints (FIFO)", () => {
       grid: { left: 0, right: 0, top: 0, bottom: 0 },
       xAxis: { min: -10, max: 10 },
       yAxis: { min: -10, max: 10 },
-      series: [{ type: "line", data, sampling: "none" }],
+      series: [{ type: 'line', data, sampling: 'none' }],
     });
 
     chart.appendData(0, [[100, 50]]);
@@ -1600,7 +1584,7 @@ describe("ChartGPU - appendData maxPoints (FIFO)", () => {
       animation: false,
       tooltip: { show: true },
       grid: { left: 0, right: 0, top: 0, bottom: 0 },
-      series: [{ type: "line", data, sampling: "none" }],
+      series: [{ type: 'line', data, sampling: 'none' }],
     });
 
     // x=100 right edge; y=50 near top of [0,50] → clientY ≈ 0.
@@ -1614,7 +1598,7 @@ describe("ChartGPU - appendData maxPoints (FIFO)", () => {
     await chart.dispose();
   });
 
-  it("does not warn about full buffer re-upload for lttb GPU-decimation path", async () => {
+  it('does not warn about full buffer re-upload for lttb GPU-decimation path', async () => {
     const data: Array<[number, number]> = [];
     for (let i = 0; i < 50; i++) data.push([i, Math.sin(i * 0.1)]);
 
@@ -1625,9 +1609,9 @@ describe("ChartGPU - appendData maxPoints (FIFO)", () => {
       yAxis: { min: -2, max: 2 },
       series: [
         {
-          type: "line",
+          type: 'line',
           data,
-          sampling: "lttb",
+          sampling: 'lttb',
           samplingThreshold: 20,
         },
       ],
@@ -1637,11 +1621,18 @@ describe("ChartGPU - appendData maxPoints (FIFO)", () => {
     await new Promise((resolve) => setTimeout(resolve, 30));
 
     warnSpy?.mockClear();
-    chart.appendData(0, [[50, 1], [51, 0.5]], { maxPoints: 50 });
+    chart.appendData(
+      0,
+      [
+        [50, 1],
+        [51, 0.5],
+      ],
+      { maxPoints: 50 }
+    );
     await new Promise((resolve) => setTimeout(resolve, 30));
 
     const samplingWarns = (warnSpy?.mock.calls ?? []).filter((c) =>
-      String(c[0] ?? "").includes("causes full buffer re-upload"),
+      String(c[0] ?? '').includes('causes full buffer re-upload')
     );
     expect(samplingWarns).toHaveLength(0);
 
@@ -1655,7 +1646,7 @@ describe("ChartGPU - appendData maxPoints (FIFO)", () => {
     await chart.dispose();
   });
 
-  it("multi-append same frame with per-batch maxPoints stays consistent", async () => {
+  it('multi-append same frame with per-batch maxPoints stays consistent', async () => {
     const data: Array<[number, number]> = [
       [0, 0],
       [1, 1],
@@ -1665,12 +1656,19 @@ describe("ChartGPU - appendData maxPoints (FIFO)", () => {
       tooltip: { show: true },
       grid: { left: 0, right: 0, top: 0, bottom: 0 },
       yAxis: { min: -10, max: 60 },
-      series: [{ type: "line", data, sampling: "none" }],
+      series: [{ type: 'line', data, sampling: 'none' }],
     });
 
     // Two appends before rAF flush — different maxPoints per batch.
     // After batch1 max=10: [0,1,2,3]; batch2 max=3: drop to [2,3,100].
-    chart.appendData(0, [[2, 2], [3, 3]], { maxPoints: 10 });
+    chart.appendData(
+      0,
+      [
+        [2, 2],
+        [3, 3],
+      ],
+      { maxPoints: 10 }
+    );
     chart.appendData(0, [[100, 50]], { maxPoints: 3 });
     await new Promise((resolve) => setTimeout(resolve, 40));
 
@@ -1689,20 +1687,20 @@ describe("ChartGPU - appendData maxPoints (FIFO)", () => {
   });
 });
 
-describe("ChartGPU - hit-test store identity reuse (axes-only setOption)", () => {
+describe('ChartGPU - hit-test store identity reuse (axes-only setOption)', () => {
   let mockContainer: HTMLElement;
   let warnSpy: ReturnType<typeof vi.spyOn> | null = null;
 
   beforeEach(() => {
     mockContainer = createMockContainer();
     setupMockNavigatorGPU();
-    warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-    vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => {
+    warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
       setTimeout(() => cb(performance.now()), 0);
       return 1;
     });
-    vi.stubGlobal("cancelAnimationFrame", vi.fn());
-    vi.stubGlobal("devicePixelRatio", 2);
+    vi.stubGlobal('cancelAnimationFrame', vi.fn());
+    vi.stubGlobal('devicePixelRatio', 2);
   });
 
   afterEach(() => {
@@ -1716,7 +1714,7 @@ describe("ChartGPU - hit-test store identity reuse (axes-only setOption)", () =>
       clientY,
     }) as PointerEvent;
 
-  it("preserves append-extended domain so hit-test can match appended points after axes-only setOption", async () => {
+  it('preserves append-extended domain so hit-test can match appended points after axes-only setOption', async () => {
     // Seed spans x=0..1; append extends to x=100. Axes-only setOption must keep
     // runtime bounds that include the append (not resolver bounds of the seed).
     const data: Array<[number, number]> = [
@@ -1727,7 +1725,7 @@ describe("ChartGPU - hit-test store identity reuse (axes-only setOption)", () =>
       animation: false,
       tooltip: { show: false },
       grid: { left: 0, right: 0, top: 0, bottom: 0 },
-      series: [{ type: "line", data, sampling: "none" }],
+      series: [{ type: 'line', data, sampling: 'none' }],
     });
 
     chart.appendData(0, [[100, 50]]);
@@ -1738,7 +1736,7 @@ describe("ChartGPU - hit-test store identity reuse (axes-only setOption)", () =>
       tooltip: { show: false },
       grid: { left: 0, right: 0, top: 0, bottom: 0 },
       yAxis: { min: -10, max: 60 },
-      series: [{ type: "line", data, sampling: "none" }],
+      series: [{ type: 'line', data, sampling: 'none' }],
     });
 
     // With grid filling the container (800×600):
@@ -1753,7 +1751,7 @@ describe("ChartGPU - hit-test store identity reuse (axes-only setOption)", () =>
     await chart.dispose();
   });
 
-  it("rebuilds hit-test domain when a new data reference is provided", async () => {
+  it('rebuilds hit-test domain when a new data reference is provided', async () => {
     const data1: Array<[number, number]> = [
       [0, 0],
       [1, 1],
@@ -1767,7 +1765,7 @@ describe("ChartGPU - hit-test store identity reuse (axes-only setOption)", () =>
       tooltip: { show: false },
       grid: { left: 0, right: 0, top: 0, bottom: 0 },
       yAxis: { min: 0, max: 50 },
-      series: [{ type: "line", data: data1, sampling: "none" }],
+      series: [{ type: 'line', data: data1, sampling: 'none' }],
     });
 
     chart.setOption({
@@ -1775,7 +1773,7 @@ describe("ChartGPU - hit-test store identity reuse (axes-only setOption)", () =>
       tooltip: { show: false },
       grid: { left: 0, right: 0, top: 0, bottom: 0 },
       yAxis: { min: 0, max: 50 },
-      series: [{ type: "line", data: data2, sampling: "none" }],
+      series: [{ type: 'line', data: data2, sampling: 'none' }],
     });
 
     // Domain ~0..50 on x (from data2 rawBounds); y=25 → gridY ≈ 300.
@@ -1788,7 +1786,7 @@ describe("ChartGPU - hit-test store identity reuse (axes-only setOption)", () =>
     await chart.dispose();
   });
 
-  it("tooltip-off setOption full rewrite resyncs hit-test on demand (dual-store)", async () => {
+  it('tooltip-off setOption full rewrite resyncs hit-test on demand (dual-store)', async () => {
     // SciChart groups 2/3/4: tooltip false + new data array every frame.
     // Columns must not be required for render; hitTest after rewrite still works.
     const chart = await ChartGPU.create(mockContainer, {
@@ -1799,12 +1797,12 @@ describe("ChartGPU - hit-test store identity reuse (axes-only setOption)", () =>
       yAxis: { min: 0, max: 50 },
       series: [
         {
-          type: "scatter",
+          type: 'scatter',
           data: [
             [0, 0],
             [10, 5],
           ] as Array<[number, number]>,
-          sampling: "none",
+          sampling: 'none',
           symbolSize: 5,
         },
       ],
@@ -1825,9 +1823,9 @@ describe("ChartGPU - hit-test store identity reuse (axes-only setOption)", () =>
       yAxis: { min: 0, max: 50 },
       series: [
         {
-          type: "scatter",
+          type: 'scatter',
           data: next,
-          sampling: "none",
+          sampling: 'none',
           symbolSize: 5,
         },
       ],
@@ -1850,9 +1848,9 @@ describe("ChartGPU - hit-test store identity reuse (axes-only setOption)", () =>
       yAxis: { min: 0, max: 50 },
       series: [
         {
-          type: "scatter",
+          type: 'scatter',
           data: next,
-          sampling: "none",
+          sampling: 'none',
           symbolSize: 5,
         },
       ],
@@ -1863,7 +1861,7 @@ describe("ChartGPU - hit-test store identity reuse (axes-only setOption)", () =>
     await chart.dispose();
   });
 
-  it("setOption shared {x,y} then appendData does not mutate caller arrays", async () => {
+  it('setOption shared {x,y} then appendData does not mutate caller arrays', async () => {
     const x = [0, 1, 2];
     const y = [1, 2, 3];
     const xCopy = x.slice();
@@ -1873,7 +1871,7 @@ describe("ChartGPU - hit-test store identity reuse (axes-only setOption)", () =>
       tooltip: { show: true },
       grid: { left: 0, right: 0, top: 0, bottom: 0 },
       yAxis: { min: 0, max: 10 },
-      series: [{ type: "line", data: { x, y }, sampling: "none" }],
+      series: [{ type: 'line', data: { x, y }, sampling: 'none' }],
     });
     chart.appendData(0, {
       x: [3, 4],
@@ -1888,7 +1886,7 @@ describe("ChartGPU - hit-test store identity reuse (axes-only setOption)", () =>
     await chart.dispose();
   });
 
-  it("tooltip re-enable multi-series hit-test hits correct series values", async () => {
+  it('tooltip re-enable multi-series hit-test hits correct series values', async () => {
     const chart = await ChartGPU.create(mockContainer, {
       animation: false,
       tooltip: { show: false },
@@ -1897,20 +1895,20 @@ describe("ChartGPU - hit-test store identity reuse (axes-only setOption)", () =>
       yAxis: { min: 0, max: 50 },
       series: [
         {
-          type: "line",
+          type: 'line',
           data: [
             [0, 0],
             [50, 10],
           ] as Array<[number, number]>,
-          sampling: "none",
+          sampling: 'none',
         },
         {
-          type: "line",
+          type: 'line',
           data: [
             [0, 40],
             [90, 45],
           ] as Array<[number, number]>,
-          sampling: "none",
+          sampling: 'none',
         },
       ],
     });
@@ -1922,20 +1920,20 @@ describe("ChartGPU - hit-test store identity reuse (axes-only setOption)", () =>
       yAxis: { min: 0, max: 50 },
       series: [
         {
-          type: "line",
+          type: 'line',
           data: [
             [0, 0],
             [50, 10],
           ] as Array<[number, number]>,
-          sampling: "none",
+          sampling: 'none',
         },
         {
-          type: "line",
+          type: 'line',
           data: [
             [0, 40],
             [90, 45],
           ] as Array<[number, number]>,
-          sampling: "none",
+          sampling: 'none',
         },
       ],
     });
@@ -1947,20 +1945,20 @@ describe("ChartGPU - hit-test store identity reuse (axes-only setOption)", () =>
       yAxis: { min: 0, max: 50 },
       series: [
         {
-          type: "line",
+          type: 'line',
           data: [
             [0, 0],
             [50, 10],
           ] as Array<[number, number]>,
-          sampling: "none",
+          sampling: 'none',
         },
         {
-          type: "line",
+          type: 'line',
           data: [
             [0, 40],
             [90, 45],
           ] as Array<[number, number]>,
-          sampling: "none",
+          sampling: 'none',
         },
       ],
     });

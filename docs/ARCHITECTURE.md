@@ -151,9 +151,9 @@ flowchart TB
 | **ChartGPU** | `src/ChartGPU.ts` | Factory + instance lifecycle, canvas management, public events |
 | **GPUContext** | `src/core/GPUContext.ts` | WebGPU adapter/device/context initialization |
 | **PipelineCache (optional)** | `src/core/PipelineCache.ts` | Shared cache for `GPUShaderModule`, `GPURenderPipeline`, and `GPUComputePipeline` across charts on the same `GPUDevice` (opt-in via `ChartGPU.create(..., { pipelineCache })`) |
-| **Render Coordinator** | `src/core/createRenderCoordinator.ts` | Layout, scales, data upload, **3-pass MSAA rendering** (main scene @ 4x MSAA → blit → overlay) |
+| **Render Coordinator** | `src/core/createRenderCoordinator.ts` | Layout, scales, data upload, **2-pass 4× MSAA** (main scene resolve → overlay MSAA with blit + annotations + axes; Phase 4b) |
 | **Coordinator Modules** | `src/core/renderCoordinator/*` | 11 specialized modules (utils, gpu/textureManager with 4x MSAA, renderers, data, zoom, animation, interaction, ui, axis, annotations, render) |
-| **GPU Renderers** | `src/renderers/*` | Series-type-specific WebGPU pipeline renderers (main-pass @ 4x MSAA, overlay @ 1x) |
+| **GPU Renderers** | `src/renderers/*` | Series-type-specific WebGPU pipeline renderers (main scene @ 4× MSAA; overlay axes/crosshair/highlight/annotations also @ 4× after Phase 4b) |
 | **WGSL Shaders** | `src/shaders/*` | Vertex/fragment/compute shaders (line shader uses screen-space quad expansion + SDF anti-aliasing) |
 | **Chart Sync** | `src/interaction/createChartSync.ts` | Multi-chart crosshair and zoom synchronization |
 | **Data Store** | `src/data/createDataStore.ts` | GPU buffer upload, caching, geometric growth |
