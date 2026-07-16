@@ -259,8 +259,16 @@ async function main(): Promise<void> {
     resolved: ResolvedChartGPUOptions,
     autoBounds: 'visible' | 'global'
   ): ResolvedChartGPUOptions => {
-    if ((resolved.yAxis.autoBounds ?? 'visible') === autoBounds) return resolved;
-    return { ...resolved, yAxis: { ...resolved.yAxis, autoBounds } };
+    // Resolved options use yAxes[] (multi-axis API); primary axis is index 0.
+    const primary = resolved.yAxes[0];
+    if (!primary) return resolved;
+    if ((primary.autoBounds ?? 'visible') === autoBounds) return resolved;
+    return {
+      ...resolved,
+      yAxes: resolved.yAxes.map((ax, i) =>
+        i === 0 ? { ...ax, autoBounds } : ax
+      ),
+    };
   };
 
   // Pre-resolve both sampling modes once (avoids re-scanning 1M points on UI toggles).
