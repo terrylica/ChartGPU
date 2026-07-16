@@ -2,6 +2,8 @@
  * P1-7: sampling dirty flags + presentation patch without re-sample.
  */
 
+import fs from "node:fs";
+import path from "node:path";
 import { describe, it, expect, vi } from "vitest";
 import {
   didSeriesDataLikelyChange,
@@ -279,19 +281,28 @@ describe("OptionResolver sample reuse (P1-7)", () => {
     sampleSpy.mockRestore();
   });
 
-  it("re-hashes and re-samples when a new data reference is provided after mutation", () => {
+  it("re-stamps and re-samples when a new data reference is provided after mutation", () => {
     const data: DataPoint[] = Array.from({ length: 200 }, (_, i) => [i, i]);
     const first = resolveOptions({
       series: [{ type: "line", data, sampling: "lttb", samplingThreshold: 20 }],
     });
     const firstSampled = first.series[0]!.data;
+    const firstHash = (first.series[0] as { contentHash?: number }).contentHash;
     const firstBounds = (first.series[0] as { rawBounds?: unknown }).rawBounds;
-    // Replace the array (new identity) so resolve must re-hash / re-sample.
+    // Replace the array (new identity) so resolve must stamp / re-sample.
     const nextData: DataPoint[] = data.map((p, i) =>
       i === 50 ? [50, 99999] : ([p[0], p[1]] as DataPoint),
     );
 
-    const hashSpy = vi.spyOn(seriesContentHashModule, "hashCartesianSeriesData");
+    // Full-float hash is no longer used on ref change (cheap stamp only).
+    const fullHashSpy = vi.spyOn(
+      seriesContentHashModule,
+      "hashCartesianSeriesData",
+    );
+    const cheapSpy = vi.spyOn(
+      seriesContentHashModule,
+      "cheapCartesianContentStamp",
+    );
     const sampleSpy = vi.spyOn(sampleSeriesModule, "sampleSeriesDataPoints");
     const second = resolveOptions(
       {
@@ -306,16 +317,21 @@ describe("OptionResolver sample reuse (P1-7)", () => {
       },
       { previousResolved: first },
     );
-    expect(hashSpy).toHaveBeenCalled();
+    expect(fullHashSpy).not.toHaveBeenCalled();
+    expect(cheapSpy).toHaveBeenCalled();
     expect(sampleSpy).toHaveBeenCalled();
     expect(second.series[0]!.data).not.toBe(firstSampled);
+    expect((second.series[0] as { contentHash?: number }).contentHash).not.toBe(
+      firstHash,
+    );
     // rawBounds must recompute (new object; y max reflects mutated value).
     const secondBounds = (second.series[0] as {
       rawBounds?: { yMin: number; yMax: number };
     }).rawBounds;
     expect(secondBounds).not.toBe(firstBounds);
     expect(secondBounds?.yMax).toBeGreaterThanOrEqual(99999);
-    hashSpy.mockRestore();
+    fullHashSpy.mockRestore();
+    cheapSpy.mockRestore();
     sampleSpy.mockRestore();
   });
 
@@ -336,7 +352,9 @@ describe("OptionResolver sample reuse (P1-7)", () => {
       yAxis: { min: 0, max: 1 },
     });
     const firstHash = (first.series[0] as { contentHash?: number }).contentHash;
-    const firstBounds = (first.series[0] as { rawBounds?: unknown }).rawBounds;
+    const firstBounds = (first.series[0] as {
+      rawBounds?: { xMin: number; xMax: number };
+    }).rawBounds;
 
     const hashSpy = vi.spyOn(seriesContentHashModule, "hashCartesianSeriesData");
     const second = resolveOptions(
@@ -358,9 +376,14 @@ describe("OptionResolver sample reuse (P1-7)", () => {
     expect((second.series[0] as { contentHash?: number }).contentHash).toBe(
       firstHash,
     );
-    expect((second.series[0] as { rawBounds?: unknown }).rawBounds).toBe(
-      firstBounds,
-    );
+    // x extent reused from data; y tracks current explicit axis (mode xDataYAxis).
+    const secondBounds = (second.series[0] as {
+      rawBounds?: { xMin: number; xMax: number; yMin: number; yMax: number };
+    }).rawBounds;
+    expect(secondBounds?.xMin).toBe(firstBounds?.xMin);
+    expect(secondBounds?.xMax).toBe(firstBounds?.xMax);
+    expect(secondBounds?.yMin).toBe(-1);
+    expect(secondBounds?.yMax).toBe(2);
     hashSpy.mockRestore();
   });
 
@@ -445,12 +468,94 @@ describe("OptionResolver sample reuse (P1-7)", () => {
     ).toBe(true);
   });
 
+  it("full data rewrite does not double-call sampleSeriesDataPoints (structural)", () => {
+    // OptionResolver samples once; setOptions rewrite must not re-LTTB in
+    // recomputeRuntimeBaseSeries when likelyDataChanged (see createRenderCoordinator).
+    const src = fs.readFileSync(
+      path.resolve(
+        __dirname,
+        "../../../createRenderCoordinator.ts",
+      ),
+      "utf8",
+    );
+    // likelyDataChanged branch keeps resolver-sampled data without recomputeRuntimeBaseSeries.
+    expect(src).toMatch(
+      /if\s*\(\s*!likelyDataChanged\s*\)\s*\{[\s\S]*?recomputeRuntimeBaseSeries\(\)/,
+    );
+    expect(src).toMatch(
+      /Full data rewrite: OptionResolver already sampled/,
+    );
+    // Else body (likelyDataChanged) must not call sampleSeriesDataPoints.
+    const elseIdx = src.indexOf(
+      "Full data rewrite: OptionResolver already sampled",
+    );
+    expect(elseIdx).toBeGreaterThan(-1);
+    const elseEnd = src.indexOf("updateZoom();", elseIdx);
+    const elseBody = src.slice(elseIdx, elseEnd > elseIdx ? elseEnd : elseIdx + 4000);
+    expect(elseBody).not.toMatch(/sampleSeriesDataPoints\s*\(/);
+  });
+
+  it("patch prefers next.rawBounds when rawBoundsMode changes", () => {
+    const data: DataPoint[] = [
+      [0, 1],
+      [10, 20],
+    ];
+    const prev = [
+      {
+        type: "line",
+        data,
+        rawData: data,
+        rawBounds: { xMin: -100, xMax: 100, yMin: -100, yMax: 100 },
+        rawBoundsMode: "synthetic",
+        contentHash: 1,
+        sampling: "none",
+        samplingThreshold: 5000,
+        color: "#0f0",
+        lineStyle: { width: 2, opacity: 1, color: "#0f0" },
+        connectNulls: false,
+        yAxis: "y",
+        visible: true,
+      },
+    ] as unknown as ResolvedSeriesConfig[];
+    const next = [
+      {
+        type: "line",
+        data,
+        rawData: data,
+        rawBounds: { xMin: 0, xMax: 10, yMin: 1, yMax: 20 },
+        rawBoundsMode: "data",
+        contentHash: 1,
+        sampling: "none",
+        samplingThreshold: 5000,
+        color: "#f00",
+        lineStyle: { width: 2, opacity: 1, color: "#f00" },
+        connectNulls: false,
+        yAxis: "y",
+        visible: true,
+      },
+    ] as unknown as ResolvedSeriesConfig[];
+    const patched = patchSeriesPresentationKeepingSampledData(
+      next as never,
+      prev,
+    );
+    expect((patched[0] as { rawBounds?: unknown }).rawBounds).toEqual({
+      xMin: 0,
+      xMax: 10,
+      yMin: 1,
+      yMax: 20,
+    });
+    expect((patched[0] as { rawBoundsMode?: string }).rawBoundsMode).toBe(
+      "data",
+    );
+  });
+
   it("canReuseResolvedSeriesSample gates correctly", () => {
     const data: DataPoint[] = [[0, 1], [1, 2]];
     const resolved = resolveOptions({
       series: [{ type: "line", data, sampling: "none" }],
     }).series[0]!;
-    const hash = hashCartesianSeriesData(data);
+    // contentHash is now a cheap stamp on first resolve — reuse the stored stamp.
+    const hash = (resolved as { contentHash?: number }).contentHash!;
     expect(
       canReuseResolvedSeriesSample(
         resolved,

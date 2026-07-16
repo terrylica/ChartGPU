@@ -18,6 +18,8 @@ Chart configuration. Full types: [`types.ts`](../../src/config/types.ts).
 - **Sampling (cartesian)**: `sampling?: 'none' | 'lttb' | 'average' | 'max' | 'min'`, `samplingThreshold?: number` (default 5000). Zoom-aware resampling when data zoom enabled.
 - **`visible?: boolean`**: hide series from rendering and interaction. Legend toggle updates both.
 - **Data identity / in-place mutation**: ChartGPU treats series `data` by **reference identity** for hot paths (`setOption` resolve, content hashing, GPU upload skip, area geometry cache). Mutating point values under a stable array / columns object **without** replacing the reference may not be detected. Prefer a new array (or `appendData(...)`) when content changes. Axes-only / presentation-only updates that re-pass the same `data` reference are intentionally O(1) on the data path.
+- **Full rewrite (`setOption` with a new `data` array every frame)**: When the data **reference** changes, ChartGPU uses an O(1) content **stamp** (not a full float hash) for dirty tracking. GPU buffers are reused when capacity fits; pack goes into retained staging. Tooltip off skips ChartGPU hit-test columnar rebuild until `hitTest()` or tooltip re-enable (dual-store relief). The coordinator may keep your data array by reference until `appendData` — append always **copies** into owned columns and never mutates caller `{ x, y }` arrays.
+- **Y-only DataStore rewrite**: When length is stable and every x matches the previous pack, only y floats are rewritten in CPU staging. GPU `writeBuffer` is still a full interleaved upload (WebGPU has no strided partial write). Scatter suite paths often use default LTTB and the scatter renderer instance buffer, so DataStore y-only is not the group-4 hot path.
 
 ### CandlestickSeriesConfig
 

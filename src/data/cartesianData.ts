@@ -290,6 +290,77 @@ export function getSize(
   return isTupleDataPoint(p) ? p[2] : p.size;
 }
 
+/** Identity cache: axes-only / same-ref frames skip O(n) re-scan. */
+const perPointSizeCache = new WeakMap<object, boolean>();
+
+/**
+ * True when any point exposes a defined per-point size (matching {@link getSize} semantics).
+ *
+ * Used to gate const-radius scatter packing and dense Float32 LTTB paths that would
+ * otherwise drop the size channel. Scans the full series (including sparse size on
+ * later points and tuple `[x,y,size]` forms). Interleaved typed arrays never carry size.
+ *
+ * Results are cached by data object identity (WeakMap) so axes-only / stable-ref
+ * frames are O(1) after the first scan. New array refs (full rewrite harnesses)
+ * still pay one O(n) scan per identity.
+ */
+export function hasAnyPerPointSize(data: CartesianSeriesData): boolean {
+  if (data != null && typeof data === "object") {
+    const hit = perPointSizeCache.get(data as object);
+    if (hit !== undefined) return hit;
+  }
+
+  let result = false;
+  if (isRingXYColumns(data)) {
+    if (data.size) {
+      const n = data.count;
+      const cap = data.capacity;
+      let phys = data.start;
+      for (let i = 0; i < n; i++) {
+        if (data.size[phys] !== undefined) {
+          result = true;
+          break;
+        }
+        phys++;
+        if (phys >= cap) phys = 0;
+      }
+    }
+  } else if (isXYArraysData(data)) {
+    if (data.size) {
+      const n = Math.min(data.x.length, data.y.length, data.size.length);
+      for (let i = 0; i < n; i++) {
+        if (data.size[i] !== undefined) {
+          result = true;
+          break;
+        }
+      }
+    }
+  } else if (isInterleavedXYData(data)) {
+    result = false;
+  } else {
+    // DataPoint[] — tuples with length>=3 or objects with size
+    const arr = data as ReadonlyArray<DataPoint | null | undefined>;
+    for (let i = 0; i < arr.length; i++) {
+      const p = arr[i];
+      if (p === undefined || p === null || typeof p !== "object") continue;
+      if (isTupleDataPoint(p)) {
+        if (p.length >= 3 && p[2] !== undefined) {
+          result = true;
+          break;
+        }
+      } else if ((p as { size?: number }).size !== undefined) {
+        result = true;
+        break;
+      }
+    }
+  }
+
+  if (data != null && typeof data === "object") {
+    perPointSizeCache.set(data as object, result);
+  }
+  return result;
+}
+
 /**
  * Packs XY coordinates from CartesianSeriesData into a Float32Array in interleaved layout.
  *
@@ -460,12 +531,20 @@ export function computeRawBoundsFromCartesianData(
       if (y > yMax) yMax = y;
     }
   } else {
-    // Array<DataPoint> path: use helper functions
+    // Array<DataPoint> path: branch once per point on tuple vs object (hot rewrite path).
     const count = data.length;
     for (let i = 0; i < count; i++) {
-      const x = getX(data, i);
-      const y = getY(data, i);
-
+      const p = data[i];
+      if (p === undefined || p === null || typeof p !== "object") continue;
+      let x: number;
+      let y: number;
+      if (Array.isArray(p)) {
+        x = p[0] as number;
+        y = p[1] as number;
+      } else {
+        x = (p as { x: number }).x;
+        y = (p as { y: number }).y;
+      }
       if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
 
       if (x < xMin) xMin = x;
@@ -489,6 +568,67 @@ export function computeRawBoundsFromCartesianData(
   if (yMin === yMax) yMax = yMin + 1;
 
   return { xMin, xMax, yMin, yMax };
+}
+
+/**
+ * X-extent only (skips y). Used when all y-axis domains are explicit so full
+ * rawBounds only needs data-driven xMin/xMax (SciChart group 4 shape).
+ */
+export function computeRawXExtentFromCartesianData(
+  data: CartesianSeriesData,
+): { readonly xMin: number; readonly xMax: number } | null {
+  let xMin = Number.POSITIVE_INFINITY;
+  let xMax = Number.NEGATIVE_INFINITY;
+
+  if (isRingXYColumns(data)) {
+    const n = data.count;
+    const cap = data.capacity;
+    let phys = data.start;
+    for (let i = 0; i < n; i++) {
+      const x = data.x[phys]!;
+      phys++;
+      if (phys >= cap) phys = 0;
+      if (!Number.isFinite(x)) continue;
+      if (x < xMin) xMin = x;
+      if (x > xMax) xMax = x;
+    }
+  } else if (isXYArraysData(data)) {
+    const count = data.x.length;
+    for (let i = 0; i < count; i++) {
+      const x = data.x[i]!;
+      if (!Number.isFinite(x)) continue;
+      if (x < xMin) xMin = x;
+      if (x > xMax) xMax = x;
+    }
+  } else if (isInterleavedXYData(data)) {
+    if (data instanceof DataView) {
+      throw new Error(
+        "DataView is not supported for InterleavedXYData. Use typed arrays (Float32Array, Float64Array, etc.).",
+      );
+    }
+    const arr = data as TypedArray;
+    const count = Math.floor(arr.length / 2);
+    for (let i = 0; i < count; i++) {
+      const x = arr[i * 2]!;
+      if (!Number.isFinite(x)) continue;
+      if (x < xMin) xMin = x;
+      if (x > xMax) xMax = x;
+    }
+  } else {
+    const count = data.length;
+    for (let i = 0; i < count; i++) {
+      const p = data[i];
+      if (p === undefined || p === null || typeof p !== "object") continue;
+      const x = Array.isArray(p) ? (p[0] as number) : (p as { x: number }).x;
+      if (!Number.isFinite(x)) continue;
+      if (x < xMin) xMin = x;
+      if (x > xMax) xMax = x;
+    }
+  }
+
+  if (!Number.isFinite(xMin) || !Number.isFinite(xMax)) return null;
+  if (xMin === xMax) xMax = xMin + 1;
+  return { xMin, xMax };
 }
 
 /**

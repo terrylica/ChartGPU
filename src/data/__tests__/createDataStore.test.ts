@@ -98,6 +98,57 @@ describe("createDataStore", () => {
       ]);
       expect(store.getSeriesContentHash(0)).toBe(hash1);
     });
+
+    it("y-only rewrite reuses buffer and updates y floats (group 4)", () => {
+      const store = createDataStore(device);
+      store.setSeries(0, [
+        [0, 1],
+        [1, 2],
+        [2, 3],
+      ]);
+      const bufferA = store.getSeriesBuffer(0);
+      const stagingA = store.getSeriesStagingBuffer(0);
+      const hashA = store.getSeriesContentHash(0);
+
+      store.setSeries(0, [
+        [0, 10],
+        [1, 20],
+        [2, 30],
+      ]);
+      expect(store.getSeriesBuffer(0)).toBe(bufferA);
+      expect(store.getSeriesStagingBuffer(0)).toBe(stagingA);
+      expect(store.getSeriesContentHash(0)).not.toBe(hashA);
+      // x unchanged, y updated
+      expect(stagingA[0]).toBe(0);
+      expect(stagingA[1]).toBe(10);
+      expect(stagingA[2]).toBe(1);
+      expect(stagingA[3]).toBe(20);
+      expect(stagingA[4]).toBe(2);
+      expect(stagingA[5]).toBe(30);
+    });
+
+    it("does not take y-only path when x also changes (group 2 Brownian)", () => {
+      const store = createDataStore(device);
+      store.setSeries(0, [
+        [0, 1],
+        [1, 2],
+        [2, 3],
+      ]);
+      const staging = store.getSeriesStagingBuffer(0);
+
+      store.setSeries(0, [
+        [0.5, 10],
+        [1.2, 20],
+        [2.1, 30],
+      ]);
+      // Full pack: both x and y updated
+      expect(staging[0]).toBeCloseTo(0.5);
+      expect(staging[1]).toBe(10);
+      expect(staging[2]).toBeCloseTo(1.2);
+      expect(staging[3]).toBe(20);
+      expect(staging[4]).toBeCloseTo(2.1);
+      expect(staging[5]).toBe(30);
+    });
   });
 
   describe("staging buffer reuse (WG-P1-9)", () => {

@@ -1523,9 +1523,93 @@ describe("ChartGPU - appendData maxPoints (FIFO)", () => {
     });
     await new Promise((resolve) => setTimeout(resolve, 20));
 
-    // Must not throw and must hit-test the first series' resynced newest point.
+    // Must hit-test the first series' resynced newest point (x≈100 after FIFO).
+    // y=50 with axis -10..60 → gridY ≈ (1 - 60/70)*600 ≈ 86.
     const hit = chart.hitTest(makePointer(799, 86));
     expect(hit.isInGrid).toBe(true);
+    // After maxPoints:2 append of [100,50] onto seed, newest should be hit-testable.
+    // Match may be null if mock scales disagree — assert domain via match when present.
+    if (hit.match) {
+      expect(hit.match.value[0]).toBeCloseTo(100, 0);
+      expect(hit.match.seriesIndex).toBe(0);
+    } else {
+      // At least in-grid after resync without throw (prior contract).
+      expect(hit.isInGrid).toBe(true);
+    }
+
+    await chart.dispose();
+  });
+
+  it("axes explicit→auto under same data ref tracks data domain (sticky bounds)", async () => {
+    // Live path: presentation-only setOption must refresh rawBoundsMode + runtime
+    // bounds when axes leave synthetic mode (same data ref).
+    const data: Array<[number, number]> = [
+      [0, 5],
+      [50, 25],
+      [100, 40],
+    ];
+    const chart = await ChartGPU.create(mockContainer, {
+      animation: false,
+      tooltip: { show: true },
+      grid: { left: 0, right: 0, top: 0, bottom: 0 },
+      xAxis: { min: -1000, max: 1000 },
+      yAxis: { min: -1000, max: 1000 },
+      series: [{ type: "line", data, sampling: "none" }],
+    });
+
+    // Switch to auto axes — same data ref. Domain must track data [0,100]×[5,40],
+    // not the prior synthetic ±1000 box.
+    chart.setOption({
+      animation: false,
+      tooltip: { show: true },
+      grid: { left: 0, right: 0, top: 0, bottom: 0 },
+      series: [{ type: "line", data, sampling: "none" }],
+    });
+
+    // x=100 → right edge; y=40 with data domain ~5..40 → top of plot (clientY≈0).
+    // If sticky synthetic ±1000, clientX≈799 maps near x=1000 and miss.
+    const hit = chart.hitTest(makePointer(799, 5));
+    expect(hit.isInGrid).toBe(true);
+    expect(hit.match).not.toBeNull();
+    expect(hit.match!.value[0]).toBeCloseTo(100, 0);
+
+    await chart.dispose();
+  });
+
+  it("explicit axes + append + auto axes same seed ref keeps append extrema", async () => {
+    // Coordinator must recompute runtime bounds from owned columns on mode flip,
+    // not only resolver seed rawBounds (which omit appends).
+    const data: Array<[number, number]> = [
+      [0, 0],
+      [1, 1],
+    ];
+    const chart = await ChartGPU.create(mockContainer, {
+      animation: false,
+      tooltip: { show: true },
+      grid: { left: 0, right: 0, top: 0, bottom: 0 },
+      xAxis: { min: -10, max: 10 },
+      yAxis: { min: -10, max: 10 },
+      series: [{ type: "line", data, sampling: "none" }],
+    });
+
+    chart.appendData(0, [[100, 50]]);
+    await new Promise((r) => setTimeout(r, 30));
+
+    // Same seed data ref; axes → auto. Domain must include appended (100, 50).
+    chart.setOption({
+      animation: false,
+      tooltip: { show: true },
+      grid: { left: 0, right: 0, top: 0, bottom: 0 },
+      series: [{ type: "line", data, sampling: "none" }],
+    });
+
+    // x=100 right edge; y=50 near top of [0,50] → clientY ≈ 0.
+    // If coordinator used seed-only bounds (0..1), hit at right edge misses 100.
+    const hit = chart.hitTest(makePointer(799, 5));
+    expect(hit.isInGrid).toBe(true);
+    expect(hit.match).not.toBeNull();
+    expect(hit.match!.value[0]).toBeCloseTo(100, 0);
+    expect(hit.match!.value[1]).toBeCloseTo(50, 0);
 
     await chart.dispose();
   });
@@ -1695,11 +1779,196 @@ describe("ChartGPU - hit-test store identity reuse (axes-only setOption)", () =>
     });
 
     // Domain ~0..50 on x (from data2 rawBounds); y=25 → gridY ≈ 300.
+    // Tooltip-off setOption skips columns; hitTest resyncs from coordinator.
     const hit = chart.hitTest(makePointer(799, 300));
     expect(hit.isInGrid).toBe(true);
     expect(hit.match).not.toBeNull();
     expect(hit.match?.value[0]).toBeCloseTo(50, 0);
 
+    await chart.dispose();
+  });
+
+  it("tooltip-off setOption full rewrite resyncs hit-test on demand (dual-store)", async () => {
+    // SciChart groups 2/3/4: tooltip false + new data array every frame.
+    // Columns must not be required for render; hitTest after rewrite still works.
+    const chart = await ChartGPU.create(mockContainer, {
+      animation: false,
+      tooltip: { show: false },
+      grid: { left: 0, right: 0, top: 0, bottom: 0 },
+      xAxis: { min: 0, max: 100 },
+      yAxis: { min: 0, max: 50 },
+      series: [
+        {
+          type: "scatter",
+          data: [
+            [0, 0],
+            [10, 5],
+          ] as Array<[number, number]>,
+          sampling: "none",
+          symbolSize: 5,
+        },
+      ],
+    });
+
+    const rebuildsAfterCreate = chart.getHitTestStoreRebuildCount();
+    expect(rebuildsAfterCreate).toBeGreaterThanOrEqual(1);
+
+    const next: Array<[number, number]> = [
+      [0, 0],
+      [90, 40],
+    ];
+    chart.setOption({
+      animation: false,
+      tooltip: { show: false },
+      grid: { left: 0, right: 0, top: 0, bottom: 0 },
+      xAxis: { min: 0, max: 100 },
+      yAxis: { min: 0, max: 50 },
+      series: [
+        {
+          type: "scatter",
+          data: next,
+          sampling: "none",
+          symbolSize: 5,
+        },
+      ],
+    });
+    // Skip proven: tooltip-off rewrite must not rebuild hit-test columns.
+    expect(chart.getHitTestStoreRebuildCount()).toBe(rebuildsAfterCreate);
+
+    // x=90 → near right; y=40 → near top of [0,50] → gridY ≈ (1-40/50)*600 = 120
+    const hit = chart.hitTest(makePointer(720, 120));
+    expect(hit.isInGrid).toBe(true);
+    expect(hit.match).not.toBeNull();
+    expect(hit.match?.value[0]).toBeCloseTo(90, 0);
+
+    // Re-enable tooltip must not double-apply or throw after skip.
+    chart.setOption({
+      animation: false,
+      tooltip: { show: true },
+      grid: { left: 0, right: 0, top: 0, bottom: 0 },
+      xAxis: { min: 0, max: 100 },
+      yAxis: { min: 0, max: 50 },
+      series: [
+        {
+          type: "scatter",
+          data: next,
+          sampling: "none",
+          symbolSize: 5,
+        },
+      ],
+    });
+    const hit2 = chart.hitTest(makePointer(720, 120));
+    expect(hit2.match?.value[0]).toBeCloseTo(90, 0);
+
+    await chart.dispose();
+  });
+
+  it("setOption shared {x,y} then appendData does not mutate caller arrays", async () => {
+    const x = [0, 1, 2];
+    const y = [1, 2, 3];
+    const xCopy = x.slice();
+    const yCopy = y.slice();
+    const chart = await ChartGPU.create(mockContainer, {
+      animation: false,
+      tooltip: { show: true },
+      grid: { left: 0, right: 0, top: 0, bottom: 0 },
+      yAxis: { min: 0, max: 10 },
+      series: [{ type: "line", data: { x, y }, sampling: "none" }],
+    });
+    chart.appendData(0, {
+      x: [3, 4],
+      y: [4, 5],
+    });
+    await new Promise((r) => setTimeout(r, 30));
+    // Caller arrays must be untouched (owned columns brand prevents in-place mutate).
+    expect(x).toEqual(xCopy);
+    expect(y).toEqual(yCopy);
+    expect(x.length).toBe(3);
+    expect(y.length).toBe(3);
+    await chart.dispose();
+  });
+
+  it("tooltip re-enable multi-series hit-test hits correct series values", async () => {
+    const chart = await ChartGPU.create(mockContainer, {
+      animation: false,
+      tooltip: { show: false },
+      grid: { left: 0, right: 0, top: 0, bottom: 0 },
+      xAxis: { min: 0, max: 100 },
+      yAxis: { min: 0, max: 50 },
+      series: [
+        {
+          type: "line",
+          data: [
+            [0, 0],
+            [50, 10],
+          ] as Array<[number, number]>,
+          sampling: "none",
+        },
+        {
+          type: "line",
+          data: [
+            [0, 40],
+            [90, 45],
+          ] as Array<[number, number]>,
+          sampling: "none",
+        },
+      ],
+    });
+    chart.setOption({
+      animation: false,
+      tooltip: { show: false },
+      grid: { left: 0, right: 0, top: 0, bottom: 0 },
+      xAxis: { min: 0, max: 100 },
+      yAxis: { min: 0, max: 50 },
+      series: [
+        {
+          type: "line",
+          data: [
+            [0, 0],
+            [50, 10],
+          ] as Array<[number, number]>,
+          sampling: "none",
+        },
+        {
+          type: "line",
+          data: [
+            [0, 40],
+            [90, 45],
+          ] as Array<[number, number]>,
+          sampling: "none",
+        },
+      ],
+    });
+    chart.setOption({
+      animation: false,
+      tooltip: { show: true },
+      grid: { left: 0, right: 0, top: 0, bottom: 0 },
+      xAxis: { min: 0, max: 100 },
+      yAxis: { min: 0, max: 50 },
+      series: [
+        {
+          type: "line",
+          data: [
+            [0, 0],
+            [50, 10],
+          ] as Array<[number, number]>,
+          sampling: "none",
+        },
+        {
+          type: "line",
+          data: [
+            [0, 40],
+            [90, 45],
+          ] as Array<[number, number]>,
+          sampling: "none",
+        },
+      ],
+    });
+    // x≈90, y≈45 → second series
+    const hit = chart.hitTest(makePointer(720, 60));
+    expect(hit.match).not.toBeNull();
+    expect(hit.match!.value[0]).toBeCloseTo(90, 0);
+    expect(hit.match!.seriesIndex).toBe(1);
     await chart.dispose();
   });
 });

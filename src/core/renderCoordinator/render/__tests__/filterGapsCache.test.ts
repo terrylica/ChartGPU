@@ -162,4 +162,17 @@ describe("filterGapsCache (P2-12)", () => {
     expect(flushBody).toMatch(/filterGapsCache\.delete\(\s*seriesIndex\s*\)/);
     expect(flushBody).toMatch(/lastSetSeriesCache\.delete\(\s*seriesIndex\s*\)/);
   });
+
+  it("clears lastSetSeriesCache while update animation is interpolating (structural)", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const src = fs.readFileSync(
+      path.resolve(__dirname, "../../../createRenderCoordinator.ts"),
+      "utf8",
+    );
+    // AGENTS.md: identity caches must invalidate during in-place interpolation.
+    expect(src).toMatch(
+      /if\s*\(\s*updateTransition\s*&&\s*updateP\s*<\s*1\s*\)\s*\{\s*lastSetSeriesCache\.clear\(\)/s,
+    );
+  });
 });

@@ -3,6 +3,7 @@ import type {
   ResolvedCandlestickSeriesConfig,
   ResolvedChartGPUOptions,
   ResolvedPieSeriesConfig,
+  ResolvedSeriesConfig,
 } from "../config/OptionResolver";
 import type {
   AnimationConfig,
@@ -57,6 +58,7 @@ import {
   didSeriesDataLikelyChange,
   shouldRecomputeBaselineSampling,
   patchSeriesPresentationKeepingSampledData,
+  didRawBoundsModeChange,
 } from "./renderCoordinator/data/samplingDirty";
 import { processAnnotations } from "./renderCoordinator/annotations/processAnnotations";
 import {
@@ -311,25 +313,45 @@ const getPointXY = (
 };
 
 /**
+ * Brand for coordinator-owned MutableXYColumns. User-supplied `{ x, y }` arrays
+ * must never be treated as owned — append would mutate the caller's buffers.
+ */
+const OWNED_XY_COLUMNS = Symbol.for("chartgpu.ownedMutableXYColumns");
+
+/**
  * Mutable columnar cartesian data store (runtime).
  * - x, y: number[] - coordinate columns
  * - size?: (number|undefined)[] - optional size column (aligned with x/y when present)
+ * - Brand: only columns created by the coordinator carry OWNED_XY_COLUMNS.
  */
 type MutableXYColumns = {
   x: number[];
   y: number[];
   size?: (number | undefined)[];
+  [OWNED_XY_COLUMNS]?: true;
+};
+
+/** Runtime cartesian slot: owned columns, ring, or raw setOption ref (DataPoint[] / user XY). */
+type RuntimeCartesianData =
+  | MutableXYColumns
+  | RingXYColumns
+  | CartesianSeriesData;
+
+const brandOwnedColumns = (cols: MutableXYColumns): MutableXYColumns => {
+  cols[OWNED_XY_COLUMNS] = true;
+  return cols;
 };
 
 /**
  * Helper: Convert CartesianSeriesData to mutable columnar format for runtime storage.
- * Used for streaming appends without per-point allocations.
+ * Used for streaming appends without per-point allocations. Always returns a
+ * **branded owned** copy — never the caller's arrays.
  */
 const cartesianDataToMutableColumns = (
   data: CartesianSeriesData,
 ): MutableXYColumns => {
   const n = getPointCount(data);
-  if (n === 0) return { x: [], y: [] };
+  if (n === 0) return brandOwnedColumns({ x: [], y: [] });
 
   const x: number[] = new Array(n);
   const y: number[] = new Array(n);
@@ -354,10 +376,10 @@ const cartesianDataToMutableColumns = (
   }
 
   if (hasSizeValues && size) {
-    return { x, y, size };
+    return brandOwnedColumns({ x, y, size });
   }
 
-  return { x, y };
+  return brandOwnedColumns({ x, y });
 };
 
 /**
@@ -1025,9 +1047,16 @@ const computeBaseXDomain = (
   options: ResolvedChartGPUOptions,
   runtimeRawBoundsByIndex?: ReadonlyArray<Bounds | null> | null,
 ): { readonly min: number; readonly max: number } => {
+  // Short-circuit when both ends are explicit — avoids O(series) bounds aggregation
+  // on full rewrite frames with fixed axes (SciChart groups 2/3).
+  const explicitMin = finiteOrUndefined(options.xAxis.min);
+  const explicitMax = finiteOrUndefined(options.xAxis.max);
+  if (explicitMin !== undefined && explicitMax !== undefined) {
+    return normalizeDomain(explicitMin, explicitMax);
+  }
   const bounds = computeGlobalXBounds(options.series, runtimeRawBoundsByIndex);
-  const baseMin = finiteOrUndefined(options.xAxis.min) ?? bounds.xMin;
-  const baseMax = finiteOrUndefined(options.xAxis.max) ?? bounds.xMax;
+  const baseMin = explicitMin ?? bounds.xMin;
+  const baseMax = explicitMax ?? bounds.xMax;
   return normalizeDomain(baseMin, baseMax);
 };
 
@@ -1676,12 +1705,13 @@ export function createRenderCoordinator(
   const warnedPieAppendSeries = new Set<number>();
   const warnedSamplingDefeatsFastPath = new Set<number>();
 
-  // Coordinator-owned runtime series store.
-  // - `runtimeRawDataByIndex[i]` owns mutable columnar data (MutableXYColumns) for cartesian series,
-  //   RingXYColumns when maxPoints ring FIFO is active, or mutable OHLCDataPoint[] for candlestick.
+  // Coordinator runtime series store.
+  // - Cartesian: branded MutableXYColumns (owned), RingXYColumns (FIFO), or a raw
+  //   setOption data ref (DataPoint[] / user XYArrays — never mutated in place).
+  // - Candlestick: mutable OHLCDataPoint[].
   // - `runtimeRawBoundsByIndex[i]` is incrementally updated to keep scale/bounds derivation cheap.
   let runtimeRawDataByIndex: Array<
-    MutableXYColumns | RingXYColumns | OHLCDataPoint[] | null
+    RuntimeCartesianData | OHLCDataPoint[] | null
   > = new Array(options.series.length).fill(null);
   let runtimeRawBoundsByIndex: Array<Bounds | null> = new Array(
     options.series.length,
@@ -2063,17 +2093,11 @@ export function createRenderCoordinator(
         }
       } else {
         // Handle other cartesian series (line, area, bar, scatter).
-        let raw = runtimeRawDataByIndex[seriesIndex] as
-          | MutableXYColumns
-          | RingXYColumns
-          | null;
-        if (!raw) {
-          const seed = (s.rawData ?? s.data) as CartesianSeriesData;
-          raw = cartesianDataToMutableColumns(seed);
-          runtimeRawDataByIndex[seriesIndex] = raw;
-          runtimeRawBoundsByIndex[seriesIndex] =
-            s.rawBounds ?? computeRawBoundsFromCartesianData(seed);
-        }
+        // setOption rewrite may store a raw DataPoint[] ref — promote before mutate.
+        let raw: MutableXYColumns | RingXYColumns = ensureMutableRuntimeColumns(
+          seriesIndex,
+          s,
+        );
 
         // Optional fast-path: append just the new points when the DataStore buffer
         // holds full raw line data (sampling='none' full-span, or GPU decimation raw).
@@ -2148,10 +2172,10 @@ export function createRenderCoordinator(
               plan.ringCapacity > 0 &&
               raw.capacity !== plan.ringCapacity;
             if (!plan.isRing || capMismatch) {
-              const demoted: MutableXYColumns = {
-                x: [],
-                y: [],
-              };
+              const demoted = brandOwnedColumns({
+                x: [] as number[],
+                y: [] as number[],
+              });
               const count = raw.count;
               for (let i = 0; i < count; i++) {
                 demoted.x.push(
@@ -2977,12 +3001,57 @@ export function createRenderCoordinator(
       }
 
       const raw = (s.rawData ?? s.data) as CartesianSeriesData;
-      // Coordinator-owned: convert to mutable columnar format (streaming appends mutate this).
-      const owned = cartesianDataToMutableColumns(raw);
-      runtimeRawDataByIndex[i] = owned;
+      // Full rewrite path: keep the raw data reference to avoid O(n) MutableXYColumns
+      // allocations every setOption (SciChart groups 2/3/4). appendData promotes to
+      // branded owned columns / ring on the first stream batch — never mutates the
+      // caller's {x,y} arrays or DataPoint[] in place.
+      runtimeRawDataByIndex[i] = raw;
       runtimeRawBoundsByIndex[i] =
         s.rawBounds ?? computeRawBoundsFromCartesianData(raw);
     }
+  };
+
+  /**
+   * True when runtime storage is coordinator-owned MutableXYColumns (branded).
+   * User-supplied `{ x, y }` from setOption is NOT owned and must be copied on append.
+   */
+  const isOwnedMutableColumns = (
+    data: unknown,
+  ): data is MutableXYColumns => {
+    if (data == null || typeof data !== "object" || Array.isArray(data)) {
+      return false;
+    }
+    if (isRingXYColumns(data)) return false;
+    return (data as MutableXYColumns)[OWNED_XY_COLUMNS] === true;
+  };
+
+  /**
+   * Ensure cartesian runtime storage is MutableXYColumns or RingXYColumns before
+   * streaming append mutates it. setOption may have stored a raw DataPoint[] or
+   * user XYArrays ref — always copy into branded owned columns first.
+   */
+  const ensureMutableRuntimeColumns = (
+    seriesIndex: number,
+    s: ResolvedSeriesConfig,
+  ): MutableXYColumns | RingXYColumns => {
+    const existing = runtimeRawDataByIndex[seriesIndex];
+    if (isRingXYColumns(existing)) return existing;
+    if (isOwnedMutableColumns(existing)) return existing;
+    const sAny = s as ResolvedSeriesConfig & {
+      rawData?: CartesianSeriesData;
+      rawBounds?: Bounds | null;
+      data?: CartesianSeriesData;
+    };
+    const seed =
+      (existing as CartesianSeriesData | null) ??
+      ((sAny.rawData ?? sAny.data) as CartesianSeriesData);
+    const owned = cartesianDataToMutableColumns(seed);
+    runtimeRawDataByIndex[seriesIndex] = owned;
+    if (runtimeRawBoundsByIndex[seriesIndex] == null) {
+      runtimeRawBoundsByIndex[seriesIndex] =
+        sAny.rawBounds ?? computeRawBoundsFromCartesianData(seed);
+    }
+    return owned;
   };
 
   const recomputeRuntimeBaseSeries = (): void => {
@@ -3427,13 +3496,95 @@ export function createRenderCoordinator(
         lastSetSeriesCache.clear();
         filterGapsCache.clear();
         lastSampledData = new Array(resolvedOptions.series.length).fill(null);
+        // Presentation-stable data: re-sample from runtime store (append path
+        // also uses this via flush).
+        recomputeRuntimeBaseSeries();
+      } else {
+        // Full data rewrite: OptionResolver already sampled `currentOptions.series`.
+        // Do NOT re-run LTTB/OHLC here — that was a double O(n) on every SciChart
+        // full-setOption frame. Align rawData/rawBounds with the runtime store only.
+        runtimeBaseSeries = currentOptions.series.map((s, i) => {
+          if (s.type === "pie") return s;
+          if (s.type === "candlestick") {
+            const rawOHLC =
+              (runtimeRawDataByIndex[i] as ReadonlyArray<OHLCDataPoint> | null) ??
+              ((s.rawData ?? s.data) as ReadonlyArray<OHLCDataPoint>);
+            return {
+              ...s,
+              rawData: rawOHLC,
+              rawBounds: runtimeRawBoundsByIndex[i] ?? s.rawBounds ?? undefined,
+            };
+          }
+          const rawCartesian: CartesianSeriesData =
+            (runtimeRawDataByIndex[i] as MutableXYColumns | null as
+              | CartesianSeriesData
+              | null) ?? ((s.rawData ?? s.data) as CartesianSeriesData);
+          const bounds =
+            runtimeRawBoundsByIndex[i] ?? s.rawBounds ?? undefined;
+          // GPU decimation wants raw on the series (prepareSeries runs compute).
+          if (isGpuDecimationEligible(s, rawCartesian)) {
+            return {
+              ...s,
+              rawData: rawCartesian,
+              rawBounds: bounds,
+              data: rawCartesian,
+            };
+          }
+          return {
+            ...s,
+            rawData: rawCartesian,
+            rawBounds: bounds,
+            // keep s.data — already sampled by OptionResolver
+          };
+        }) as ResolvedChartGPUOptions["series"];
       }
-      recomputeRuntimeBaseSeries();
       updateZoom();
       recomputeRenderSeries();
     } else {
       // Presentation-only: patch series metadata (colors, names, styles) onto the
       // already-sampled baseline and render series without re-running LTTB.
+      // When rawBoundsMode flips (axes explicit → auto under same data ref):
+      // recompute runtimeRawBoundsByIndex from **owned runtime columns** when
+      // present (includes appendData extrema) — same as ChartGPU hit-test —
+      // not only resolver seed rawBounds (which omit appends).
+      const boundsModeChanged = didRawBoundsModeChange(
+        prevSeries,
+        resolvedOptions.series,
+      );
+      if (boundsModeChanged) {
+        for (let i = 0; i < resolvedOptions.series.length; i++) {
+          const s = resolvedOptions.series[i]!;
+          if (s.type === "pie") continue;
+          const mode = (s as { rawBoundsMode?: string }).rawBoundsMode;
+          const rb = (s as { rawBounds?: Bounds | null }).rawBounds ?? null;
+          if (mode === "data" || mode === "xDataYAxis") {
+            // Prefer scanning runtime store (owned columns / ring / raw ref after
+            // promote) so append-extended extrema survive axes-auto flip.
+            const runtime = runtimeRawDataByIndex[i];
+            if (runtime != null && s.type !== "candlestick") {
+              runtimeRawBoundsByIndex[i] =
+                (computeRawBoundsFromCartesianData(
+                  runtime as CartesianSeriesData,
+                ) as Bounds | null) ??
+                rb ??
+                null;
+            } else if (s.type === "candlestick") {
+              const ohlc =
+                (runtime as ReadonlyArray<OHLCDataPoint> | null) ??
+                ((s.rawData ?? s.data) as ReadonlyArray<OHLCDataPoint>);
+              runtimeRawBoundsByIndex[i] =
+                extendBoundsWithOHLCDataPoints(null, ohlc) ?? rb ?? null;
+            } else {
+              runtimeRawBoundsByIndex[i] = rb;
+            }
+          } else if (mode === "synthetic" && rb) {
+            // Axes fully explicit again — synthetic extents from resolver.
+            runtimeRawBoundsByIndex[i] = rb;
+          } else if (rb) {
+            runtimeRawBoundsByIndex[i] = rb;
+          }
+        }
+      }
       runtimeBaseSeries = patchSeriesPresentationKeepingSampledData(
         resolvedOptions.series,
         runtimeBaseSeries,
@@ -3442,6 +3593,21 @@ export function createRenderCoordinator(
         runtimeBaseSeries,
         renderSeries,
       );
+      // Keep series.rawBounds aligned with refreshed runtime bounds after mode flip.
+      if (boundsModeChanged) {
+        const stampRuntimeBounds = (
+          series: ResolvedChartGPUOptions["series"],
+        ): ResolvedChartGPUOptions["series"] =>
+          series.map((s, i) => {
+            if (s.type === "pie") return s;
+            const b = runtimeRawBoundsByIndex[i];
+            return b
+              ? ({ ...s, rawBounds: b } as typeof s)
+              : s;
+          }) as ResolvedChartGPUOptions["series"];
+        runtimeBaseSeries = stampRuntimeBounds(runtimeBaseSeries);
+        renderSeries = stampRuntimeBounds(renderSeries);
+      }
       updateZoom();
       // Rebuild after the unconditional clear above. Without this, default
       // autoBounds: "visible" falls back to global Y until the next zoom

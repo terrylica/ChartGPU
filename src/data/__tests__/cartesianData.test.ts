@@ -8,6 +8,7 @@ import {
   getY,
   getSize,
   getPointCount,
+  hasAnyPerPointSize,
   computeRawBoundsFromCartesianData,
   dropPrefixXY,
   packXYInto,
@@ -15,6 +16,48 @@ import {
   appendIntoRingXY,
 } from "../cartesianData";
 import type { DataPoint } from "../../config/types";
+
+describe("hasAnyPerPointSize", () => {
+  it("detects tuple [x,y,size] including sparse later size", () => {
+    const data: DataPoint[] = [
+      [0, 1],
+      [1, 2],
+      [2, 3, 8],
+    ];
+    expect(hasAnyPerPointSize(data)).toBe(true);
+  });
+
+  it("detects object size only on a later point", () => {
+    const data: DataPoint[] = [
+      { x: 0, y: 1 },
+      { x: 1, y: 2, size: 4 },
+    ];
+    expect(hasAnyPerPointSize(data)).toBe(true);
+  });
+
+  it("is false for dense [x,y] tuples", () => {
+    expect(
+      hasAnyPerPointSize([
+        [0, 1],
+        [1, 2],
+      ]),
+    ).toBe(false);
+  });
+
+  it("detects XYArraysData.size channel", () => {
+    expect(
+      hasAnyPerPointSize({
+        x: [0, 1],
+        y: [1, 2],
+        size: [undefined, 3],
+      }),
+    ).toBe(true);
+  });
+
+  it("is false for interleaved Float32Array", () => {
+    expect(hasAnyPerPointSize(new Float32Array([0, 1, 1, 2]))).toBe(false);
+  });
+});
 
 describe("cartesianData - sparse array handling", () => {
   describe("getX", () => {

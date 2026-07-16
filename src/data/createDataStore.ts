@@ -5,6 +5,10 @@ import {
   normalizeMaxPoints,
   planMaxPointsWindow,
 } from "./maxPointsWindow";
+import {
+  isYOnlyRewriteAgainstStaging,
+  packYOnlyInto,
+} from "./seriesRewriteDetect";
 
 export type SeriesRingLayout = Readonly<{
   /**
@@ -272,25 +276,6 @@ export function createDataStore(device: GPUDevice): DataStore {
   const series = new Map<number, SeriesEntry>();
   let disposed = false;
 
-  /**
-   * Packs CartesianSeriesData into an interleaved Float32Array using packXYInto.
-   * Returns a view-safe Float32Array suitable for GPU upload.
-   */
-  const packCartesianData = (
-    data: CartesianSeriesData,
-    xOffset: number,
-  ): Float32Array => {
-    const pointCount = getPointCount(data);
-    if (pointCount === 0) return new Float32Array(0);
-
-    const buffer = new ArrayBuffer(pointCount * 2 * 4);
-    const f32 = new Float32Array(buffer);
-
-    packXYInto(f32, 0, data, 0, pointCount, xOffset);
-
-    return f32;
-  };
-
   const assertNotDisposed = (): void => {
     if (disposed) {
       throw new Error("DataStore is disposed.");
@@ -317,19 +302,10 @@ export function createDataStore(device: GPUDevice): DataStore {
 
     const xOffset = options?.xOffset ?? 0;
     const pointCount = getPointCount(data);
-    const packed = packCartesianData(data, xOffset);
-    const hash32 = hashFloat32ArrayBits(packed);
-
-    const requiredBytes = roundUpToMultipleOf4(packed.byteLength);
+    const requiredBytes = roundUpToMultipleOf4(pointCount * 2 * 4);
     const targetBytes = Math.max(MIN_BUFFER_BYTES, requiredBytes);
 
     const existing = series.get(index);
-    const unchanged =
-      existing &&
-      existing.pointCount === pointCount &&
-      existing.hash32 === hash32 &&
-      existing.ringStart === 0;
-    if (unchanged) return;
 
     let buffer = existing?.buffer ?? null;
     let capacityBytes = existing?.capacityBytes ?? 0;
@@ -370,27 +346,70 @@ export function createDataStore(device: GPUDevice): DataStore {
           GPUBufferUsage.STORAGE |
           GPUBufferUsage.COPY_DST,
       });
+    } else {
+      capacityBytes = existing!.capacityBytes;
     }
 
-    // View-safe GPU upload: explicitly pass byteOffset and byteLength
-    if (packed.byteLength > 0) {
-      device.queue.writeBuffer(
-        buffer,
-        0,
-        packed.buffer,
-        packed.byteOffset,
-        packed.byteLength,
-      );
-    }
-
-    // Reuse existing staging when capacity fits (WG-P1-9). Only allocate when
-    // growing past the previous capacity-sized Float32Array.
+    // Reuse existing staging when capacity fits (WG-P1-9). Pack directly into
+    // staging to avoid a temporary Float32Array allocation every full rewrite.
     const requiredStagingFloats = capacityBytes / 4;
     let stagingBuffer = existing?.stagingBuffer;
     if (!stagingBuffer || stagingBuffer.length < requiredStagingFloats) {
       stagingBuffer = new Float32Array(requiredStagingFloats);
     }
-    stagingBuffer.set(packed);
+
+    // Y-only path: same length + identical x channel → rewrite y floats only in
+    // staging (CPU). Must NOT fire for Brownian scatter where x also changes.
+    // Note: GPU upload is still a full interleaved writeBuffer of N*8 bytes —
+    // WebGPU has no strided partial upload; residual vs true partial GPU xfer.
+    // Suite group 4 is scatter (default LTTB) so this path is mainly for line/
+    // bar full-rewrite with sorted x, not the scatter hot path.
+    const yOnly =
+      existing != null &&
+      existing.pointCount === pointCount &&
+      existing.xOffset === xOffset &&
+      existing.ringStart === 0 &&
+      existing.ringCapacityPoints === 0 &&
+      isYOnlyRewriteAgainstStaging(
+        data,
+        existing.stagingBuffer,
+        existing.pointCount,
+        existing.xOffset,
+      );
+
+    if (yOnly) {
+      packYOnlyInto(stagingBuffer, data, pointCount);
+    } else if (pointCount > 0) {
+      packXYInto(stagingBuffer, 0, data, 0, pointCount, xOffset);
+    }
+
+    const packedView =
+      pointCount > 0
+        ? stagingBuffer.subarray(0, pointCount * 2)
+        : new Float32Array(0);
+    const hash32 = hashFloat32ArrayBits(packedView);
+
+    const unchanged =
+      existing &&
+      existing.pointCount === pointCount &&
+      existing.hash32 === hash32 &&
+      existing.ringStart === 0 &&
+      existing.buffer === buffer;
+    if (unchanged) {
+      // Staging may already match GPU; keep entry identity.
+      return;
+    }
+
+    // Full interleaved GPU upload (even after y-only CPU pack).
+    if (packedView.byteLength > 0) {
+      device.queue.writeBuffer(
+        buffer,
+        0,
+        packedView.buffer,
+        packedView.byteOffset,
+        packedView.byteLength,
+      );
+    }
 
     series.set(index, {
       buffer,

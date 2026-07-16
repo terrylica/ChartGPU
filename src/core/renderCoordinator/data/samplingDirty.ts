@@ -124,9 +124,21 @@ export function shouldRecomputeBaselineSampling(
   );
 }
 
+type WithRawBoundsMeta = {
+  rawData?: unknown;
+  rawBounds?: unknown;
+  rawBoundsMode?: string;
+  data?: unknown;
+  contentHash?: number;
+};
+
 /**
  * Patch presentation fields from `nextSeries` onto previous baseline/render series
- * while retaining already-sampled `data`, `rawData`, `rawBounds`, and `contentHash`.
+ * while retaining already-sampled `data`, `rawData`, and `contentHash`.
+ *
+ * **rawBounds:** Prefer `next.rawBounds` when `rawBoundsMode` changes (axes
+ * explicit ↔ auto under a stable data ref). Otherwise keep prior bounds so we
+ * do not thrash object identity on pure theme/color updates.
  *
  * Used when setOptions is presentation-only so series colors/styles update without LTTB.
  */
@@ -142,17 +154,24 @@ export function patchSeriesPresentationKeepingSampledData(
       out[i] = next;
       continue;
     }
-    const prevAny = prev as ResolvedSeriesConfig & {
-      rawData?: unknown;
-      rawBounds?: unknown;
-      data?: unknown;
-      contentHash?: number;
-    };
-    const nextAny = next as { rawData?: unknown; rawBounds?: unknown; data?: unknown; contentHash?: number };
+    const prevAny = prev as ResolvedSeriesConfig & WithRawBoundsMeta;
+    const nextAny = next as WithRawBoundsMeta;
+    const modeChanged =
+      nextAny.rawBoundsMode != null &&
+      nextAny.rawBoundsMode !== prevAny.rawBoundsMode;
+    // When axes explicitness changes, OptionResolver recomputed data-driven or
+    // synthetic bounds — must not keep sticky prev.rawBounds (synthetic→auto).
+    const rawBounds = modeChanged
+      ? (nextAny.rawBounds ?? prevAny.rawBounds)
+      : (prevAny.rawBounds ?? nextAny.rawBounds);
+    const rawBoundsMode = modeChanged
+      ? (nextAny.rawBoundsMode ?? prevAny.rawBoundsMode)
+      : (prevAny.rawBoundsMode ?? nextAny.rawBoundsMode);
     out[i] = {
       ...next,
       rawData: prevAny.rawData ?? nextAny.rawData,
-      rawBounds: prevAny.rawBounds ?? nextAny.rawBounds,
+      rawBounds,
+      ...(rawBoundsMode != null ? { rawBoundsMode } : {}),
       data: prevAny.data ?? nextAny.data,
       // Keep prior hash so later dirty checks stay consistent with retained content.
       ...(typeof prevAny.contentHash === "number"
@@ -163,4 +182,32 @@ export function patchSeriesPresentationKeepingSampledData(
     } as ResolvedSeriesConfig;
   }
   return out;
+}
+
+/**
+ * True when any series' `rawBoundsMode` changed between prev and next resolve
+ * (axes explicitness flip under stable data). Callers should refresh runtime
+ * bounds stores that may still hold synthetic extents.
+ */
+export function didRawBoundsModeChange(
+  prev: ResolvedChartGPUOptions["series"],
+  next: ResolvedChartGPUOptions["series"],
+): boolean {
+  const n = Math.min(prev.length, next.length);
+  for (let i = 0; i < n; i++) {
+    const aSeries = prev[i];
+    const bSeries = next[i];
+    if (!aSeries || !bSeries) continue;
+    if (aSeries.type === "pie" || bSeries.type === "pie") continue;
+    const a = aSeries as WithRawBoundsMeta;
+    const b = bSeries as WithRawBoundsMeta;
+    if (
+      b.rawBoundsMode != null &&
+      a.rawBoundsMode != null &&
+      b.rawBoundsMode !== a.rawBoundsMode
+    ) {
+      return true;
+    }
+  }
+  return false;
 }

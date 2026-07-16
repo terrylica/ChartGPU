@@ -259,3 +259,156 @@ describe("OptionResolver candlestick contentHash reuse", () => {
     warnSpy.mockRestore();
   });
 });
+
+describe("OptionResolver full series rewrite path", () => {
+  it("does not full-scan hashCartesianSeriesData when data ref changes", () => {
+    const a: DataPoint[] = [
+      [0, 1],
+      [1, 2],
+      [2, 3],
+    ];
+    const b: DataPoint[] = [
+      [0, 1.1],
+      [1, 2.1],
+      [2, 3.1],
+    ];
+    const first = resolveOptions({
+      series: [{ type: "scatter", data: a, sampling: "none" }],
+      xAxis: { min: 0, max: 10 },
+      yAxis: { min: 0, max: 10 },
+    });
+    const fullHashSpy = vi.spyOn(
+      seriesContentHashModule,
+      "hashCartesianSeriesData",
+    );
+    const cheapSpy = vi.spyOn(
+      seriesContentHashModule,
+      "cheapCartesianContentStamp",
+    );
+    const second = resolveOptions(
+      {
+        series: [{ type: "scatter", data: b, sampling: "none" }],
+        xAxis: { min: 0, max: 10 },
+        yAxis: { min: 0, max: 10 },
+      },
+      { previousResolved: first },
+    );
+    expect(fullHashSpy).not.toHaveBeenCalled();
+    expect(cheapSpy).toHaveBeenCalled();
+    expect((second.series[0] as { contentHash?: number }).contentHash).not.toBe(
+      (first.series[0] as { contentHash?: number }).contentHash,
+    );
+    fullHashSpy.mockRestore();
+    cheapSpy.mockRestore();
+  });
+
+  it("skips O(n) bounds scan when all axis domains are explicit", () => {
+    const a: DataPoint[] = Array.from({ length: 200 }, (_, i) => [i, i * 0.5]);
+    const b: DataPoint[] = Array.from({ length: 200 }, (_, i) => [
+      i + 0.1,
+      i * 0.5 + 0.1,
+    ]);
+    const first = resolveOptions({
+      series: [{ type: "line", data: a, sampling: "none" }],
+      xAxis: { min: -10, max: 110 },
+      yAxis: { min: -10, max: 60 },
+    });
+    // rawBounds should be synthetic axis domain, not data extrema
+    expect(first.series[0]).toMatchObject({
+      rawBounds: { xMin: -10, xMax: 110, yMin: -10, yMax: 60 },
+    });
+    const second = resolveOptions(
+      {
+        series: [{ type: "line", data: b, sampling: "none" }],
+        xAxis: { min: -10, max: 110 },
+        yAxis: { min: -10, max: 60 },
+      },
+      { previousResolved: first },
+    );
+    expect(second.series[0]).toMatchObject({
+      rawBounds: { xMin: -10, xMax: 110, yMin: -10, yMax: 60 },
+    });
+  });
+
+  it("still computes data x-extent when x axis is auto and y is fixed (group 4)", () => {
+    const data: DataPoint[] = [
+      [0, 1],
+      [1, 5],
+      [2, 3],
+    ];
+    const resolved = resolveOptions({
+      series: [{ type: "scatter", data, sampling: "none" }],
+      // x auto, y fixed — y bounds come from axis, not data extrema
+      yAxis: { min: -10, max: 60 },
+    });
+    expect(resolved.series[0]).toMatchObject({
+      rawBounds: { xMin: 0, xMax: 2, yMin: -10, yMax: 60 },
+    });
+  });
+
+  it("does not keep synthetic rawBounds when axes switch to auto under same data ref", () => {
+    const data: DataPoint[] = [
+      [0, 1],
+      [10, 50],
+      [20, 25],
+    ];
+    const first = resolveOptions({
+      series: [{ type: "line", data, sampling: "none" }],
+      xAxis: { min: -100, max: 100 },
+      yAxis: { min: -100, max: 100 },
+    });
+    expect(first.series[0]).toMatchObject({
+      rawBounds: { xMin: -100, xMax: 100, yMin: -100, yMax: 100 },
+      rawBoundsMode: "synthetic",
+    });
+    const second = resolveOptions(
+      {
+        series: [{ type: "line", data, sampling: "none" }],
+        // auto axes
+      },
+      { previousResolved: first },
+    );
+    expect((second.series[0] as { rawBoundsMode?: string }).rawBoundsMode).toBe(
+      "data",
+    );
+    expect(second.series[0]).toMatchObject({
+      rawBounds: { xMin: 0, xMax: 20, yMin: 1, yMax: 50 },
+    });
+  });
+
+  it("y-fixed + non-index x uses data-driven x extent (not 0..n-1)", () => {
+    const data: DataPoint[] = [
+      [5, 1],
+      [15, 2],
+      [25, 3],
+    ];
+    const resolved = resolveOptions({
+      series: [{ type: "scatter", data, sampling: "none" }],
+      yAxis: { min: -10, max: 60 },
+    });
+    expect(resolved.series[0]).toMatchObject({
+      rawBoundsMode: "xDataYAxis",
+      rawBounds: { xMin: 5, xMax: 25, yMin: -10, yMax: 60 },
+    });
+  });
+
+  it("uses cheapOHLCContentStamp on candlestick data ref change", () => {
+    const a: OHLCDataPoint[] = [[0, 1, 2, 0.5, 1.5]];
+    const b: OHLCDataPoint[] = [[0, 1, 2, 0.5, 1.8]];
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const first = resolveOptions({
+      series: [{ type: "candlestick", data: a, sampling: "none" }],
+    });
+    const fullSpy = vi.spyOn(seriesContentHashModule, "hashOHLCSeriesData");
+    const cheapSpy = vi.spyOn(seriesContentHashModule, "cheapOHLCContentStamp");
+    resolveOptions(
+      { series: [{ type: "candlestick", data: b, sampling: "none" }] },
+      { previousResolved: first },
+    );
+    expect(fullSpy).not.toHaveBeenCalled();
+    expect(cheapSpy).toHaveBeenCalled();
+    fullSpy.mockRestore();
+    cheapSpy.mockRestore();
+    warnSpy.mockRestore();
+  });
+});

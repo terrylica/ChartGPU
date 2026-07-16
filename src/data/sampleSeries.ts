@@ -10,6 +10,8 @@ import {
   getX,
   getY,
   getSize as getPointSize,
+  hasAnyPerPointSize,
+  hasNullGaps,
 } from "./cartesianData";
 
 function clampTargetPoints(targetPoints: number): number {
@@ -55,6 +57,28 @@ function isInterleavedXYData(
  * Returns the packed Float32Array.
  */
 function packToFloat32Array(data: CartesianSeriesData): Float32Array {
+  // Dense DataPoint[] (tuple or object): avoid per-point getX/getY dispatch.
+  if (Array.isArray(data)) {
+    const count = data.length;
+    const out = new Float32Array(count * 2);
+    for (let i = 0; i < count; i++) {
+      const p = data[i] as DataPoint | null | undefined;
+      if (p == null || typeof p !== "object") {
+        out[i * 2] = Number.NaN;
+        out[i * 2 + 1] = Number.NaN;
+        continue;
+      }
+      if (Array.isArray(p)) {
+        out[i * 2] = p[0] as number;
+        out[i * 2 + 1] = p[1] as number;
+      } else {
+        out[i * 2] = (p as { x: number }).x;
+        out[i * 2 + 1] = (p as { y: number }).y;
+      }
+    }
+    return out;
+  }
+
   const count = getPointCount(data);
   const out = new Float32Array(count * 2);
 
@@ -254,8 +278,21 @@ export function sampleSeriesDataPoints(
         return lttbSample(packed, threshold);
       }
 
-      // XYArraysData: pack to Float32Array and sample
+      // XYArraysData: pack to Float32Array and sample (preserve size via DataPoint path).
       if (isXYArraysData(data)) {
+        if (hasAnyPerPointSize(data)) {
+          // Convert to DataPoint tuples with size so LTTB retains the channel.
+          const n = getPointCount(data);
+          const pts: DataPoint[] = new Array(n);
+          for (let i = 0; i < n; i++) {
+            const size = getPointSize(data, i);
+            pts[i] =
+              size !== undefined
+                ? [getX(data, i), getY(data, i), size]
+                : [getX(data, i), getY(data, i)];
+          }
+          return lttbSample(pts, threshold);
+        }
         const packed = packToFloat32Array(data);
         return lttbSample(packed, threshold);
       }
@@ -263,7 +300,18 @@ export function sampleSeriesDataPoints(
       // DataPoint[] path — filter nulls before LTTB sampling.
       // Nulls represent line-segmentation gaps and will be handled by gap detection
       // in later pipeline stages; LTTB only operates on concrete data points.
-      const nonNullData = (data as ReadonlyArray<DataPoint | null>).filter(
+      //
+      // Dense (no nulls) + no per-point size → pack once to Float32 and run
+      // interleaved LTTB (faster than per-point object/tuple access).
+      // When any point carries `size`, keep DataPoint LTTB so size is preserved.
+      const asPoints = data as ReadonlyArray<DataPoint | null>;
+      if (!hasNullGaps(data) && !hasAnyPerPointSize(data)) {
+        const packed = packToFloat32Array(
+          asPoints as unknown as CartesianSeriesData,
+        );
+        return lttbSample(packed, threshold);
+      }
+      const nonNullData = asPoints.filter(
         (p): p is DataPoint => p !== null,
       );
       return lttbSample(nonNullData, threshold);

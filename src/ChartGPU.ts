@@ -160,6 +160,10 @@ export interface ChartGPUInstance {
   readonly disposed: boolean;
   setOption(options: ChartGPUOptions): void;
   /**
+   * @internal Test/debug: how many times the hit-test columnar store was fully rebuilt.
+   */
+  getHitTestStoreRebuildCount(): number;
+  /**
    * Appends new points to a cartesian series at runtime (streaming).
    *
    * Accepts multiple formats for efficient data append without per-point object allocations:
@@ -957,6 +961,8 @@ export async function createChartGPU(
   // When true, hit-test columns were skipped under dual-store relief and must be
   // rebuilt from the coordinator before hitTest / after tooltip re-enable.
   let hitTestStoreNeedsResync = false;
+  /** Counts full columnar rebuilds of the ChartGPU hit-test store (test/debug). */
+  let hitTestStoreRebuildCount = 0;
 
   // Chart-owned runtime series store for hit-testing only (cartesian only).
   // - `runtimeRawDataByIndex[i]` is MutableXYColumns, RingXYColumns (FIFO), or OHLC[].
@@ -972,6 +978,10 @@ export async function createChartGPU(
     resolvedOptions.series.length,
   ).fill(null);
   let runtimeHitTestSourceByIndex: Array<unknown | null> = new Array(
+    resolvedOptions.series.length,
+  ).fill(null);
+  /** Tracks resolver rawBoundsMode so axes explicit→auto can refresh bounds. */
+  let runtimeHitTestBoundsModeByIndex: Array<string | null> = new Array(
     resolvedOptions.series.length,
   ).fill(null);
   let runtimeHitTestSeriesCache: ResolvedChartGPUOptions["series"] | null =
@@ -992,6 +1002,7 @@ export async function createChartGPU(
     > = new Array(n);
     const nextBounds: Array<Bounds | null> = new Array(n);
     const nextSource: Array<unknown | null> = new Array(n);
+    const nextModes: Array<string | null> = new Array(n).fill(null);
 
     for (let i = 0; i < n; i++) {
       const s = resolvedOptions.series[i]!;
@@ -999,6 +1010,7 @@ export async function createChartGPU(
         nextData[i] = { x: [], y: [] };
         nextBounds[i] = null;
         nextSource[i] = null;
+        nextModes[i] = null;
         continue;
       }
       const raw = coordinator.getRuntimeSeriesData(i);
@@ -1046,11 +1058,14 @@ export async function createChartGPU(
       }
       // Break source identity so axes-only reuse cannot re-apply stale seed.
       nextSource[i] = null;
+      nextModes[i] =
+        (s as unknown as { rawBoundsMode?: string }).rawBoundsMode ?? null;
     }
 
     runtimeRawDataByIndex = nextData;
     runtimeRawBoundsByIndex = nextBounds;
     runtimeHitTestSourceByIndex = nextSource;
+    runtimeHitTestBoundsModeByIndex = nextModes;
     hitTestStoreNeedsResync = false;
     runtimeHitTestSeriesCache = null;
     runtimeHitTestSeriesVersion++;
@@ -1075,6 +1090,7 @@ export async function createChartGPU(
       runtimeHitTestSeriesVersion++;
       return;
     }
+    hitTestStoreRebuildCount++;
 
     const nextCount = resolvedOptions.series.length;
     const prevData = runtimeRawDataByIndex;
@@ -1087,14 +1103,19 @@ export async function createChartGPU(
     > = new Array(nextCount);
     const nextBounds: Array<Bounds | null> = new Array(nextCount);
     const nextSource: Array<unknown | null> = new Array(nextCount);
+    const nextModes: Array<string | null> = new Array(nextCount);
+    const prevModes = runtimeHitTestBoundsModeByIndex;
 
     for (let i = 0; i < nextCount; i++) {
       const s = resolvedOptions.series[i]!;
+      const mode =
+        (s as unknown as { rawBoundsMode?: string }).rawBoundsMode ?? null;
       if (s.type === "pie") {
         // Pie series don't use the runtime store (non-cartesian)
         nextData[i] = { x: [], y: [] };
         nextBounds[i] = null;
         nextSource[i] = null;
+        nextModes[i] = null;
         continue;
       }
 
@@ -1121,6 +1142,7 @@ export async function createChartGPU(
           nextBounds[i] = rawBounds;
           nextSource[i] = raw;
         }
+        nextModes[i] = mode;
         continue;
       }
 
@@ -1129,7 +1151,7 @@ export async function createChartGPU(
       const rawBounds =
         (s as unknown as { rawBounds?: Bounds | null }).rawBounds ?? null;
       // Axes-only / presentation-only setOption keeps the same raw data ref —
-      // reuse the existing mutable columns and bounds (O(1)).
+      // reuse the existing mutable columns (O(1)).
       // Do not reuse when dual-store skip left columns stale (handled above).
       if (
         i < prevCount &&
@@ -1139,10 +1161,26 @@ export async function createChartGPU(
         !hitTestStoreNeedsResync
       ) {
         nextData[i] = prevData[i]!;
-        // Prefer runtime bounds (may include appendData extensions) over resolver
-        // bounds of the original seed array.
-        nextBounds[i] = prevBounds[i] ?? rawBounds ?? null;
         nextSource[i] = raw;
+        const modeChanged =
+          mode != null &&
+          prevModes[i] != null &&
+          mode !== prevModes[i];
+        if (modeChanged) {
+          // Axes explicit→auto (or reverse): recompute from owned columns so
+          // synthetic extents cannot stick; also covers append-extended data.
+          nextBounds[i] =
+            (computeRawBoundsFromCartesianData(
+              prevData[i] as unknown as CartesianSeriesData,
+            ) as Bounds | null) ??
+            rawBounds ??
+            prevBounds[i] ??
+            null;
+        } else {
+          // Prefer runtime bounds (may include appendData extensions) over resolver
+          // bounds of the original seed array.
+          nextBounds[i] = prevBounds[i] ?? rawBounds ?? null;
+        }
       } else {
         nextData[i] = cartesianDataToMutableColumns(raw);
         nextBounds[i] =
@@ -1150,11 +1188,13 @@ export async function createChartGPU(
           (computeRawBoundsFromCartesianData(raw) as Bounds | null);
         nextSource[i] = raw;
       }
+      nextModes[i] = mode;
     }
 
     runtimeRawDataByIndex = nextData;
     runtimeRawBoundsByIndex = nextBounds;
     runtimeHitTestSourceByIndex = nextSource;
+    runtimeHitTestBoundsModeByIndex = nextModes;
 
     // Always rebuild the series view wrapper so presentation fields (colors, etc.)
     // refresh; column copies above are already O(1) when data identity is stable.
@@ -2233,6 +2273,14 @@ export async function createChartGPU(
     get disposed() {
       return disposed;
     },
+    /**
+     * Number of times the ChartGPU hit-test columnar store was fully rebuilt.
+     * Used in tests to prove tooltip-off setOption dual-store skip.
+     * @internal
+     */
+    getHitTestStoreRebuildCount() {
+      return hitTestStoreRebuildCount;
+    },
     setOption(nextOptions) {
       if (disposed) return;
       currentOptions = nextOptions;
@@ -2241,10 +2289,25 @@ export async function createChartGPU(
         previousResolved: resolvedOptions,
       });
       coordinator?.setOptions(resolvedOptions);
-      initRuntimeHitTestStoreFromResolvedOptions();
+
+      // Dual-store relief on full rewrite: when tooltips are off, skip O(n)
+      // hit-test columnar rebuild every setOption (SciChart groups 2/3/4).
+      // Resync on tooltip re-enable / hitTest() — same contract as maxPoints append.
+      //
+      // Contract: skipped store is rebuilt on hitTest() or tooltip show:true via
+      // coordinator snapshot; must not double-apply in-flight append batches
+      // (resync-before-append ordering in appendData).
+      const maintainHitTestStore = resolvedOptions.tooltip?.show !== false;
+      if (!maintainHitTestStore) {
+        hitTestStoreNeedsResync = true;
+      } else {
+        initRuntimeHitTestStoreFromResolvedOptions();
+      }
+
+      // Prefer resolver rawBounds when hit-test columns are skipped/stale.
       cachedGlobalBounds = computeGlobalBounds(
         resolvedOptions.series,
-        runtimeRawBoundsByIndex,
+        maintainHitTestStore ? runtimeRawBoundsByIndex : null,
       );
       interactionScalesCache = null;
       syncDataZoomUi();

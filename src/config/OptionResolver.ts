@@ -42,12 +42,15 @@ import { sampleSeriesDataPoints } from "../data/sampleSeries";
 import { ohlcSample } from "../data/ohlcSample";
 import {
   computeRawBoundsFromCartesianData,
+  computeRawXExtentFromCartesianData,
+  getPointCount,
   hasNullGaps,
 } from "../data/cartesianData";
 import {
-  hashCartesianSeriesData,
-  hashOHLCSeriesData,
+  cheapCartesianContentStamp,
+  cheapOHLCContentStamp,
 } from "../data/seriesContentHash";
+import { isIndexSortedX } from "../data/seriesRewriteDetect";
 import { parseCssColorToRgba01 } from "../utils/colors";
 
 export type ResolvedGridConfig = Readonly<Required<GridConfig>>;
@@ -85,6 +88,13 @@ export type RawBounds = Readonly<{
   yMax: number;
 }>;
 
+/**
+ * How `rawBounds` was derived. Prevents sticky synthetic bounds when axes switch
+ * from explicit min/max back to auto under a stable data ref.
+ * @internal
+ */
+export type RawBoundsMode = "synthetic" | "xDataYAxis" | "data";
+
 export type ResolvedLineSeriesConfig = Readonly<
   Omit<
     LineSeriesConfig,
@@ -111,6 +121,8 @@ export type ResolvedLineSeriesConfig = Readonly<
      * cannot clip outliers.
      */
     readonly rawBounds?: RawBounds;
+    /** @internal How rawBounds was derived (synthetic / xDataYAxis / data). */
+    readonly rawBoundsMode?: RawBoundsMode;
   }
 >;
 
@@ -138,6 +150,8 @@ export type ResolvedAreaSeriesConfig = Readonly<
      * cannot clip outliers.
      */
     readonly rawBounds?: RawBounds;
+    /** @internal How rawBounds was derived (synthetic / xDataYAxis / data). */
+    readonly rawBoundsMode?: RawBoundsMode;
   }
 >;
 
@@ -155,6 +169,8 @@ export type ResolvedBarSeriesConfig = Readonly<
      * cannot clip outliers.
      */
     readonly rawBounds?: RawBounds;
+    /** @internal How rawBounds was derived (synthetic / xDataYAxis / data). */
+    readonly rawBoundsMode?: RawBoundsMode;
   }
 >;
 
@@ -190,6 +206,8 @@ export type ResolvedScatterSeriesConfig = Readonly<
      * cannot clip outliers.
      */
     readonly rawBounds?: RawBounds;
+    /** @internal How rawBounds was derived (synthetic / xDataYAxis / data). */
+    readonly rawBoundsMode?: RawBoundsMode;
   }
 >;
 
@@ -241,6 +259,8 @@ export type ResolvedCandlestickSeriesConfig = Readonly<
      * cannot clip outliers.
      */
     readonly rawBounds?: RawBounds;
+    /** @internal How rawBounds was derived (synthetic / xDataYAxis / data). */
+    readonly rawBoundsMode?: RawBoundsMode;
   }
 >;
 
@@ -941,11 +961,11 @@ type WithResolvedDataIdentity = {
  * Content hash for a series resolve, O(1) when raw data identity is stable.
  *
  * When `previousResolved` has the same raw data reference (`prev.rawData ?? prev.data`)
- * and a stored `contentHash`, reuse that hash without scanning points. Full
- * `hashCartesianSeriesData` / `hashOHLCSeriesData` runs only when:
- * - data reference changes,
- * - series type changes (different hash function / layout),
- * - or previous hash is missing.
+ * and a stored `contentHash`, reuse that hash without scanning points.
+ *
+ * When the data reference changes, callers should pass an O(1) stamp
+ * (`cheapCartesianContentStamp` / `cheapOHLCContentStamp`) via `hashData` —
+ * full float scans are not needed because identity-reuse requires a stable ref.
  *
  * **In-place mutation:** Values mutated under a stable array ref are not detected until
  * a new data reference is provided.
@@ -1165,6 +1185,105 @@ export function resolveOptions(
 
   const defaultYAxisId = yAxes[0]!.id ?? "y";
 
+  // When all axis domains are explicit, rawBounds is unused for scale derivation.
+  // Skip O(n) bounds scans on full-series rewrite frames (SciChart groups 2/3).
+  // When only Y is explicit (group 4), only scan X extent.
+  const finiteAxisBound = (v: unknown): v is number =>
+    typeof v === "number" && Number.isFinite(v);
+  const xFullyExplicit =
+    finiteAxisBound(xAxis.min) && finiteAxisBound(xAxis.max);
+  const yFullyExplicit =
+    yAxes.length > 0 &&
+    yAxes.every((ax) => finiteAxisBound(ax.min) && finiteAxisBound(ax.max));
+  const axesFullyExplicit = xFullyExplicit && yFullyExplicit;
+  const syntheticAxisBounds: RawBounds | undefined = axesFullyExplicit
+    ? {
+        xMin: xAxis.min as number,
+        xMax: xAxis.max as number,
+        yMin: yAxes[0]!.min as number,
+        yMax: yAxes[0]!.max as number,
+      }
+    : undefined;
+  const yAxisSynthetic = yFullyExplicit
+    ? {
+        yMin: yAxes[0]!.min as number,
+        yMax: yAxes[0]!.max as number,
+      }
+    : undefined;
+
+  /**
+   * Resolve rawBounds with an explicit mode tag so axes switching explicit→auto
+   * under a stable data ref cannot keep synthetic extents (Bug: sticky bounds).
+   */
+  const resolveCartesianBounds = (
+    reusePrev:
+      | {
+          readonly rawBounds?: RawBounds;
+          readonly rawBoundsMode?: RawBoundsMode;
+        }
+      | null
+      | undefined,
+    data: import("../config/types").CartesianSeriesData,
+    sampleReusable: boolean,
+  ): { bounds: RawBounds | undefined; mode: RawBoundsMode } => {
+    if (syntheticAxisBounds) {
+      return { bounds: syntheticAxisBounds, mode: "synthetic" };
+    }
+    if (yAxisSynthetic) {
+      // Reuse only when previous resolve used the same mode + same raw data.
+      if (
+        sampleReusable &&
+        reusePrev?.rawBoundsMode === "xDataYAxis" &&
+        reusePrev.rawBounds
+      ) {
+        return {
+          bounds: {
+            xMin: reusePrev.rawBounds.xMin,
+            xMax: reusePrev.rawBounds.xMax,
+            yMin: yAxisSynthetic.yMin,
+            yMax: yAxisSynthetic.yMax,
+          },
+          mode: "xDataYAxis",
+        };
+      }
+      // Index-sorted x (x=i, SciChart group 4): O(n) verify then O(1) extent.
+      // Fail-fast on non-index data, then full x scan.
+      let xMin: number;
+      let xMax: number;
+      if (isIndexSortedX(data)) {
+        const n = getPointCount(data);
+        xMin = 0;
+        xMax = Math.max(1, n - 1);
+      } else {
+        const xExt = computeRawXExtentFromCartesianData(data);
+        if (!xExt) return { bounds: undefined, mode: "xDataYAxis" };
+        xMin = xExt.xMin;
+        xMax = xExt.xMax;
+      }
+      return {
+        bounds: {
+          xMin,
+          xMax,
+          yMin: yAxisSynthetic.yMin,
+          yMax: yAxisSynthetic.yMax,
+        },
+        mode: "xDataYAxis",
+      };
+    }
+    // Full data-driven: only reuse when prior mode was also data-driven.
+    if (
+      sampleReusable &&
+      reusePrev?.rawBoundsMode === "data" &&
+      reusePrev.rawBounds
+    ) {
+      return { bounds: reusePrev.rawBounds, mode: "data" };
+    }
+    return {
+      bounds: computeRawBoundsFromCartesianData(data) ?? undefined,
+      mode: "data",
+    };
+  };
+
   const series: ReadonlyArray<ResolvedSeriesConfig> = (
     userOptions.series ?? []
   ).map((s, i) => {
@@ -1203,7 +1322,7 @@ export function resolveOptions(
           prevResolved,
           "area",
           s.data,
-          () => hashCartesianSeriesData(s.data),
+          () => cheapCartesianContentStamp(s.data),
         );
         const reuseSample = canReuseResolvedSeriesSample(
           prevResolved,
@@ -1217,16 +1336,16 @@ export function resolveOptions(
         const prevArea = reuseSample
           ? (prevResolved as ResolvedAreaSeriesConfig & {
               contentHash?: number;
+              rawBoundsMode?: RawBoundsMode;
             })
           : null;
-        const rawBounds =
-          prevArea?.rawBounds ??
-          computeRawBoundsFromCartesianData(s.data) ??
-          undefined;
-        // Bypass sampling when data contains null gap markers to preserve gap structure
+        const { bounds: rawBounds, mode: rawBoundsMode } =
+          resolveCartesianBounds(prevArea, s.data, reuseSample);
+        // Bypass sampling when data contains null gap markers to preserve gap structure.
+        // sampling:'none' already returns data as-is — skip O(n) hasNullGaps.
         const sampledAreaData = prevArea
           ? prevArea.data
-          : hasNullGaps(s.data)
+          : sampling === "none" || hasNullGaps(s.data)
             ? s.data
             : sampleSeriesDataPoints(s.data, sampling, samplingThreshold);
         return {
@@ -1239,6 +1358,7 @@ export function resolveOptions(
           sampling,
           samplingThreshold,
           rawBounds,
+          rawBoundsMode,
           connectNulls,
           yAxis,
           contentHash,
@@ -1263,7 +1383,7 @@ export function resolveOptions(
           prevResolved,
           "line",
           s.data,
-          () => hashCartesianSeriesData(s.data),
+          () => cheapCartesianContentStamp(s.data),
         );
         const reuseSample = canReuseResolvedSeriesSample(
           prevResolved,
@@ -1277,16 +1397,16 @@ export function resolveOptions(
         const prevLine = reuseSample
           ? (prevResolved as ResolvedLineSeriesConfig & {
               contentHash?: number;
+              rawBoundsMode?: RawBoundsMode;
             })
           : null;
-        const rawBounds =
-          prevLine?.rawBounds ??
-          computeRawBoundsFromCartesianData(s.data) ??
-          undefined;
-        // Bypass sampling when data contains null gap markers to preserve gap structure
+        const { bounds: rawBounds, mode: rawBoundsMode } =
+          resolveCartesianBounds(prevLine, s.data, reuseSample);
+        // Bypass sampling when data contains null gap markers to preserve gap structure.
+        // sampling:'none' already returns data as-is — skip O(n) hasNullGaps.
         const sampledData = prevLine
           ? prevLine.data
-          : hasNullGaps(s.data)
+          : sampling === "none" || hasNullGaps(s.data)
             ? s.data
             : sampleSeriesDataPoints(s.data, sampling, samplingThreshold);
 
@@ -1311,6 +1431,7 @@ export function resolveOptions(
           sampling,
           samplingThreshold,
           rawBounds,
+          rawBoundsMode,
           connectNulls,
           yAxis,
           contentHash,
@@ -1321,7 +1442,7 @@ export function resolveOptions(
           prevResolved,
           "bar",
           s.data,
-          () => hashCartesianSeriesData(s.data),
+          () => cheapCartesianContentStamp(s.data),
         );
         const reuseSample = canReuseResolvedSeriesSample(
           prevResolved,
@@ -1335,12 +1456,11 @@ export function resolveOptions(
         const prevBar = reuseSample
           ? (prevResolved as ResolvedBarSeriesConfig & {
               contentHash?: number;
+              rawBoundsMode?: RawBoundsMode;
             })
           : null;
-        const rawBounds =
-          prevBar?.rawBounds ??
-          computeRawBoundsFromCartesianData(s.data) ??
-          undefined;
+        const { bounds: rawBounds, mode: rawBoundsMode } =
+          resolveCartesianBounds(prevBar, s.data, reuseSample);
         return {
           ...s,
           visible,
@@ -1352,6 +1472,7 @@ export function resolveOptions(
           sampling,
           samplingThreshold,
           rawBounds,
+          rawBoundsMode,
           yAxis,
           contentHash,
         };
@@ -1361,7 +1482,7 @@ export function resolveOptions(
           prevResolved,
           "scatter",
           s.data,
-          () => hashCartesianSeriesData(s.data),
+          () => cheapCartesianContentStamp(s.data),
         );
         const reuseSample = canReuseResolvedSeriesSample(
           prevResolved,
@@ -1375,12 +1496,11 @@ export function resolveOptions(
         const prevScatter = reuseSample
           ? (prevResolved as ResolvedScatterSeriesConfig & {
               contentHash?: number;
+              rawBoundsMode?: RawBoundsMode;
             })
           : null;
-        const rawBounds =
-          prevScatter?.rawBounds ??
-          computeRawBoundsFromCartesianData(s.data) ??
-          undefined;
+        const { bounds: rawBounds, mode: rawBoundsMode } =
+          resolveCartesianBounds(prevScatter, s.data, reuseSample);
         const mode =
           normalizeScatterMode(
             (s as unknown as { readonly mode?: unknown }).mode,
@@ -1414,6 +1534,7 @@ export function resolveOptions(
           sampling,
           samplingThreshold,
           rawBounds,
+          rawBoundsMode,
           yAxis,
           contentHash,
         };
@@ -1484,7 +1605,7 @@ export function resolveOptions(
           prevResolved,
           "candlestick",
           s.data,
-          () => hashOHLCSeriesData(s.data),
+          () => cheapOHLCContentStamp(s.data),
         );
         const reuseCandle = canReuseResolvedSeriesSample(
           prevResolved,

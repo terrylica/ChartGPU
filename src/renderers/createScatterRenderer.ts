@@ -14,7 +14,7 @@ import {
   getX,
   getY,
   getSize,
-  computeRawBoundsFromCartesianData,
+  hasAnyPerPointSize,
 } from "../data/cartesianData";
 import type { PipelineCache } from "../core/PipelineCache";
 
@@ -52,11 +52,16 @@ export interface ScatterRendererOptions {
 }
 
 type Rgba = readonly [r: number, g: number, b: number, a: number];
+type DataPointLike = { readonly x: number; readonly y: number };
 
 const DEFAULT_TARGET_FORMAT: GPUTextureFormat = "bgra8unorm";
 const DEFAULT_SCATTER_RADIUS_CSS_PX = 4;
-const INSTANCE_STRIDE_BYTES = 16; // center.xy, radiusPx, pad
+/** Per-instance radius layout: center.xy, radiusPx, pad */
+const INSTANCE_STRIDE_BYTES = 16;
 const INSTANCE_STRIDE_FLOATS = INSTANCE_STRIDE_BYTES / 4;
+/** Constant-radius layout: center.xy only (radius in VS uniform) */
+const CONST_RADIUS_STRIDE_BYTES = 8;
+const CONST_RADIUS_STRIDE_FLOATS = 2;
 
 const clamp01 = (v: number): number => Math.min(1, Math.max(0, v));
 const clampInt = (v: number, lo: number, hi: number): number =>
@@ -190,7 +195,7 @@ export function createScatterRenderer(
     ],
   });
 
-  // VSUniforms: mat4x4 (64) + viewportPx vec2 (8) + pad vec2 (8) = 80 bytes.
+  // VSUniforms: mat4x4 (64) + viewportPx vec2 (8) + radiusPx f32 (4) + pad (4) = 80 bytes.
   const vsUniformBuffer = createUniformBuffer(device, 80, {
     label: "scatterRenderer/vsUniforms",
   });
@@ -211,6 +216,20 @@ export function createScatterRenderer(
     ],
   });
 
+  const blendState = {
+    color: {
+      operation: "add" as const,
+      srcFactor: "src-alpha" as const,
+      dstFactor: "one-minus-src-alpha" as const,
+    },
+    alpha: {
+      operation: "add" as const,
+      srcFactor: "one" as const,
+      dstFactor: "one-minus-src-alpha" as const,
+    },
+  };
+
+  // Per-instance radius (variable symbolSize / per-point size).
   const pipeline = createRenderPipeline(
     device,
     {
@@ -219,6 +238,7 @@ export function createScatterRenderer(
       vertex: {
         code: scatterWgsl,
         label: "scatter.wgsl",
+        entryPoint: "vsMain",
         buffers: [
           {
             arrayStride: INSTANCE_STRIDE_BYTES,
@@ -234,19 +254,39 @@ export function createScatterRenderer(
         code: scatterWgsl,
         label: "scatter.wgsl",
         formats: targetFormat,
-        // Standard alpha blending (circle AA uses alpha, and series color may be translucent).
-        blend: {
-          color: {
-            operation: "add",
-            srcFactor: "src-alpha",
-            dstFactor: "one-minus-src-alpha",
+        blend: blendState,
+      },
+      primitive: { topology: "triangle-list", cullMode: "none" },
+      multisample: { count: sampleCount },
+    },
+    pipelineCache,
+  );
+
+  // Constant radius: instance buffer is tightly packed [x,y] only (half bandwidth).
+  const pipelineConstRadius = createRenderPipeline(
+    device,
+    {
+      label: "scatterRenderer/pipelineConstRadius",
+      bindGroupLayouts: [bindGroupLayout],
+      vertex: {
+        code: scatterWgsl,
+        label: "scatter.wgsl",
+        entryPoint: "vsMainConstRadius",
+        buffers: [
+          {
+            arrayStride: CONST_RADIUS_STRIDE_BYTES,
+            stepMode: "instance",
+            attributes: [
+              { shaderLocation: 0, format: "float32x2", offset: 0 },
+            ],
           },
-          alpha: {
-            operation: "add",
-            srcFactor: "one",
-            dstFactor: "one-minus-src-alpha",
-          },
-        },
+        ],
+      },
+      fragment: {
+        code: scatterWgsl,
+        label: "scatter.wgsl",
+        formats: targetFormat,
+        blend: blendState,
       },
       primitive: { topology: "triangle-list", cullMode: "none" },
       multisample: { count: sampleCount },
@@ -256,6 +296,9 @@ export function createScatterRenderer(
 
   let instanceBuffer: GPUBuffer | null = null;
   let instanceCount = 0;
+  /** True when the last prepare used the constant-radius (xy-only) path. */
+  let useConstRadiusPipeline = false;
+  let lastConstRadiusDevicePx = 0;
   let cpuInstanceStagingBuffer = new ArrayBuffer(0);
   let cpuInstanceStagingF32 = new Float32Array(cpuInstanceStagingBuffer);
 
@@ -287,6 +330,7 @@ export function createScatterRenderer(
     by: number,
     viewportW: number,
     viewportH: number,
+    radiusDevicePx: number,
   ): void => {
     const w = Number.isFinite(viewportW) && viewportW > 0 ? viewportW : 1;
     const h = Number.isFinite(viewportH) && viewportH > 0 ? viewportH : 1;
@@ -294,7 +338,7 @@ export function createScatterRenderer(
     writeTransformMat4F32(vsUniformScratchF32, ax, bx, ay, by);
     vsUniformScratchF32[16] = w;
     vsUniformScratchF32[17] = h;
-    vsUniformScratchF32[18] = 0;
+    vsUniformScratchF32[18] = radiusDevicePx;
     vsUniformScratchF32[19] = 0;
     writeUniformBuffer(device, vsUniformBuffer, vsUniformScratchBuffer);
 
@@ -310,40 +354,11 @@ export function createScatterRenderer(
   ) => {
     assertNotDisposed();
 
-    const bounds = computeRawBoundsFromCartesianData(data);
-    const { xMin, xMax, yMin, yMax } = bounds ?? {
-      xMin: 0,
-      xMax: 1,
-      yMin: 0,
-      yMax: 1,
-    };
-    const { a: ax, b: bx } = computeClipAffineFromScale(xScale, xMin, xMax);
-    const { a: ay, b: by } = computeClipAffineFromScale(yScale, yMin, yMax);
-
-    if (gridArea) {
-      lastCanvasWidth = gridArea.canvasWidth;
-      lastCanvasHeight = gridArea.canvasHeight;
-      writeVsUniforms(
-        ax,
-        bx,
-        ay,
-        by,
-        gridArea.canvasWidth,
-        gridArea.canvasHeight,
-      );
-      lastScissor = computePlotScissorDevicePx(gridArea);
-    } else {
-      // Backward-compatible: keep rendering with the last known viewport (or safe default).
-      writeVsUniforms(ax, bx, ay, by, lastViewportPx[0], lastViewportPx[1]);
-      lastScissor = null;
-    }
-
-    const [r, g, b, a] = parseSeriesColorToRgba01(seriesConfig.color);
-    fsUniformScratchF32[0] = r;
-    fsUniformScratchF32[1] = g;
-    fsUniformScratchF32[2] = b;
-    fsUniformScratchF32[3] = clamp01(a);
-    writeUniformBuffer(device, fsUniformBuffer, fsUniformScratchF32);
+    // Linear scales: affine is independent of data bounds — sample at 0 and 1
+    // (same pattern as overlay memo / bar domain pack). Avoids O(n) bounds scan
+    // every full rewrite frame.
+    const { a: ax, b: bx } = computeClipAffineFromScale(xScale, 0, 1);
+    const { a: ay, b: by } = computeClipAffineFromScale(yScale, 0, 1);
 
     const dpr = gridArea?.devicePixelRatio ?? 1;
     const hasValidDpr = dpr > 0 && Number.isFinite(dpr);
@@ -356,6 +371,13 @@ export function createScatterRenderer(
       undefined,
     ];
 
+    const constantSymbolSizeCss =
+      typeof seriesSymbolSize === "number" && Number.isFinite(seriesSymbolSize)
+        ? seriesSymbolSize
+        : typeof seriesSymbolSize === "function"
+          ? null
+          : DEFAULT_SCATTER_RADIUS_CSS_PX;
+
     const getSeriesSizeCssPx =
       typeof seriesSymbolSize === "function"
         ? (x: number, y: number, size: number | undefined): number => {
@@ -367,41 +389,138 @@ export function createScatterRenderer(
               ? v
               : DEFAULT_SCATTER_RADIUS_CSS_PX;
           }
-        : typeof seriesSymbolSize === "number" &&
-            Number.isFinite(seriesSymbolSize)
+        : constantSymbolSizeCss != null
           ? (_x: number, _y: number, _size: number | undefined): number =>
-              seriesSymbolSize
+              constantSymbolSizeCss
           : (_x: number, _y: number, _size: number | undefined): number =>
               DEFAULT_SCATTER_RADIUS_CSS_PX;
 
     const count = getPointCount(data);
-    ensureCpuInstanceCapacityFloats(count * INSTANCE_STRIDE_FLOATS);
+
+    // Constant series.symbolSize and no per-point size channel → xy-only instances
+    // (radius in VS uniform). Halves upload bandwidth for SciChart groups 2/4.
+    // Size detection matches getSize semantics: tuples [x,y,size], object.size,
+    // XYArraysData.size, and sparse size on later points (not only data[0]).
+    const constantRadiusDevicePx =
+      constantSymbolSizeCss != null
+        ? hasValidDpr
+          ? constantSymbolSizeCss * dpr
+          : constantSymbolSizeCss
+        : null;
+    const useConstRadius =
+      constantRadiusDevicePx != null &&
+      constantRadiusDevicePx > 0 &&
+      !hasAnyPerPointSize(data);
+
+    useConstRadiusPipeline = useConstRadius;
+    lastConstRadiusDevicePx = useConstRadius ? constantRadiusDevicePx! : 0;
+
+    const viewportW = gridArea?.canvasWidth ?? lastViewportPx[0];
+    const viewportH = gridArea?.canvasHeight ?? lastViewportPx[1];
+    if (gridArea) {
+      lastCanvasWidth = gridArea.canvasWidth;
+      lastCanvasHeight = gridArea.canvasHeight;
+      lastScissor = computePlotScissorDevicePx(gridArea);
+    } else {
+      lastScissor = null;
+    }
+    writeVsUniforms(
+      ax,
+      bx,
+      ay,
+      by,
+      viewportW,
+      viewportH,
+      lastConstRadiusDevicePx,
+    );
+
+    const [r, g, b, a] = parseSeriesColorToRgba01(seriesConfig.color);
+    fsUniformScratchF32[0] = r;
+    fsUniformScratchF32[1] = g;
+    fsUniformScratchF32[2] = b;
+    fsUniformScratchF32[3] = clamp01(a);
+    writeUniformBuffer(device, fsUniformBuffer, fsUniformScratchF32);
+
+    const strideFloats = useConstRadius
+      ? CONST_RADIUS_STRIDE_FLOATS
+      : INSTANCE_STRIDE_FLOATS;
+    ensureCpuInstanceCapacityFloats(count * strideFloats);
     const f32 = cpuInstanceStagingF32;
     let outFloats = 0;
 
-    for (let i = 0; i < count; i++) {
-      const x = getX(data, i);
-      const y = getY(data, i);
-      if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+    if (useConstRadius) {
+      // Tight [x,y] pack for all cartesian formats.
+      if (Array.isArray(data)) {
+        const arr = data as ReadonlyArray<
+          readonly [number, number] | DataPointLike | null
+        >;
+        for (let i = 0; i < count; i++) {
+          const p = arr[i];
+          if (p == null || typeof p !== "object") continue;
+          let x: number;
+          let y: number;
+          if (Array.isArray(p)) {
+            x = p[0] as number;
+            y = p[1] as number;
+          } else {
+            x = (p as DataPointLike).x;
+            y = (p as DataPointLike).y;
+          }
+          if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+          f32[outFloats] = x;
+          f32[outFloats + 1] = y;
+          outFloats += CONST_RADIUS_STRIDE_FLOATS;
+        }
+      } else if (data instanceof Float32Array) {
+        // Interleaved LTTB output / typed path: copy finite pairs only.
+        const n = Math.floor(data.length / 2);
+        for (let i = 0; i < n; i++) {
+          const x = data[i * 2]!;
+          const y = data[i * 2 + 1]!;
+          if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+          f32[outFloats] = x;
+          f32[outFloats + 1] = y;
+          outFloats += CONST_RADIUS_STRIDE_FLOATS;
+        }
+      } else {
+        for (let i = 0; i < count; i++) {
+          const x = getX(data, i);
+          const y = getY(data, i);
+          if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+          f32[outFloats] = x;
+          f32[outFloats + 1] = y;
+          outFloats += CONST_RADIUS_STRIDE_FLOATS;
+        }
+      }
+      instanceCount = outFloats / CONST_RADIUS_STRIDE_FLOATS;
+    } else {
+      for (let i = 0; i < count; i++) {
+        const x = getX(data, i);
+        const y = getY(data, i);
+        if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
 
-      // Per-point size from data overrides series.symbolSize
-      const pointSize = getSize(data, i);
-      const sizeCss = pointSize ?? getSeriesSizeCssPx(x, y, pointSize);
-      const radiusCss = Number.isFinite(sizeCss)
-        ? Math.max(0, sizeCss)
-        : DEFAULT_SCATTER_RADIUS_CSS_PX;
-      const radiusDevicePx = hasValidDpr ? radiusCss * dpr : radiusCss;
-      if (!(radiusDevicePx > 0)) continue;
+        // Per-point size from data overrides series.symbolSize
+        const pointSize = getSize(data, i);
+        const sizeCss = pointSize ?? getSeriesSizeCssPx(x, y, pointSize);
+        const radiusCss = Number.isFinite(sizeCss)
+          ? Math.max(0, sizeCss)
+          : DEFAULT_SCATTER_RADIUS_CSS_PX;
+        const radiusDevicePx = hasValidDpr ? radiusCss * dpr : radiusCss;
+        if (!(radiusDevicePx > 0)) continue;
 
-      f32[outFloats + 0] = x;
-      f32[outFloats + 1] = y;
-      f32[outFloats + 2] = radiusDevicePx;
-      f32[outFloats + 3] = 0; // pad
-      outFloats += INSTANCE_STRIDE_FLOATS;
+        f32[outFloats + 0] = x;
+        f32[outFloats + 1] = y;
+        f32[outFloats + 2] = radiusDevicePx;
+        f32[outFloats + 3] = 0; // pad
+        outFloats += INSTANCE_STRIDE_FLOATS;
+      }
+      instanceCount = outFloats / INSTANCE_STRIDE_FLOATS;
     }
 
-    instanceCount = outFloats / INSTANCE_STRIDE_FLOATS;
-    const requiredBytes = Math.max(4, instanceCount * INSTANCE_STRIDE_BYTES);
+    const bytesPerInstance = useConstRadius
+      ? CONST_RADIUS_STRIDE_BYTES
+      : INSTANCE_STRIDE_BYTES;
+    const requiredBytes = Math.max(4, instanceCount * bytesPerInstance);
 
     if (!instanceBuffer || instanceBuffer.size < requiredBytes) {
       const grownBytes = Math.max(
@@ -428,7 +547,7 @@ export function createScatterRenderer(
         0,
         cpuInstanceStagingBuffer,
         0,
-        instanceCount * INSTANCE_STRIDE_BYTES,
+        instanceCount * bytesPerInstance,
       );
     }
   };
@@ -447,7 +566,9 @@ export function createScatterRenderer(
       );
     }
 
-    passEncoder.setPipeline(pipeline);
+    passEncoder.setPipeline(
+      useConstRadiusPipeline ? pipelineConstRadius : pipeline,
+    );
     passEncoder.setBindGroup(0, bindGroup);
     passEncoder.setVertexBuffer(0, instanceBuffer);
     passEncoder.draw(6, instanceCount);

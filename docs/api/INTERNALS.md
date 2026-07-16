@@ -13,6 +13,16 @@ This document is intentionally **short**. It’s a map to the internal modules t
 - **Data store + GPU uploads**: [`createDataStore.ts`](../../src/data/createDataStore.ts)
 - **Streaming GPU buffers** (double-buffered): [`createStreamBuffer.ts`](../../src/data/createStreamBuffer.ts)
 - **CPU downsampling (LTTB helper)**: [`lttbSample.ts`](../../src/data/lttbSample.ts)
+- **Content stamps / rewrite detect**: [`seriesContentHash.ts`](../../src/data/seriesContentHash.ts), [`seriesRewriteDetect.ts`](../../src/data/seriesRewriteDetect.ts)
+
+### Full-series rewrite contracts (SciChart-style setOption)
+
+1. **Cheap stamps**: On data-ref change, `cheapCartesianContentStamp` / `cheapOHLCContentStamp` (O(1)). Full `hashCartesianSeriesData` is not used on that path. Stamps use a module-global generation counter (dirty tokens only; multi-chart stamp coupling is harmless).
+2. **rawBounds modes**: `synthetic` (all axes explicit), `xDataYAxis` (y fixed, x from data), `data` (full scan). Mode is stored so switching axes back to auto under a stable data ref cannot keep synthetic extents.
+3. **Dual-store (tooltip off)**: ChartGPU hit-test columns are not rebuilt on every setOption; `hitTestStoreNeedsResync` + resync from coordinator on `hitTest` / tooltip on. Append with `maxPoints` uses the same skip when tooltip off.
+4. **Raw ref → promote**: Coordinator stores setOption data by reference; `appendData` promotes via branded owned `MutableXYColumns` (never mutates caller XY arrays).
+5. **No double LTTB**: Full data rewrite uses OptionResolver-sampled series; baseline recompute does not re-sample.
+6. **DataStore y-only**: CPU y pack only when staging x matches; GPU upload remains full interleaved. Scatter const-radius path uses xy-only instance buffer + uniform radius.
 
 ## Interaction (internal)
 
