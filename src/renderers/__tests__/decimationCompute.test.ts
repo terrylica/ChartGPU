@@ -389,6 +389,72 @@ describe("createDecimationCompute", () => {
       expect(enc.__passes).toHaveLength(0);
     });
 
+    it("dirties when ringStart/ringCapacity change (modular FIFO wrap)", () => {
+      const d = createDecimationCompute(device);
+      const rawBuffer = createMockBuffer({ size: 800000 });
+      const base = {
+        algorithm: "lttb" as const,
+        rawBuffer,
+        rawPointCount: 100_000,
+        visibleStart: 0,
+        visibleEnd: 100_000,
+        targetBuckets: 512,
+        contentVersion: 1,
+        ringStart: 0,
+        ringCapacity: 1000,
+      };
+      d.prepare(base);
+      d.encodeCompute(createMockEncoder() as unknown as GPUCommandEncoder);
+
+      // Same everything except ringStart (wrap) must re-dispatch.
+      d.prepare({ ...base, ringStart: 10 });
+      const enc = createMockEncoder();
+      d.encodeCompute(enc as unknown as GPUCommandEncoder);
+      expect(enc.__passes).toHaveLength(1);
+
+      // Identical ring signature skips.
+      d.prepare({ ...base, ringStart: 10 });
+      const enc2 = createMockEncoder();
+      d.encodeCompute(enc2 as unknown as GPUCommandEncoder);
+      expect(enc2.__passes).toHaveLength(0);
+
+      // Capacity change also dirties.
+      d.prepare({ ...base, ringStart: 10, ringCapacity: 2000 });
+      const enc3 = createMockEncoder();
+      d.encodeCompute(enc3 as unknown as GPUCommandEncoder);
+      expect(enc3.__passes).toHaveLength(1);
+    });
+
+    it("writes ringStart/ringCapacity into uniform slots 5–6", () => {
+      const d = createDecimationCompute(device);
+      const rawBuffer = createMockBuffer({ size: 8000 });
+      d.prepare({
+        algorithm: "min",
+        rawBuffer,
+        rawPointCount: 100,
+        visibleStart: 0,
+        visibleEnd: 100,
+        targetBuckets: 16,
+        ringStart: 7,
+        ringCapacity: 64,
+      });
+      const writeBuffer = device.queue.writeBuffer as Mock;
+      expect(writeBuffer).toHaveBeenCalled();
+      // Last writeBuffer on prepare is the uniform upload.
+      const last = writeBuffer.mock.calls[writeBuffer.mock.calls.length - 1]!;
+      const data = last[2] as ArrayBuffer | ArrayBufferView;
+      const u32 =
+        data instanceof ArrayBuffer
+          ? new Uint32Array(data)
+          : new Uint32Array(
+              (data as ArrayBufferView).buffer,
+              (data as ArrayBufferView).byteOffset,
+              8,
+            );
+      expect(u32[5]).toBe(7);
+      expect(u32[6]).toBe(64);
+    });
+
     it("is a no-op before any prepare() is called", () => {
       const d = createDecimationCompute(device);
       const encoder = createMockEncoder();

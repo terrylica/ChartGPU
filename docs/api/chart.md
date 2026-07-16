@@ -60,8 +60,13 @@ See [ChartGPU.ts](../../src/ChartGPU.ts) for the full interface and lifecycle be
 **Common methods:**
 
 - `setOption(...)`: update options and schedule a render.
-- `appendData(seriesIndex, newPoints)`: streaming append for cartesian series.
+- `appendData(seriesIndex, newPoints, options?)`: streaming append for cartesian series.
   - Formats: `DataPoint[]`, `XYArraysData`, `InterleavedXYData`, `OHLCDataPoint[]`
+  - Optional `{ maxPoints }` (**per call**, not sticky series state — omit later for unbounded growth):
+    - If a single batch is ≥ `maxPoints`, keep only that batch’s tail (strict replace; prior points discarded).
+    - Otherwise **fixed-capacity ring**: fill up to `maxPoints`, then overwrite oldest slots (GPU modular writes — O(append), no full retained-window rewrite). Peak retained length / GPU reservation = **`maxPoints`**.
+    - Prefer over sliding-window full `setOption` for high-rate streaming (SciChart `fifoCapacity` **intent**, not identical sticky construction state).
+    - When both `maxPoints` is set and `tooltip.show === false`, ChartGPU’s hit-test columnar store is not updated on append (dual-store relief); coordinator/GPU still apply the ring.
   - Types: [`src/config/types.ts`](../../src/config/types.ts)
 - `resize()`, `dispose()`
 - `on(...)`, `off(...)`: events (see [interaction.md](interaction.md))

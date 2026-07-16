@@ -105,6 +105,7 @@ describe("prepareSeries GPU decimation (WG-P0-1 xOffset)", () => {
       removeSeries: vi.fn(),
       getSeriesBuffer: vi.fn(() => rawBuffer),
       getSeriesPointCount: vi.fn(() => points.length),
+      getSeriesRingLayout: vi.fn(() => ({ start: 0, capacity: 0 })),
       getSeriesContentHash: vi.fn(() => 0xabc),
       getSeriesStagingBuffer: vi.fn(() => new Float32Array(0)),
       dispose: vi.fn(),
@@ -194,6 +195,7 @@ describe("prepareSeries GPU decimation (WG-P0-1 xOffset)", () => {
       removeSeries: vi.fn(),
       getSeriesBuffer: vi.fn(() => rawBuffer),
       getSeriesPointCount: vi.fn(() => points.length),
+      getSeriesRingLayout: vi.fn(() => ({ start: 0, capacity: 0 })),
       getSeriesContentHash: vi.fn(() => 0x1),
       getSeriesStagingBuffer: vi.fn(() => new Float32Array(0)),
       dispose: vi.fn(),
@@ -249,5 +251,196 @@ describe("prepareSeries GPU decimation (WG-P0-1 xOffset)", () => {
 
     const xOffsetArg = linePrepare.mock.calls[0]![4] as number;
     expect(xOffsetArg).toBe(0);
+  });
+
+  it("passes ringStart/ringCapacity from getSeriesRingLayout and uses visible range on ring raw", () => {
+    const points: Array<[number, number]> = [];
+    for (let i = 0; i < 64; i++) {
+      points.push([i, Math.sin(i / 5)]);
+    }
+    const series = makeLineSeries(points);
+
+    const rawBuffer = { label: "raw" } as unknown as GPUBuffer;
+    const decimatedBuffer = { label: "decimated" } as unknown as GPUBuffer;
+    const linePrepare = vi.fn();
+    const decimationPrepare = vi.fn(() => 8);
+
+    const dataStore: DataStore = {
+      setSeries: vi.fn(),
+      appendSeries: vi.fn(),
+      removeSeries: vi.fn(),
+      getSeriesBuffer: vi.fn(() => rawBuffer),
+      getSeriesPointCount: vi.fn(() => points.length),
+      getSeriesRingLayout: vi.fn(() => ({ start: 3, capacity: 16 })),
+      getSeriesContentHash: vi.fn(() => 0x99),
+      getSeriesStagingBuffer: vi.fn(() => new Float32Array(0)),
+      dispose: vi.fn(),
+    };
+
+    prepareSeries(
+      {
+        lineRenderers: [
+          {
+            prepare: linePrepare,
+            render: vi.fn(),
+            dispose: vi.fn(),
+          } as any,
+        ],
+        areaRenderers: [],
+        barRenderer: {
+          prepare: vi.fn(),
+          render: vi.fn(),
+          dispose: vi.fn(),
+        } as any,
+        scatterRenderers: [],
+        scatterDensityRenderers: [],
+        pieRenderers: [],
+        candlestickRenderers: [],
+        decimationComputes: [
+          {
+            prepare: decimationPrepare,
+            encodeCompute: vi.fn(),
+            getOutputBuffer: vi.fn(() => decimatedBuffer),
+            getOutputPointCount: vi.fn(() => 8),
+            dispose: vi.fn(),
+          },
+        ],
+      },
+      {
+        currentOptions: {
+          xAxis: { type: "value" },
+          yAxes: [{ id: "y", min: -1 }],
+          series: [series],
+        } as any,
+        seriesForRender: [series],
+        xScale: makeScale(0, 63),
+        yScales: new Map([["y", makeScale(-1, 1)]]),
+        gridArea: makeGridArea(),
+        dataStore,
+        appendedGpuThisFrame: new Set(),
+        gpuSeriesKindByIndex: ["unknown"],
+        zoomState: null,
+        // Zoom into the middle so visible range is not full [0, 64)
+        visibleXDomain: { min: 10, max: 40 },
+        introPhase: "done",
+        introProgress01: 1,
+        withAlpha: (c: string) => c,
+        maxRadiusCss: 4,
+        lastSetSeriesCache: new Map(),
+        filterGapsCache: createFilterGapsCache(),
+      },
+    );
+
+    expect(decimationPrepare).toHaveBeenCalled();
+    const args = decimationPrepare.mock.calls[0]![0] as {
+      ringStart?: number;
+      ringCapacity?: number;
+      visibleStart: number;
+      visibleEnd: number;
+    };
+    expect(args.ringStart).toBe(3);
+    expect(args.ringCapacity).toBe(16);
+    // Visible range from binary search on raw (not forced full [0, N)).
+    expect(args.visibleStart).toBeGreaterThanOrEqual(10);
+    expect(args.visibleEnd).toBeLessThanOrEqual(41);
+    expect(args.visibleEnd).toBeGreaterThan(args.visibleStart);
+  });
+
+  it("falls back to full visible range when rawDataForGpu is null and still forwards ring uniforms", () => {
+    // hasNullGaps(null) returns false → eligibility can pass with rawData null.
+    // Skip setSeries (would getPointCount(null)) via appendedGpuThisFrame.
+    const points: Array<[number, number]> = [];
+    for (let i = 0; i < 64; i++) {
+      points.push([i, Math.sin(i / 5)]);
+    }
+    const series = {
+      ...makeLineSeries(points),
+      rawData: null as unknown as typeof points,
+      data: points,
+    };
+
+    const rawBuffer = { label: "raw" } as unknown as GPUBuffer;
+    const decimatedBuffer = { label: "decimated" } as unknown as GPUBuffer;
+    const linePrepare = vi.fn();
+    const decimationPrepare = vi.fn(() => 8);
+    const rawPointCount = 64;
+
+    const dataStore: DataStore = {
+      setSeries: vi.fn(),
+      appendSeries: vi.fn(),
+      removeSeries: vi.fn(),
+      getSeriesBuffer: vi.fn(() => rawBuffer),
+      getSeriesPointCount: vi.fn(() => rawPointCount),
+      getSeriesRingLayout: vi.fn(() => ({ start: 5, capacity: 32 })),
+      getSeriesContentHash: vi.fn(() => 0x42),
+      getSeriesStagingBuffer: vi.fn(() => new Float32Array(0)),
+      dispose: vi.fn(),
+    };
+
+    prepareSeries(
+      {
+        lineRenderers: [
+          {
+            prepare: linePrepare,
+            render: vi.fn(),
+            dispose: vi.fn(),
+          } as any,
+        ],
+        areaRenderers: [],
+        barRenderer: {
+          prepare: vi.fn(),
+          render: vi.fn(),
+          dispose: vi.fn(),
+        } as any,
+        scatterRenderers: [],
+        scatterDensityRenderers: [],
+        pieRenderers: [],
+        candlestickRenderers: [],
+        decimationComputes: [
+          {
+            prepare: decimationPrepare,
+            encodeCompute: vi.fn(),
+            getOutputBuffer: vi.fn(() => decimatedBuffer),
+            getOutputPointCount: vi.fn(() => 8),
+            dispose: vi.fn(),
+          },
+        ],
+      },
+      {
+        currentOptions: {
+          xAxis: { type: "value" },
+          yAxes: [{ id: "y", min: -1 }],
+          series: [series],
+        } as any,
+        seriesForRender: [series],
+        xScale: makeScale(0, 63),
+        yScales: new Map([["y", makeScale(-1, 1)]]),
+        gridArea: makeGridArea(),
+        dataStore,
+        appendedGpuThisFrame: new Set([0]),
+        gpuSeriesKindByIndex: ["gpuDecimationRaw"],
+        zoomState: null,
+        visibleXDomain: { min: 10, max: 40 },
+        introPhase: "done",
+        introProgress01: 1,
+        withAlpha: (c: string) => c,
+        maxRadiusCss: 4,
+        lastSetSeriesCache: new Map(),
+        filterGapsCache: createFilterGapsCache(),
+      },
+    );
+
+    expect(decimationPrepare).toHaveBeenCalled();
+    const args = decimationPrepare.mock.calls[0]![0] as {
+      ringStart?: number;
+      ringCapacity?: number;
+      visibleStart: number;
+      visibleEnd: number;
+    };
+    expect(args.ringStart).toBe(5);
+    expect(args.ringCapacity).toBe(32);
+    // Full-range fallback when raw is null (ignores zoom domain).
+    expect(args.visibleStart).toBe(0);
+    expect(args.visibleEnd).toBe(rawPointCount);
   });
 });

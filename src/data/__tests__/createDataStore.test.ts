@@ -146,4 +146,378 @@ describe("createDataStore", () => {
       expect(stagingLarge.length).toBeGreaterThan(smallLen);
     });
   });
+
+  describe("appendSeries with maxPoints (fixed-capacity ring FIFO)", () => {
+    it("fill phase under capacity uses pure ranged append (linear layout)", () => {
+      const store = createDataStore(device);
+      // Pre-grow capacity so pure append does not realloc.
+      const seed: Array<[number, number]> = [];
+      for (let i = 0; i < 64; i++) seed.push([i, i]);
+      store.setSeries(0, seed);
+      store.setSeries(0, [
+        [0, 0],
+        [1, 1],
+        [2, 2],
+        [3, 3],
+      ]);
+      const bufferBefore = store.getSeriesBuffer(0);
+      (device.queue.writeBuffer as ReturnType<typeof vi.fn>).mockClear();
+
+      // 4 + 2 = 6 ≤ maxPoints=8 → pure ranged append, still linear.
+      store.appendSeries(
+        0,
+        [
+          [4, 4],
+          [5, 5],
+        ],
+        { maxPoints: 8 },
+      );
+
+      expect(store.getSeriesPointCount(0)).toBe(6);
+      expect(store.getSeriesBuffer(0)).toBe(bufferBefore);
+      expect(store.getSeriesRingLayout(0)).toEqual({ start: 0, capacity: 0 });
+      const writes = device.queue.writeBuffer as ReturnType<typeof vi.fn>;
+      expect(writes).toHaveBeenCalledTimes(1);
+      // Appended range starts at point index 4 → byteOffset 32.
+      expect(writes.mock.calls[0]![1]).toBe(32);
+    });
+
+    it("ring wrap overwrites oldest slots without full retained rewrite", () => {
+      const store = createDataStore(device);
+      const seed: Array<[number, number]> = [];
+      for (let i = 0; i < 64; i++) seed.push([i, i]);
+      store.setSeries(0, seed);
+      store.setSeries(0, [
+        [0, 0],
+        [1, 1],
+        [2, 2],
+        [3, 3],
+      ]);
+      // Fill to capacity=4.
+      // Already at 4. Next append of 1 with maxPoints=4 wraps.
+      const bufferBefore = store.getSeriesBuffer(0);
+      const hashBefore = store.getSeriesContentHash(0);
+      (device.queue.writeBuffer as ReturnType<typeof vi.fn>).mockClear();
+
+      store.appendSeries(0, [[10, 10]], { maxPoints: 4 });
+
+      expect(store.getSeriesPointCount(0)).toBe(4);
+      expect(store.getSeriesBuffer(0)).toBe(bufferBefore);
+      expect(store.getSeriesContentHash(0)).not.toBe(hashBefore);
+      // Modular: oldest was at 0, overwritten; ringStart advances by 1.
+      expect(store.getSeriesRingLayout(0)).toEqual({ start: 1, capacity: 4 });
+
+      const writes = device.queue.writeBuffer as ReturnType<typeof vi.fn>;
+      // Only the new point range — not a full 4-point rewrite.
+      expect(writes).toHaveBeenCalledTimes(1);
+      expect(writes.mock.calls[0]![1]).toBe(0); // write head at physical 0
+      expect(writes.mock.calls[0]![4]).toBe(8); // one point = 8 bytes
+
+      const staging = store.getSeriesStagingBuffer(0);
+      // Physical slot 0 now holds the new point [10,10].
+      expect(staging[0]).toBe(10);
+      expect(staging[1]).toBe(10);
+      // Logical order: phys 1,2,3,0 → [1,2,3,10]
+      expect(staging[2]).toBe(1);
+      expect(staging[4]).toBe(2);
+      expect(staging[6]).toBe(3);
+    });
+
+    it("ring wrap that straddles capacity end splits into two writeBuffer calls", () => {
+      const store = createDataStore(device);
+      const seed: Array<[number, number]> = [];
+      for (let i = 0; i < 64; i++) seed.push([i, i]);
+      store.setSeries(0, seed);
+      store.setSeries(0, [
+        [0, 0],
+        [1, 1],
+        [2, 2],
+        [3, 3],
+      ]);
+      // Wrap once so ringStart=1 (capacity full, write head at 1 after one unit append).
+      store.appendSeries(0, [[10, 10]], { maxPoints: 4 });
+      expect(store.getSeriesRingLayout(0).start).toBe(1);
+      (device.queue.writeBuffer as ReturnType<typeof vi.fn>).mockClear();
+
+      // Append 3 points: write head = 1, wraps after 3 slots (1,2,3) — no wrap to 0.
+      // Append 4 would fill 1,2,3,0 — still one contiguous if head=1 and count=3.
+      // Force wrap: head at 2 after another single append.
+      store.appendSeries(0, [[11, 11]], { maxPoints: 4 });
+      expect(store.getSeriesRingLayout(0).start).toBe(2);
+      (device.queue.writeBuffer as ReturnType<typeof vi.fn>).mockClear();
+
+      // write head = 2, append 3 points → physical 2,3,0 (wraps)
+      store.appendSeries(
+        0,
+        [
+          [20, 20],
+          [21, 21],
+          [22, 22],
+        ],
+        { maxPoints: 4 },
+      );
+      expect(store.getSeriesPointCount(0)).toBe(4);
+      expect(store.getSeriesRingLayout(0)).toEqual({ start: 1, capacity: 4 });
+      // drop=3, start was 2 → (2+3)%4 = 1
+      const writes = device.queue.writeBuffer as ReturnType<typeof vi.fn>;
+      expect(writes.mock.calls.length).toBeGreaterThanOrEqual(2);
+    });
+
+    it("pure append without maxPoints still ranged-writes only new bytes", () => {
+      const store = createDataStore(device);
+      // Pre-grow capacity (setSeries does not shrink) so append fits without realloc.
+      const seed: Array<[number, number]> = [];
+      for (let i = 0; i < 64; i++) seed.push([i, i]);
+      store.setSeries(0, seed);
+      store.setSeries(0, [
+        [0, 0],
+        [1, 1],
+      ]);
+      (device.queue.writeBuffer as ReturnType<typeof vi.fn>).mockClear();
+
+      store.appendSeries(0, [[2, 2]]);
+
+      expect(store.getSeriesPointCount(0)).toBe(3);
+      const writes = device.queue.writeBuffer as ReturnType<typeof vi.fn>;
+      expect(writes).toHaveBeenCalledTimes(1);
+      // byteOffset for the 3rd point (index 2) = 2 points * 8 bytes = 16
+      expect(writes.mock.calls[0]![1]).toBe(16);
+      // size of one point = 8 bytes
+      expect(writes.mock.calls[0]![4]).toBe(8);
+    });
+
+    it("when newPoints alone exceed maxPoints, keeps only the tail", () => {
+      const store = createDataStore(device);
+      store.setSeries(0, [
+        [0, 0],
+        [1, 1],
+      ]);
+      store.appendSeries(
+        0,
+        [
+          [10, 10],
+          [11, 11],
+          [12, 12],
+          [13, 13],
+        ],
+        { maxPoints: 3 },
+      );
+      expect(store.getSeriesPointCount(0)).toBe(3);
+      expect(store.getSeriesRingLayout(0)).toEqual({ start: 0, capacity: 0 });
+      const staging = store.getSeriesStagingBuffer(0);
+      expect(staging[0]).toBe(11);
+      expect(staging[1]).toBe(11);
+      expect(staging[2]).toBe(12);
+      expect(staging[3]).toBe(12);
+      expect(staging[4]).toBe(13);
+      expect(staging[5]).toBe(13);
+    });
+
+    it("strict-replaces when newCount === maxPoints (FIFO 100/100 shape)", () => {
+      const store = createDataStore(device);
+      store.setSeries(0, [
+        [0, 0],
+        [1, 1],
+        [2, 2],
+        [3, 3],
+      ]);
+      store.appendSeries(
+        0,
+        [
+          [10, 10],
+          [11, 11],
+          [12, 12],
+          [13, 13],
+        ],
+        { maxPoints: 4 },
+      );
+      expect(store.getSeriesPointCount(0)).toBe(4);
+      const staging = store.getSeriesStagingBuffer(0);
+      // Previous discarded; new batch kept in full (linear).
+      expect(staging[0]).toBe(10);
+      expect(staging[1]).toBe(10);
+      expect(staging[6]).toBe(13);
+      expect(staging[7]).toBe(13);
+    });
+
+    it("growth without pre-grow full-uploads retained + new points", () => {
+      const store = createDataStore(device);
+      // Tiny seed → buffer sized for 2 points only.
+      store.setSeries(0, [
+        [0, 0],
+        [1, 1],
+      ]);
+      (device.queue.writeBuffer as ReturnType<typeof vi.fn>).mockClear();
+
+      // Append enough to force geometric growth.
+      const batch: Array<[number, number]> = [];
+      for (let i = 0; i < 100; i++) batch.push([i + 2, i + 2]);
+      store.appendSeries(0, batch);
+
+      expect(store.getSeriesPointCount(0)).toBe(102);
+      const writes = device.queue.writeBuffer as ReturnType<typeof vi.fn>;
+      // At least one full upload covering the retained window (byteOffset 0).
+      const fullUpload = writes.mock.calls.some(
+        (c) => c[1] === 0 && (c[4] as number) >= 102 * 8,
+      );
+      expect(fullUpload).toBe(true);
+      const staging = store.getSeriesStagingBuffer(0);
+      expect(staging[0]).toBe(0);
+      expect(staging[1]).toBe(0);
+      expect(staging[202]).toBe(101); // last x
+      expect(staging[203]).toBe(101);
+    });
+
+    it("first ring activation with prevCount > maxPoints keeps planned tail", () => {
+      const store = createDataStore(device);
+      // Seed 10 points unbounded.
+      const seed: Array<[number, number]> = [];
+      for (let i = 0; i < 10; i++) seed.push([i, i * 10]);
+      store.setSeries(0, seed);
+
+      // Append 1 with maxPoints=4 → keep last 3 of prev + new = [7,8,9,100]
+      store.appendSeries(0, [[100, 999]], { maxPoints: 4 });
+      expect(store.getSeriesPointCount(0)).toBe(4);
+      // Rebuild leaves linear layout at start=0.
+      expect(store.getSeriesRingLayout(0)).toEqual({ start: 0, capacity: 0 });
+      const staging = store.getSeriesStagingBuffer(0);
+      // Chronological: x=7,8,9,100
+      expect(staging[0]).toBe(7);
+      expect(staging[2]).toBe(8);
+      expect(staging[4]).toBe(9);
+      expect(staging[6]).toBe(100);
+      expect(staging[7]).toBe(999);
+    });
+
+    it("leave-ring after wrap linearizes chronological order", () => {
+      const store = createDataStore(device);
+      const seed: Array<[number, number]> = [];
+      for (let i = 0; i < 64; i++) seed.push([i, i]);
+      store.setSeries(0, seed);
+      store.setSeries(0, [
+        [0, 0],
+        [1, 1],
+        [2, 2],
+        [3, 3],
+      ]);
+      // Wrap once → modular start=1, content logical [1,2,3,10]
+      store.appendSeries(0, [[10, 10]], { maxPoints: 4 });
+      expect(store.getSeriesRingLayout(0).start).toBe(1);
+
+      // Omit maxPoints → unbounded leave-ring + append
+      store.appendSeries(0, [[20, 20]]);
+      expect(store.getSeriesPointCount(0)).toBe(5);
+      expect(store.getSeriesRingLayout(0)).toEqual({ start: 0, capacity: 0 });
+      const staging = store.getSeriesStagingBuffer(0);
+      // Chronological [1,2,3,10,20]
+      expect(staging[0]).toBe(1);
+      expect(staging[2]).toBe(2);
+      expect(staging[4]).toBe(3);
+      expect(staging[6]).toBe(10);
+      expect(staging[8]).toBe(20);
+    });
+
+    it("multi-wrap keeps chronological logical order in staging physical slots", () => {
+      const store = createDataStore(device);
+      const seed: Array<[number, number]> = [];
+      for (let i = 0; i < 64; i++) seed.push([i, i]);
+      store.setSeries(0, seed);
+      store.setSeries(0, [
+        [0, 0],
+        [1, 1],
+        [2, 2],
+        [3, 3],
+      ]);
+      // Wrap three times with unit appends
+      store.appendSeries(0, [[10, 10]], { maxPoints: 4 }); // [1,2,3,10] start=1
+      store.appendSeries(0, [[11, 11]], { maxPoints: 4 }); // [2,3,10,11] start=2
+      store.appendSeries(0, [[12, 12]], { maxPoints: 4 }); // [3,10,11,12] start=3
+      expect(store.getSeriesPointCount(0)).toBe(4);
+      expect(store.getSeriesRingLayout(0)).toEqual({ start: 3, capacity: 4 });
+      const st = store.getSeriesStagingBuffer(0);
+      // Physical: start=3 → logical 0 at phys 3 = 3, phys 0 = 10, phys 1 = 11, phys 2 = 12
+      expect(st[6]).toBe(3);
+      expect(st[0]).toBe(10);
+      expect(st[2]).toBe(11);
+      expect(st[4]).toBe(12);
+    });
+
+    it("strict-after-wrap resets layout to linear start=0", () => {
+      const store = createDataStore(device);
+      const seed: Array<[number, number]> = [];
+      for (let i = 0; i < 64; i++) seed.push([i, i]);
+      store.setSeries(0, seed);
+      store.setSeries(0, [
+        [0, 0],
+        [1, 1],
+        [2, 2],
+        [3, 3],
+      ]);
+      store.appendSeries(0, [[10, 10]], { maxPoints: 4 });
+      expect(store.getSeriesRingLayout(0).start).toBe(1);
+      store.appendSeries(
+        0,
+        [
+          [20, 20],
+          [21, 21],
+          [22, 22],
+          [23, 23],
+        ],
+        { maxPoints: 4 },
+      );
+      expect(store.getSeriesPointCount(0)).toBe(4);
+      expect(store.getSeriesRingLayout(0)).toEqual({ start: 0, capacity: 0 });
+      const st = store.getSeriesStagingBuffer(0);
+      expect(st[0]).toBe(20);
+      expect(st[6]).toBe(23);
+    });
+
+    it("split writeBuffer uses phys*8 and 0 offsets with correct sizes", () => {
+      const store = createDataStore(device);
+      const seed: Array<[number, number]> = [];
+      for (let i = 0; i < 64; i++) seed.push([i, i]);
+      store.setSeries(0, seed);
+      store.setSeries(0, [
+        [0, 0],
+        [1, 1],
+        [2, 2],
+        [3, 3],
+      ]);
+      store.appendSeries(0, [[10, 10]], { maxPoints: 4 }); // start=1
+      store.appendSeries(0, [[11, 11]], { maxPoints: 4 }); // start=2
+      (device.queue.writeBuffer as ReturnType<typeof vi.fn>).mockClear();
+      // write head=2, append 3 → phys 2,3,0
+      store.appendSeries(
+        0,
+        [
+          [20, 20],
+          [21, 21],
+          [22, 22],
+        ],
+        { maxPoints: 4 },
+      );
+      const writes = device.queue.writeBuffer as ReturnType<typeof vi.fn>;
+      expect(writes.mock.calls.length).toBeGreaterThanOrEqual(2);
+      // first segment at phys 2 → byteOffset 16, size 16 (2 pts)
+      expect(writes.mock.calls[0]![1]).toBe(16);
+      expect(writes.mock.calls[0]![4]).toBe(16);
+      // rest at phys 0 → byteOffset 0, size 8 (1 pt)
+      expect(writes.mock.calls[1]![1]).toBe(0);
+      expect(writes.mock.calls[1]![4]).toBe(8);
+    });
+
+    it("maxPoints=1 keeps single point on DataStore", () => {
+      const store = createDataStore(device);
+      store.setSeries(0, [
+        [0, 0],
+        [1, 1],
+      ]);
+      store.appendSeries(0, [[50, 25]], { maxPoints: 1 });
+      store.appendSeries(0, [[100, 50]], { maxPoints: 1 });
+      expect(store.getSeriesPointCount(0)).toBe(1);
+      const st = store.getSeriesStagingBuffer(0);
+      expect(st[0]).toBe(100);
+      expect(st[1]).toBe(50);
+    });
+  });
 });

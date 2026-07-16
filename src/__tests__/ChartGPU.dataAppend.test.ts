@@ -1174,6 +1174,437 @@ describe("ChartGPU - dataAppend event", () => {
   });
 });
 
+describe("ChartGPU - appendData maxPoints (FIFO)", () => {
+  let mockContainer: HTMLElement;
+  let warnSpy: ReturnType<typeof vi.spyOn> | null = null;
+
+  beforeEach(() => {
+    mockContainer = createMockContainer();
+    setupMockNavigatorGPU();
+    warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => {
+      setTimeout(() => cb(performance.now()), 0);
+      return 1;
+    });
+    vi.stubGlobal("cancelAnimationFrame", vi.fn());
+    vi.stubGlobal("devicePixelRatio", 2);
+  });
+
+  afterEach(() => {
+    warnSpy?.mockRestore();
+    vi.unstubAllGlobals();
+  });
+
+  const makePointer = (clientX: number, clientY: number): PointerEvent =>
+    ({
+      clientX,
+      clientY,
+    }) as PointerEvent;
+
+  it("ring fill under capacity keeps hit-test on appended tail", async () => {
+    // maxPoints=4, seed 2; append 1 → length 3, domain includes append.
+    // tooltip on so hit-test store is maintained under maxPoints.
+    const data: Array<[number, number]> = [
+      [0, 0],
+      [1, 1],
+    ];
+    const chart = await ChartGPU.create(mockContainer, {
+      animation: false,
+      tooltip: { show: true },
+      grid: { left: 0, right: 0, top: 0, bottom: 0 },
+      yAxis: { min: -10, max: 60 },
+      series: [{ type: "line", data, sampling: "none" }],
+    });
+
+    expect(() =>
+      chart.appendData(0, [[100, 50]], { maxPoints: 4 }),
+    ).not.toThrow();
+
+    const hitRight = chart.hitTest(makePointer(799, 86));
+    expect(hitRight.isInGrid).toBe(true);
+    expect(hitRight.match).not.toBeNull();
+    expect(hitRight.match?.value[0]).toBeCloseTo(100, 0);
+
+    await chart.dispose();
+  });
+
+  it("ring wrap at maxPoints drops oldest from hit-test domain", async () => {
+    // maxPoints=2, seed 2; three unit appends each wrap to length 2.
+    // Final retained: after [2], [3], [100] → [3, 100].
+    const data: Array<[number, number]> = [
+      [0, 0],
+      [1, 10],
+    ];
+    const chart = await ChartGPU.create(mockContainer, {
+      animation: false,
+      tooltip: { show: true },
+      grid: { left: 0, right: 0, top: 0, bottom: 0 },
+      yAxis: { min: -10, max: 60 },
+      series: [{ type: "line", data, sampling: "none" }],
+    });
+
+    chart.appendData(0, [[2, 20]], { maxPoints: 2 }); // [1, 2]
+    chart.appendData(0, [[3, 30]], { maxPoints: 2 }); // [2, 3]
+    chart.appendData(0, [[100, 50]], { maxPoints: 2 }); // [3, 100]
+
+    // Allow flush.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    // Right edge should still match newest x=100; oldest x=0 must not dominate domain.
+    const hitRight = chart.hitTest(makePointer(799, 86));
+    expect(hitRight.isInGrid).toBe(true);
+    expect(hitRight.match).not.toBeNull();
+    expect(hitRight.match?.value[0]).toBeCloseTo(100, 0);
+
+    // Far left of the (now [3,100]) domain must not match the discarded x=0 seed.
+    const hitLeft = chart.hitTest(makePointer(1, 500));
+    if (hitLeft.match) {
+      expect(hitLeft.match.value[0]).toBeGreaterThanOrEqual(3);
+      expect(hitLeft.match.value[0]).not.toBe(0);
+    }
+
+    await chart.dispose();
+  });
+
+  it("strict-replaces when batch size equals maxPoints (suite FIFO 100/100 shape)", async () => {
+    const data: Array<[number, number]> = [
+      [0, 0],
+      [1, 1],
+      [2, 2],
+      [3, 3],
+    ];
+    const chart = await ChartGPU.create(mockContainer, {
+      animation: false,
+      tooltip: { show: true },
+      grid: { left: 0, right: 0, top: 0, bottom: 0 },
+      yAxis: { min: -10, max: 60 },
+      series: [{ type: "line", data, sampling: "none" }],
+    });
+
+    // newCount === maxPoints → discard previous, keep only new batch.
+    chart.appendData(
+      0,
+      [
+        [10, 10],
+        [20, 20],
+        [30, 30],
+        [100, 50],
+      ],
+      { maxPoints: 4 },
+    );
+
+    // y=50 → ~86; x=100 → right edge.
+    const hitRight = chart.hitTest(makePointer(799, 86));
+    expect(hitRight.isInGrid).toBe(true);
+    expect(hitRight.match).not.toBeNull();
+    // Domain is [10,100] — right edge ≈ 100, not seed x=3.
+    expect(hitRight.match?.value[0]).toBeCloseTo(100, 0);
+
+    // Left edge of domain [10,100] must not match discarded seed x=0.
+    const hitLeft = chart.hitTest(makePointer(1, 500));
+    if (hitLeft.match) {
+      expect(hitLeft.match.value[0]).toBeGreaterThanOrEqual(10);
+      expect(hitLeft.match.value[0]).not.toBe(0);
+    }
+
+    await chart.dispose();
+  });
+
+  it("maxPoints: 1 retains a single hit-testable point after several appends", async () => {
+    const chart = await ChartGPU.create(mockContainer, {
+      animation: false,
+      tooltip: { show: true },
+      grid: { left: 0, right: 0, top: 0, bottom: 0 },
+      yAxis: { min: -10, max: 60 },
+      // Seed a span so after strict replace to one point we still have a usable domain
+      // via the last point's y=50 (x is expanded when min===max).
+      series: [
+        {
+          type: "line",
+          data: [
+            [0, 0],
+            [1, 1],
+          ],
+          sampling: "none",
+        },
+      ],
+    });
+
+    chart.appendData(0, [[50, 25]], { maxPoints: 1 });
+    chart.appendData(0, [[100, 50]], { maxPoints: 1 });
+
+    // Single retained point (100,50). With x expanded [100,101], left edge ≈ x=100.
+    const hit = chart.hitTest(makePointer(1, 86));
+    expect(hit.isInGrid).toBe(true);
+    expect(hit.match).not.toBeNull();
+    expect(hit.match?.value[0]).toBeCloseTo(100, 0);
+    expect(hit.match?.value[1]).toBeCloseTo(50, 0);
+
+    await chart.dispose();
+  });
+
+  it("skips hit-test columnar growth when maxPoints + tooltip off (dual-store relief)", async () => {
+    // Suite FIFO: tooltip false + maxPoints skips ChartGPU hit-test columns.
+    // Proof of skip (not just resync): after skip-only appends, first *unbounded*
+    // maintain append must not double-apply. Seed [0,1]; skip maxPoints:2 leaves
+    // coordinator at [2,3]; unbounded [100] → single apply [2,3,100] (not
+    // [2,3,100,100]). Domain left edge ≈ 2, right ≈ 100.
+    const data: Array<[number, number]> = [
+      [0, 0],
+      [1, 1],
+    ];
+    const chart = await ChartGPU.create(mockContainer, {
+      animation: false,
+      tooltip: { show: false },
+      grid: { left: 0, right: 0, top: 0, bottom: 0 },
+      yAxis: { min: -10, max: 60 },
+      series: [{ type: "line", data, sampling: "none" }],
+    });
+
+    chart.appendData(0, [[2, 2]], { maxPoints: 2 });
+    chart.appendData(0, [[3, 3]], { maxPoints: 2 });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+
+    // Unbounded maintain while tooltip still off: resync prior state then apply
+    // [100] once (regression for double-apply after flush-inclusive resync).
+    chart.appendData(0, [[100, 50]]);
+    await new Promise((resolve) => setTimeout(resolve, 30));
+
+    const hitRight = chart.hitTest(makePointer(799, 86));
+    expect(hitRight.isInGrid).toBe(true);
+    expect(hitRight.match).not.toBeNull();
+    expect(hitRight.match?.value[0]).toBeCloseTo(100, 0);
+
+    const hitLeft = chart.hitTest(makePointer(1, 500));
+    if (hitLeft.match) {
+      // Seed x=0 discarded during skip FIFO; left edge of [2,3,100] is ≥ 2.
+      expect(hitLeft.match.value[0]).toBeGreaterThanOrEqual(2);
+      expect(hitLeft.match.value[0]).not.toBe(0);
+    }
+
+    await chart.dispose();
+  });
+
+  it("does not double-apply batch when first maintain append follows dual-store skip", async () => {
+    // Explicit regression for Issue 1: resync-before-append ordering.
+    // skip maxPoints path then first maxPoints+tooltip-on append via setOption
+    // resync first, then append once — right edge is newest, not a duplicated tail.
+    const data: Array<[number, number]> = [
+      [0, 0],
+      [1, 1],
+    ];
+    const chart = await ChartGPU.create(mockContainer, {
+      animation: false,
+      tooltip: { show: false },
+      grid: { left: 0, right: 0, top: 0, bottom: 0 },
+      yAxis: { min: -10, max: 60 },
+      series: [{ type: "line", data, sampling: "none" }],
+    });
+
+    chart.appendData(0, [[2, 2]], { maxPoints: 3 });
+    chart.appendData(0, [[3, 3]], { maxPoints: 3 });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    chart.setOption({
+      ...chart.options,
+      tooltip: { show: true },
+    });
+    // After resync store is coordinator [0,1]→[0,1,2]→[1,2,3] = [1,2,3]
+    chart.appendData(0, [[100, 50]], { maxPoints: 3 });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+
+    // Correct single apply: retained [2,3,100]. Double would still end at 100
+    // but left would differ if count exceeded capacity incorrectly — hard assert
+    // newest and discarded seed absent.
+    const hitRight = chart.hitTest(makePointer(799, 86));
+    expect(hitRight.match).not.toBeNull();
+    expect(hitRight.match?.value[0]).toBeCloseTo(100, 0);
+    const hitLeft = chart.hitTest(makePointer(1, 500));
+    if (hitLeft.match) {
+      expect(hitLeft.match.value[0]).toBeGreaterThanOrEqual(2);
+      expect(hitLeft.match.value[0]).not.toBe(0);
+      expect(hitLeft.match.value[0]).not.toBe(1);
+    }
+
+    await chart.dispose();
+  });
+
+  it("tooltip-on control advances hit-test to newest under maxPoints", async () => {
+    const data: Array<[number, number]> = [
+      [0, 0],
+      [1, 1],
+    ];
+    const chart = await ChartGPU.create(mockContainer, {
+      animation: false,
+      tooltip: { show: true },
+      grid: { left: 0, right: 0, top: 0, bottom: 0 },
+      yAxis: { min: -10, max: 60 },
+      series: [{ type: "line", data, sampling: "none" }],
+    });
+
+    chart.appendData(0, [[2, 20]], { maxPoints: 2 });
+    chart.appendData(0, [[100, 50]], { maxPoints: 2 });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    const hitRight = chart.hitTest(makePointer(799, 86));
+    expect(hitRight.match).not.toBeNull();
+    expect(hitRight.match?.value[0]).toBeCloseTo(100, 0);
+    // Left of domain must not match discarded seed x=0.
+    const hitLeft = chart.hitTest(makePointer(1, 500));
+    if (hitLeft.match) {
+      expect(hitLeft.match.value[0]).toBeGreaterThanOrEqual(2);
+    }
+
+    await chart.dispose();
+  });
+
+  it("re-enabling tooltip after dual-store skip resyncs hit-test domain", async () => {
+    const data: Array<[number, number]> = [
+      [0, 0],
+      [1, 1],
+    ];
+    const chart = await ChartGPU.create(mockContainer, {
+      animation: false,
+      tooltip: { show: false },
+      grid: { left: 0, right: 0, top: 0, bottom: 0 },
+      yAxis: { min: -10, max: 60 },
+      series: [{ type: "line", data, sampling: "none" }],
+    });
+
+    chart.appendData(0, [[50, 25]], { maxPoints: 2 });
+    chart.appendData(0, [[100, 50]], { maxPoints: 2 });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+
+    // Axes-only setOption that turns tooltip on — must resync from coordinator.
+    chart.setOption({
+      ...chart.options,
+      tooltip: { show: true },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    const hit = chart.hitTest(makePointer(799, 86));
+    expect(hit.match).not.toBeNull();
+    expect(hit.match?.value[0]).toBeCloseTo(100, 0);
+
+    await chart.dispose();
+  });
+
+  it("tooltip re-enable resync resizes hit-test store when series count changes", async () => {
+    const data0: Array<[number, number]> = [
+      [0, 0],
+      [1, 1],
+    ];
+    const chart = await ChartGPU.create(mockContainer, {
+      animation: false,
+      tooltip: { show: false },
+      grid: { left: 0, right: 0, top: 0, bottom: 0 },
+      yAxis: { min: -10, max: 60 },
+      series: [{ type: "line", data: data0, sampling: "none" }],
+    });
+
+    chart.appendData(0, [[100, 50]], { maxPoints: 2 });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    // Same setOption: re-enable tooltip AND add a second series (length 1→2).
+    chart.setOption({
+      ...chart.options,
+      tooltip: { show: true },
+      series: [
+        { type: "line", data: data0, sampling: "none" },
+        {
+          type: "line",
+          data: [
+            [0, 10],
+            [1, 11],
+          ],
+          sampling: "none",
+        },
+      ],
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    // Must not throw and must hit-test the first series' resynced newest point.
+    const hit = chart.hitTest(makePointer(799, 86));
+    expect(hit.isInGrid).toBe(true);
+
+    await chart.dispose();
+  });
+
+  it("does not warn about full buffer re-upload for lttb GPU-decimation path", async () => {
+    const data: Array<[number, number]> = [];
+    for (let i = 0; i < 50; i++) data.push([i, Math.sin(i * 0.1)]);
+
+    const chart = await ChartGPU.create(mockContainer, {
+      animation: false,
+      tooltip: { show: true },
+      grid: { left: 0, right: 0, top: 0, bottom: 0 },
+      yAxis: { min: -2, max: 2 },
+      series: [
+        {
+          type: "line",
+          data,
+          sampling: "lttb",
+          samplingThreshold: 20,
+        },
+      ],
+    });
+
+    // Drive a frame so prepareSeries can tag gpuDecimationRaw.
+    await new Promise((resolve) => setTimeout(resolve, 30));
+
+    warnSpy?.mockClear();
+    chart.appendData(0, [[50, 1], [51, 0.5]], { maxPoints: 50 });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+
+    const samplingWarns = (warnSpy?.mock.calls ?? []).filter((c) =>
+      String(c[0] ?? "").includes("causes full buffer re-upload"),
+    );
+    expect(samplingWarns).toHaveLength(0);
+
+    // Length capped; newest x is hit-testable under tooltip on.
+    const hit = chart.hitTest(makePointer(799, 150));
+    expect(hit.isInGrid).toBe(true);
+    if (hit.match) {
+      expect(hit.match.value[0]).toBeGreaterThanOrEqual(49);
+    }
+
+    await chart.dispose();
+  });
+
+  it("multi-append same frame with per-batch maxPoints stays consistent", async () => {
+    const data: Array<[number, number]> = [
+      [0, 0],
+      [1, 1],
+    ];
+    const chart = await ChartGPU.create(mockContainer, {
+      animation: false,
+      tooltip: { show: true },
+      grid: { left: 0, right: 0, top: 0, bottom: 0 },
+      yAxis: { min: -10, max: 60 },
+      series: [{ type: "line", data, sampling: "none" }],
+    });
+
+    // Two appends before rAF flush — different maxPoints per batch.
+    // After batch1 max=10: [0,1,2,3]; batch2 max=3: drop to [2,3,100].
+    chart.appendData(0, [[2, 2], [3, 3]], { maxPoints: 10 });
+    chart.appendData(0, [[100, 50]], { maxPoints: 3 });
+    await new Promise((resolve) => setTimeout(resolve, 40));
+
+    const hitRight = chart.hitTest(makePointer(799, 86));
+    expect(hitRight.match).not.toBeNull();
+    expect(hitRight.match?.value[0]).toBeCloseTo(100, 0);
+
+    // Left of domain [2,3,100] must not be discarded seed x=0.
+    const hitLeft = chart.hitTest(makePointer(1, 500));
+    if (hitLeft.match) {
+      expect(hitLeft.match.value[0]).toBeGreaterThanOrEqual(2);
+      expect(hitLeft.match.value[0]).not.toBe(0);
+    }
+
+    await chart.dispose();
+  });
+});
+
 describe("ChartGPU - hit-test store identity reuse (axes-only setOption)", () => {
   let mockContainer: HTMLElement;
   let warnSpy: ReturnType<typeof vi.spyOn> | null = null;

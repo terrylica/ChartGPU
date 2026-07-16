@@ -32,7 +32,16 @@ import {
   getY,
   getSize,
   computeRawBoundsFromCartesianData,
+  dropPrefixXY,
+  appendIntoRingXY,
+  createRingXYColumns,
+  isRingXYColumns,
+  type RingXYColumns,
 } from "../data/cartesianData";
+import {
+  normalizeMaxPoints,
+  planMaxPointsWindow,
+} from "../data/maxPointsWindow";
 import type { CartesianSeriesData } from "../config/types";
 import { renderAxisLabels, renderYAxisLabels } from "./renderCoordinator/render/renderAxisLabels";
 import { renderAnnotationLabels } from "./renderCoordinator/render/renderAnnotationLabels";
@@ -168,15 +177,35 @@ function getCanvasCssSizeFromDevicePixels(
 export interface RenderCoordinator {
   setOptions(resolvedOptions: ResolvedChartGPUOptions): void;
   /**
-   * Appends new points to a cartesian seriesÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¾ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ runtime data without requiring a full `setOptions(...)`
-   * resolver pass.
+   * Appends new points to a cartesian series' runtime data without requiring a full
+   * `setOptions(...)` resolver pass.
    *
    * Appends are coalesced and flushed once per render frame.
+   *
+   * When `options.maxPoints` is set (opt-in **per call**, not sticky series state),
+   * applies the shared fixed-capacity **ring** policy (`planMaxPointsWindow`):
+   * - if the new batch alone is ≥ `maxPoints`, keep only that batch’s tail
+   *   (strict replace; previous points discarded);
+   * - else fill up to `maxPoints`, then drop oldest on each overflow
+   *   (GPU path uses modular ring writes — no full retained-window rewrite).
+   * Peak retained length is **`maxPoints`**. Prefer this over sliding-window
+   * full `setOption` for high-rate streaming.
    */
   appendData(
     seriesIndex: number,
     newPoints: CartesianSeriesData | ReadonlyArray<OHLCDataPoint>,
+    options?: Readonly<{ maxPoints?: number }>,
   ): void;
+  /**
+   * Snapshot of coordinator-owned runtime series data for dual-store hit-test
+   * resync (e.g. after tooltip re-enable following maxPoints dual-store skip).
+   * Returns `null` when the series has no runtime columns yet.
+   */
+  getRuntimeSeriesData(
+    seriesIndex: number,
+  ): CartesianSeriesData | ReadonlyArray<OHLCDataPoint> | null;
+  /** Runtime bounds for {@link getRuntimeSeriesData}, or `null`. */
+  getRuntimeSeriesBounds(seriesIndex: number): Bounds | null;
   /**
    * Gets the current ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â¦ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œinteraction xÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â in domain units (or `null` when inactive).
    *
@@ -1649,11 +1678,11 @@ export function createRenderCoordinator(
 
   // Coordinator-owned runtime series store.
   // - `runtimeRawDataByIndex[i]` owns mutable columnar data (MutableXYColumns) for cartesian series,
-  //   or mutable OHLCDataPoint[] for candlestick series. Supports efficient streaming appends
-  //   without per-point object allocations.
+  //   RingXYColumns when maxPoints ring FIFO is active, or mutable OHLCDataPoint[] for candlestick.
   // - `runtimeRawBoundsByIndex[i]` is incrementally updated to keep scale/bounds derivation cheap.
-  let runtimeRawDataByIndex: Array<MutableXYColumns | OHLCDataPoint[] | null> =
-    new Array(options.series.length).fill(null);
+  let runtimeRawDataByIndex: Array<
+    MutableXYColumns | RingXYColumns | OHLCDataPoint[] | null
+  > = new Array(options.series.length).fill(null);
   let runtimeRawBoundsByIndex: Array<Bounds | null> = new Array(
     options.series.length,
   ).fill(null);
@@ -1715,11 +1744,13 @@ export function createRenderCoordinator(
   let sliceRenderSeriesDue = false;
 
   // Coalesced streaming appends (flushed at the start of `render()`).
-  // Each entry is an array of batches (preserving original format to avoid per-point allocations).
-  const pendingAppendByIndex = new Map<
-    number,
-    Array<CartesianSeriesData | ReadonlyArray<OHLCDataPoint>>
-  >();
+  // Each entry is an array of batches with optional per-call maxPoints (must stay
+  // in sync with ChartGPU hit-test store which applies maxPoints per call).
+  type PendingAppendBatch = {
+    readonly points: CartesianSeriesData | ReadonlyArray<OHLCDataPoint>;
+    readonly maxPoints?: number;
+  };
+  const pendingAppendByIndex = new Map<number, PendingAppendBatch[]>();
 
   // Tracks what the DataStore currently represents for each series index.
   // Used to decide whether `appendSeries(...)` is a correct fast-path.
@@ -1994,18 +2025,48 @@ export function createRenderCoordinator(
           runtimeRawBoundsByIndex[seriesIndex] = s.rawBounds ?? null;
         }
 
-        // Process each batch of OHLC data
+        let didWindow = false;
         for (const batch of batches) {
-          const ohlcPoints = batch as ReadonlyArray<OHLCDataPoint>;
-          raw.push(...ohlcPoints);
-          runtimeRawBoundsByIndex[seriesIndex] = extendBoundsWithOHLCDataPoints(
-            runtimeRawBoundsByIndex[seriesIndex],
-            ohlcPoints,
+          const ohlcPoints = batch.points as ReadonlyArray<OHLCDataPoint>;
+          const maxPoints = normalizeMaxPoints(batch.maxPoints);
+          const prevLen = raw.length;
+          const plan = planMaxPointsWindow(
+            prevLen,
+            ohlcPoints.length,
+            maxPoints,
           );
+          if (plan.dropPrevCount > 0) {
+            raw.splice(0, plan.dropPrevCount);
+            didWindow = true;
+          }
+          if (plan.keepNewCount > 0) {
+            const start = plan.newSrcOffset;
+            const end = start + plan.keepNewCount;
+            for (let i = start; i < end; i++) {
+              raw.push(ohlcPoints[i]!);
+            }
+          }
+          if (!plan.didWindow) {
+            runtimeRawBoundsByIndex[seriesIndex] =
+              extendBoundsWithOHLCDataPoints(
+                runtimeRawBoundsByIndex[seriesIndex],
+                ohlcPoints,
+              );
+          } else {
+            didWindow = true;
+          }
+        }
+        if (didWindow) {
+          // Windowing can invalidate prior y/x extrema — full rescan.
+          runtimeRawBoundsByIndex[seriesIndex] =
+            extendBoundsWithOHLCDataPoints(null, raw);
         }
       } else {
         // Handle other cartesian series (line, area, bar, scatter).
-        let raw = runtimeRawDataByIndex[seriesIndex] as MutableXYColumns | null;
+        let raw = runtimeRawDataByIndex[seriesIndex] as
+          | MutableXYColumns
+          | RingXYColumns
+          | null;
         if (!raw) {
           const seed = (s.rawData ?? s.data) as CartesianSeriesData;
           raw = cartesianDataToMutableColumns(seed);
@@ -2036,14 +2097,22 @@ export function createRenderCoordinator(
             isGpuDecimationEligibleNow ||
             (s.sampling === "none" && isFullSpanZoomBefore));
 
-        // Process each batch of cartesian data
+        let didWindow = false;
         for (const batch of batches) {
-          const cartesianData = batch as CartesianSeriesData;
+          const cartesianData = batch.points as CartesianSeriesData;
+          const maxPoints = normalizeMaxPoints(batch.maxPoints);
+          const appendGpuOptions =
+            maxPoints != null ? ({ maxPoints } as const) : undefined;
 
           if (canUseFastPath) {
             try {
-              // Pass CartesianSeriesData directly to DataStore (avoids per-point allocations for typed arrays)
-              dataStore.appendSeries(seriesIndex, cartesianData);
+              // Pass CartesianSeriesData directly to DataStore (avoids per-point allocations).
+              // Shared planMaxPointsWindow policy keeps GPU length in sync with columns below.
+              dataStore.appendSeries(
+                seriesIndex,
+                cartesianData,
+                appendGpuOptions,
+              );
               appendedGpuThisFrame.add(seriesIndex);
             } catch {
               // If the DataStore has not been initialized for this index (or any other error occurs),
@@ -2064,32 +2133,220 @@ export function createRenderCoordinator(
             );
           }
 
-          // Update runtime columnar storage (needed for resampling/slicing in non-fast-path cases).
-          // Append each batch into MutableXYColumns using getPointCount/getX/getY/getSize accessors.
+          // Update runtime columnar storage with the same window policy as DataStore.
           const n = getPointCount(cartesianData);
-          const rawLenBefore = raw.x.length;
-          for (let i = 0; i < n; i++) {
-            raw.x.push(getX(cartesianData, i));
-            raw.y.push(getY(cartesianData, i));
+          let prevLen = isRingXYColumns(raw)
+            ? raw.count
+            : (raw as MutableXYColumns).x.length;
+          let plan = planMaxPointsWindow(prevLen, n, maxPoints);
 
-            const sizeValue = getSize(cartesianData, i);
-            // Maintain size alignment: if owned.size exists or new batch has any size, keep aligned
-            if (sizeValue !== undefined) {
-              if (!raw.size) {
-                // Backfill undefined for prior points that didn't have size values
-                raw.size = new Array(rawLenBefore + i);
+          // Leave-ring or capacity mismatch: demote RingXY → chronological linear
+          // so we match DataStore rebuild (linearize + ringStart=0).
+          if (isRingXYColumns(raw)) {
+            const capMismatch =
+              plan.isRing &&
+              plan.ringCapacity > 0 &&
+              raw.capacity !== plan.ringCapacity;
+            if (!plan.isRing || capMismatch) {
+              const demoted: MutableXYColumns = {
+                x: [],
+                y: [],
+              };
+              const count = raw.count;
+              for (let i = 0; i < count; i++) {
+                demoted.x.push(
+                  getX(raw as unknown as CartesianSeriesData, i),
+                );
+                demoted.y.push(
+                  getY(raw as unknown as CartesianSeriesData, i),
+                );
               }
-              raw.size.push(sizeValue);
-            } else if (raw.size) {
-              raw.size.push(undefined);
+              raw = demoted;
+              runtimeRawDataByIndex[seriesIndex] = demoted;
+              prevLen = demoted.x.length;
+              plan = planMaxPointsWindow(prevLen, n, maxPoints);
             }
           }
 
-          // Update bounds using efficient CartesianSeriesData accessor
-          runtimeRawBoundsByIndex[seriesIndex] = extendBoundsWithCartesianData(
-            runtimeRawBoundsByIndex[seriesIndex],
-            cartesianData,
-          );
+          // Promote to modular ring when maxPoints is active so steady-state
+          // FIFO is O(append) on CPU columns (no O(n) dropPrefix every frame).
+          if (
+            plan.isRing &&
+            plan.ringCapacity > 0 &&
+            !isRingXYColumns(raw)
+          ) {
+            const linear = raw as MutableXYColumns;
+            const ring = createRingXYColumns(plan.ringCapacity);
+            // Tail of linear matches planMaxPointsWindow drop semantics when
+            // prevCount > capacity (keep last min(prev, cap) before packing new).
+            const seedCount = Math.min(linear.x.length, plan.ringCapacity);
+            const seedStart = Math.max(0, linear.x.length - seedCount);
+            for (let i = 0; i < seedCount; i++) {
+              ring.x[i] = linear.x[seedStart + i]!;
+              ring.y[i] = linear.y[seedStart + i]!;
+            }
+            ring.count = seedCount;
+            ring.start = 0;
+            raw = ring;
+            runtimeRawDataByIndex[seriesIndex] = ring;
+            // Re-plan against the ring's current length (may have trimmed seed).
+            const plan2 = planMaxPointsWindow(ring.count, n, maxPoints);
+            appendIntoRingXY(
+              ring,
+              cartesianData,
+              plan2.newSrcOffset,
+              plan2.keepNewCount,
+              plan2.dropPrevCount,
+            );
+            if (plan2.didWindow) {
+              // Promote+window: cheap endpoint bounds (same as steady ring path).
+              // Note: y-range never shrinks on drop (O(1) conservative); x uses ends.
+              const x0 = getX(ring as unknown as CartesianSeriesData, 0);
+              const x1 = getX(
+                ring as unknown as CartesianSeriesData,
+                ring.count - 1,
+              );
+              const prevB = runtimeRawBoundsByIndex[seriesIndex];
+              let yMin = prevB?.yMin ?? Number.POSITIVE_INFINITY;
+              let yMax = prevB?.yMax ?? Number.NEGATIVE_INFINITY;
+              const end = plan2.newSrcOffset + plan2.keepNewCount;
+              for (let i = plan2.newSrcOffset; i < end; i++) {
+                const y = getY(cartesianData, i);
+                if (Number.isFinite(y)) {
+                  if (y < yMin) yMin = y;
+                  if (y > yMax) yMax = y;
+                }
+              }
+              if (
+                Number.isFinite(x0) &&
+                Number.isFinite(x1) &&
+                Number.isFinite(yMin) &&
+                Number.isFinite(yMax)
+              ) {
+                let xMin = x0;
+                let xMax = x1;
+                if (xMin === xMax) xMax = xMin + 1;
+                if (yMin === yMax) yMax = yMin + 1;
+                runtimeRawBoundsByIndex[seriesIndex] = {
+                  xMin,
+                  xMax,
+                  yMin,
+                  yMax,
+                };
+              } else {
+                didWindow = true;
+              }
+            } else {
+              runtimeRawBoundsByIndex[seriesIndex] =
+                extendBoundsWithCartesianData(
+                  runtimeRawBoundsByIndex[seriesIndex],
+                  cartesianData,
+                );
+            }
+            continue;
+          }
+
+          if (isRingXYColumns(raw)) {
+            appendIntoRingXY(
+              raw,
+              cartesianData,
+              plan.newSrcOffset,
+              plan.keepNewCount,
+              plan.dropPrevCount,
+            );
+            if (plan.didWindow) {
+              // O(1) endpoint bounds for ring (avoid O(n) full rescan every wrap frame).
+              // y-range never shrinks when peaks leave the window (intentionally
+              // conservative product behavior for high-rate FIFO). x uses
+              // chronological ends of the retained ring.
+              const prevB = runtimeRawBoundsByIndex[seriesIndex];
+              const x0 = getX(raw as unknown as CartesianSeriesData, 0);
+              const x1 = getX(
+                raw as unknown as CartesianSeriesData,
+                raw.count - 1,
+              );
+              let yMin = prevB?.yMin ?? Number.POSITIVE_INFINITY;
+              let yMax = prevB?.yMax ?? Number.NEGATIVE_INFINITY;
+              const end = plan.newSrcOffset + plan.keepNewCount;
+              for (let i = plan.newSrcOffset; i < end; i++) {
+                const y = getY(cartesianData, i);
+                if (Number.isFinite(y)) {
+                  if (y < yMin) yMin = y;
+                  if (y > yMax) yMax = y;
+                }
+              }
+              if (
+                Number.isFinite(x0) &&
+                Number.isFinite(x1) &&
+                Number.isFinite(yMin) &&
+                Number.isFinite(yMax)
+              ) {
+                let xMin = x0;
+                let xMax = x1;
+                if (xMin === xMax) xMax = xMin + 1;
+                if (yMin === yMax) yMax = yMin + 1;
+                runtimeRawBoundsByIndex[seriesIndex] = {
+                  xMin,
+                  xMax,
+                  yMin,
+                  yMax,
+                };
+              } else {
+                didWindow = true; // fall through to full rescan below
+              }
+            } else {
+              runtimeRawBoundsByIndex[seriesIndex] =
+                extendBoundsWithCartesianData(
+                  runtimeRawBoundsByIndex[seriesIndex],
+                  cartesianData,
+                );
+            }
+            continue;
+          }
+
+          // Linear MutableXYColumns path (unbounded append or demoted ring).
+          const linear = raw as MutableXYColumns;
+          if (plan.dropPrevCount > 0) {
+            dropPrefixXY(
+              linear.x,
+              linear.y,
+              plan.dropPrevCount,
+              linear.size,
+            );
+            didWindow = true;
+          }
+          const rawLenBefore = linear.x.length;
+          const end = plan.newSrcOffset + plan.keepNewCount;
+          for (let i = plan.newSrcOffset; i < end; i++) {
+            linear.x.push(getX(cartesianData, i));
+            linear.y.push(getY(cartesianData, i));
+
+            const sizeValue = getSize(cartesianData, i);
+            if (sizeValue !== undefined) {
+              if (!linear.size) {
+                linear.size = new Array(rawLenBefore + (i - plan.newSrcOffset));
+              }
+              linear.size.push(sizeValue);
+            } else if (linear.size) {
+              linear.size.push(undefined);
+            }
+          }
+
+          if (!plan.didWindow) {
+            runtimeRawBoundsByIndex[seriesIndex] =
+              extendBoundsWithCartesianData(
+                runtimeRawBoundsByIndex[seriesIndex],
+                cartesianData,
+              );
+          } else {
+            didWindow = true;
+          }
+        }
+
+        if (didWindow) {
+          // Dropping a prefix can invalidate xMin / y extrema — rescan retained window.
+          runtimeRawBoundsByIndex[seriesIndex] =
+            computeRawBoundsFromCartesianData(raw as CartesianSeriesData);
         }
       }
 
@@ -2596,11 +2853,10 @@ export function createRenderCoordinator(
         continue;
       }
 
-      // Cartesian series: runtime store is MutableXYColumns
-      const rawCartesian =
-        (runtimeRawDataByIndex[i] as MutableXYColumns | null) ?? null;
+      // Cartesian series: runtime store is MutableXYColumns or RingXYColumns
+      const rawCartesian = runtimeRawDataByIndex[i];
       const pointCount = rawCartesian
-        ? rawCartesian.x.length
+        ? getPointCount(rawCartesian as CartesianSeriesData)
         : getPointCount((s.rawData ?? s.data) as CartesianSeriesData);
       maxPoints = Math.max(maxPoints, pointCount);
     }
@@ -3341,9 +3597,42 @@ export function createRenderCoordinator(
     requestRender();
   };
 
+  const getRuntimeSeriesData: RenderCoordinator["getRuntimeSeriesData"] = (
+    seriesIndex,
+  ) => {
+    assertNotDisposed();
+    if (!Number.isFinite(seriesIndex)) return null;
+    if (seriesIndex < 0 || seriesIndex >= currentOptions.series.length)
+      return null;
+    // Flush pending appends so the snapshot matches GPU / hit-test intent.
+    if (pendingAppendByIndex.size > 0) {
+      cancelScheduledFlush();
+      executeFlush({ requestRenderAfter: false });
+    }
+    return (runtimeRawDataByIndex[seriesIndex] as
+      | CartesianSeriesData
+      | ReadonlyArray<OHLCDataPoint>
+      | null) ?? null;
+  };
+
+  const getRuntimeSeriesBounds: RenderCoordinator["getRuntimeSeriesBounds"] = (
+    seriesIndex,
+  ) => {
+    assertNotDisposed();
+    if (!Number.isFinite(seriesIndex)) return null;
+    if (seriesIndex < 0 || seriesIndex >= currentOptions.series.length)
+      return null;
+    if (pendingAppendByIndex.size > 0) {
+      cancelScheduledFlush();
+      executeFlush({ requestRenderAfter: false });
+    }
+    return runtimeRawBoundsByIndex[seriesIndex] ?? null;
+  };
+
   const appendData: RenderCoordinator["appendData"] = (
     seriesIndex,
     newPoints,
+    options,
   ) => {
     assertNotDisposed();
     if (!Number.isFinite(seriesIndex)) return;
@@ -3369,12 +3658,17 @@ export function createRenderCoordinator(
         : getPointCount(newPoints as CartesianSeriesData);
     if (pointCount === 0) return;
 
-    // Store batches in their original format to avoid per-point allocations for typed arrays.
+    // Store batches with per-call maxPoints so coalesced flushes match ChartGPU hit-test.
+    const maxPoints = normalizeMaxPoints(options?.maxPoints);
+    const entry: PendingAppendBatch = {
+      points: newPoints,
+      ...(maxPoints != null ? { maxPoints } : {}),
+    };
     const existing = pendingAppendByIndex.get(seriesIndex);
     if (existing) {
-      existing.push(newPoints);
+      existing.push(entry);
     } else {
-      pendingAppendByIndex.set(seriesIndex, [newPoints]);
+      pendingAppendByIndex.set(seriesIndex, [entry]);
     }
 
     // Coalesce appends + any required resampling + GPU streaming updates into a single flush.
@@ -4503,6 +4797,8 @@ yAxisRenderers.clear();
   return {
     setOptions,
     appendData,
+    getRuntimeSeriesData,
+    getRuntimeSeriesBounds,
     getInteractionX,
     setInteractionX,
     onInteractionXChange,

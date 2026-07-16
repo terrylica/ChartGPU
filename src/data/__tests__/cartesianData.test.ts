@@ -7,8 +7,12 @@ import {
   getX,
   getY,
   getSize,
+  getPointCount,
   computeRawBoundsFromCartesianData,
+  dropPrefixXY,
   packXYInto,
+  createRingXYColumns,
+  appendIntoRingXY,
 } from "../cartesianData";
 import type { DataPoint } from "../../config/types";
 
@@ -185,5 +189,141 @@ describe("packXYInto - null gap handling", () => {
     expect(Number.isNaN(out[3])).toBe(true);
     expect(out[4]).toBe(10); // 20 - 10
     expect(out[5]).toBe(3);
+  });
+});
+
+describe("dropPrefixXY", () => {
+  it("shifts x/y left and shortens length", () => {
+    const x = [0, 1, 2, 3, 4];
+    const y = [10, 11, 12, 13, 14];
+    dropPrefixXY(x, y, 2);
+    expect(x).toEqual([2, 3, 4]);
+    expect(y).toEqual([12, 13, 14]);
+  });
+
+  it("clears when dropCount >= length", () => {
+    const x = [0, 1];
+    const y = [10, 11];
+    dropPrefixXY(x, y, 5);
+    expect(x).toEqual([]);
+    expect(y).toEqual([]);
+  });
+
+  it("keeps size aligned when present", () => {
+    const x = [0, 1, 2];
+    const y = [10, 11, 12];
+    const size: (number | undefined)[] = [1, 2, 3];
+    dropPrefixXY(x, y, 1, size);
+    expect(x).toEqual([1, 2]);
+    expect(y).toEqual([11, 12]);
+    expect(size).toEqual([2, 3]);
+  });
+});
+
+describe("RingXYColumns (FIFO modular CPU columns)", () => {
+  it("fill then wrap keeps chronological getX/getY and count at capacity", () => {
+    const ring = createRingXYColumns(4);
+    appendIntoRingXY(
+      ring,
+      {
+        x: [0, 1, 2, 3],
+        y: [10, 11, 12, 13],
+      },
+      0,
+      4,
+      0,
+    );
+    expect(getPointCount(ring as any)).toBe(4);
+    expect(getX(ring as any, 0)).toBe(0);
+    expect(getY(ring as any, 3)).toBe(13);
+
+    // Steady wrap: drop 1, append 1 → [1,2,3,100]
+    appendIntoRingXY(ring, { x: [100], y: [50] }, 0, 1, 1);
+    expect(getPointCount(ring as any)).toBe(4);
+    expect(getX(ring as any, 0)).toBe(1);
+    expect(getX(ring as any, 3)).toBe(100);
+    expect(getY(ring as any, 3)).toBe(50);
+  });
+
+  it("strict replace via drop-all then keep tail", () => {
+    const ring = createRingXYColumns(3);
+    appendIntoRingXY(
+      ring,
+      { x: [0, 1], y: [0, 1] },
+      0,
+      2,
+      0,
+    );
+    // newCount > capacity: drop all prev, keep last 3 of new batch
+    appendIntoRingXY(
+      ring,
+      { x: [10, 11, 12, 13], y: [20, 21, 22, 23] },
+      1, // newSrcOffset
+      3,
+      2, // drop all previous
+    );
+    expect(getPointCount(ring as any)).toBe(3);
+    expect(getX(ring as any, 0)).toBe(11);
+    expect(getX(ring as any, 2)).toBe(13);
+  });
+
+  it("multi-wrap advances start and keeps capacity", () => {
+    const ring = createRingXYColumns(4);
+    appendIntoRingXY(ring, { x: [0, 1, 2, 3], y: [0, 1, 2, 3] }, 0, 4, 0);
+    for (let i = 0; i < 5; i++) {
+      appendIntoRingXY(ring, { x: [100 + i], y: [200 + i] }, 0, 1, 1);
+    }
+    expect(ring.count).toBe(4);
+    expect(ring.capacity).toBe(4);
+    // After 5 unit wraps from [0,1,2,3]: last retained = [101,102,103,104]
+    // (dropped 0,1,2,3,100).
+    expect(getX(ring as any, 0)).toBe(101);
+    expect(getX(ring as any, 3)).toBe(104);
+  });
+
+  it("packXYInto on chronological linear XY layout", () => {
+    const out = new Float32Array(8);
+    packXYInto(
+      out,
+      0,
+      {
+        x: [1, 2, 3, 4],
+        y: [10, 20, 30, 40],
+      },
+      0,
+      4,
+      0,
+    );
+    expect(Array.from(out)).toEqual([1, 10, 2, 20, 3, 30, 4, 40]);
+  });
+
+  it("packXYInto from modular RingXYColumns (start ≠ 0) is chronological", () => {
+    const ring = createRingXYColumns(4);
+    appendIntoRingXY(ring, { x: [0, 1, 2, 3], y: [10, 11, 12, 13] }, 0, 4, 0);
+    // Two wraps → start advances; logical [2,3,100,101]
+    appendIntoRingXY(ring, { x: [100], y: [110] }, 0, 1, 1);
+    appendIntoRingXY(ring, { x: [101], y: [111] }, 0, 1, 1);
+    expect(ring.start).not.toBe(0);
+    expect(getX(ring as any, 0)).toBe(2);
+    expect(getX(ring as any, 3)).toBe(101);
+
+    const out = new Float32Array(8);
+    packXYInto(out, 0, ring as any, 0, 4, 0);
+    expect(Array.from(out)).toEqual([2, 12, 3, 13, 100, 110, 101, 111]);
+  });
+
+  it("bounds skip OOB and empty ring", () => {
+    const empty = createRingXYColumns(4);
+    expect(getPointCount(empty as any)).toBe(0);
+    expect(Number.isNaN(getX(empty as any, 0))).toBe(true);
+    const ring = createRingXYColumns(3);
+    appendIntoRingXY(ring, { x: [1, 2, 3], y: [4, 5, 6] }, 0, 3, 0);
+    expect(Number.isNaN(getX(ring as any, 99))).toBe(true);
+    expect(Number.isNaN(getY(ring as any, -1))).toBe(true);
+    const b = computeRawBoundsFromCartesianData(ring as any);
+    expect(b.xMin).toBe(1);
+    expect(b.xMax).toBe(3);
+    expect(b.yMin).toBe(4);
+    expect(b.yMax).toBe(6);
   });
 });

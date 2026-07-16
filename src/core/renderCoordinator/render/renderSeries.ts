@@ -267,11 +267,19 @@ export function prepareSeries(
             Math.max(2, rawPointCount),
           );
 
-          const visible = findVisibleRangeIndicesByX(
-            rawDataForGpu,
-            visibleXDomain.min,
-            visibleXDomain.max,
-          );
+          // Prefer visible-range binary search on coordinator raw (including
+          // RingXYColumns — getX is chronological). Full-range only when raw is
+          // unavailable (should not happen on the GPU-eligible path).
+          // Decimation maps logical indices via modular ringStart/ringCapacity.
+          const ringLayout = dataStore.getSeriesRingLayout(i);
+          const visible =
+            rawDataForGpu != null
+              ? findVisibleRangeIndicesByX(
+                  rawDataForGpu,
+                  visibleXDomain.min,
+                  visibleXDomain.max,
+                )
+              : { start: 0, end: rawPointCount };
 
           const algorithm = mapSamplingToDecimationAlgorithm(s.sampling);
 
@@ -299,6 +307,9 @@ export function prepareSeries(
               // DataStore hash changes when floats rewrite into the same buffer
               // at the same N (animation / equal-length replace) — WG-P0-2.
               contentVersion: dataStore.getSeriesContentHash(i),
+              // Modular ring FIFO: logical → physical index in decimation.wgsl.
+              ringStart: ringLayout.start,
+              ringCapacity: ringLayout.capacity,
             });
             const decimatedBuffer =
               renderers.decimationComputes[i].getOutputBuffer();

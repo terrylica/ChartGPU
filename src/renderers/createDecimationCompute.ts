@@ -71,6 +71,13 @@ export interface DecimationComputePrepareParams {
    * skips still work via the other signature fields.
    */
   readonly contentVersion?: number;
+  /**
+   * Fixed-capacity ring FIFO layout for `rawBuffer`. When `ringCapacity` is
+   * 0/omitted, storage is linear chronological. When set, logical index `i`
+   * maps to physical `(ringStart + i) % ringCapacity` in WGSL.
+   */
+  readonly ringStart?: number;
+  readonly ringCapacity?: number;
 }
 
 export interface DecimationCompute {
@@ -270,6 +277,8 @@ export function createDecimationCompute(
   let lastTargetBuckets = -1;
   /** `undefined` means "not yet prepared with a version" (first frame always dirties via other fields). */
   let lastContentVersion: number | undefined = undefined;
+  let lastRingStart = 0;
+  let lastRingCapacity = 0;
   let lastOutputPointCount = 0;
 
   const ensureBuffers = (capacityPoints: number): void => {
@@ -346,6 +355,8 @@ export function createDecimationCompute(
       visibleEnd,
       targetBuckets,
       contentVersion,
+      ringStart: ringStartIn,
+      ringCapacity: ringCapacityIn,
     } = params;
 
     const rawCount = Math.max(0, rawPointCount | 0);
@@ -356,12 +367,16 @@ export function createDecimationCompute(
     // Treat omitted contentVersion as "unknown / force dirty once" only when it
     // transitions; stable undefined keeps skip behavior for tests that omit it.
     const version = contentVersion;
+    const ringCap = Math.max(0, (ringCapacityIn ?? 0) | 0);
+    const ringStart =
+      ringCap > 0 ? Math.max(0, (ringStartIn ?? 0) | 0) % ringCap : 0;
 
     ensureBuffers(buckets);
     ensureBindGroup(rawBuffer);
 
     // Detect signature changes to decide whether to re-dispatch the compute.
     // contentVersion covers same-buffer same-N payload rewrites (WG-P0-2).
+    // ringStart/capacity cover modular FIFO wrap without a full buffer rewrite.
     if (
       lastAlgorithm !== algorithm ||
       lastRawBuffer !== rawBuffer ||
@@ -369,7 +384,9 @@ export function createDecimationCompute(
       lastVisibleStart !== vs ||
       lastVisibleEnd !== ve ||
       lastTargetBuckets !== buckets ||
-      lastContentVersion !== version
+      lastContentVersion !== version ||
+      lastRingStart !== ringStart ||
+      lastRingCapacity !== ringCap
     ) {
       dirty = true;
       lastAlgorithm = algorithm;
@@ -379,6 +396,8 @@ export function createDecimationCompute(
       lastVisibleEnd = ve;
       lastTargetBuckets = buckets;
       lastContentVersion = version;
+      lastRingStart = ringStart;
+      lastRingCapacity = ringCap;
     }
 
     // Pack uniforms. Layout must match the `DecimationUniforms` struct in WGSL.
@@ -388,8 +407,8 @@ export function createDecimationCompute(
     uniformScratchU32[3] = buckets >>> 0;
     uniformScratchU32[4] =
       algorithm === "max" ? MODE_MAX : algorithm === "min" ? MODE_MIN : 0;
-    uniformScratchU32[5] = 0;
-    uniformScratchU32[6] = 0;
+    uniformScratchU32[5] = ringStart >>> 0;
+    uniformScratchU32[6] = ringCap >>> 0;
     uniformScratchU32[7] = 0;
 
     // Always upload uniforms on prepare — cheap and keeps the dirty path simple.

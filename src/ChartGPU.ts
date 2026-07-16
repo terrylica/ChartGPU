@@ -50,12 +50,21 @@ import type {
   FrameDropStats,
 } from "./config/types";
 import {
+  appendIntoRingXY,
   computeRawBoundsFromCartesianData,
+  createRingXYColumns,
+  dropPrefixXY,
   getPointCount as getCartesianPointCount,
   getSize as getCartesianSize,
   getX as getCartesianX,
   getY as getCartesianY,
+  isRingXYColumns,
+  type RingXYColumns,
 } from "./data/cartesianData";
+import {
+  normalizeMaxPoints,
+  planMaxPointsWindow,
+} from "./data/maxPointsWindow";
 
 // --- Instance registry for auto-dispose on page unload (CGPU-OOM-139) ---
 const activeInstances = new Set<{ dispose(): void; disposed: boolean }>();
@@ -164,11 +173,28 @@ export interface ChartGPUInstance {
    * - `InterleavedXYData`: floor(length / 2), ignoring trailing odd element
    * - `DataView` is unsupported and throws an error
    *
+   * Optional `options.maxPoints` is an **opt-in per call** fixed-capacity ring
+   * (not sticky series state — omit it later and growth is unbounded again). Policy
+   * matches DataStore / coordinator (`planMaxPointsWindow`):
+   * - if the new batch alone is ≥ `maxPoints`, keep only that batch’s tail
+   *   (strict replace; previous points discarded);
+   * - else fill up to `maxPoints`, then drop oldest points on each overflow
+   *   (GPU uses modular ring writes — O(append), no full retained-window rewrite).
+   * Peak retained length is **`maxPoints`**. Prefer this over sliding-window
+   * full `setOption`.
+   *
+   * When both `maxPoints` is set and `tooltip.show === false`, the ChartGPU
+   * hit-test columnar store is not updated on append (dual-store relief for
+   * high-rate FIFO). Re-enabling tooltips via `setOption({ tooltip: { show: true } })`
+   * (or calling `hitTest` after that) resyncs from the coordinator ring/raw.
+   * With tooltip on, hit-test uses the same ring policy as the GPU path.
+   *
    * Pie series are non-cartesian and are not supported by streaming append.
    */
   appendData(
     seriesIndex: number,
     newPoints: CartesianSeriesData | OHLCDataPoint[],
+    options?: Readonly<{ maxPoints?: number }>,
   ): void;
   resize(): void;
   dispose(): void;
@@ -928,17 +954,20 @@ export async function createChartGPU(
   let resolvedOptions: ResolvedChartGPUOptions =
     resolveOptionsForChart(currentOptions);
 
+  // When true, hit-test columns were skipped under dual-store relief and must be
+  // rebuilt from the coordinator before hitTest / after tooltip re-enable.
+  let hitTestStoreNeedsResync = false;
+
   // Chart-owned runtime series store for hit-testing only (cartesian only).
-  // - `runtimeRawDataByIndex[i]` is a mutable columnar store (MutableXYColumns) for non-candlestick series,
-  //   or a mutable OHLCDataPoint[] for candlestick series. This supports efficient streaming appends
-  //   without per-point object allocations.
+  // - `runtimeRawDataByIndex[i]` is MutableXYColumns, RingXYColumns (FIFO), or OHLC[].
   // - `runtimeRawBoundsByIndex[i]` is incrementally updated to keep scale/bounds derivation cheap.
   // - `runtimeHitTestSourceByIndex[i]` tracks the raw data reference used to build the store so
   //   axes-only / presentation-only setOption can skip O(n) column copies.
-  let runtimeRawDataByIndex: Array<MutableXYColumns | OHLCDataPoint[]> =
-    new Array(resolvedOptions.series.length)
-      .fill(null)
-      .map(() => ({ x: [], y: [] }));
+  let runtimeRawDataByIndex: Array<
+    MutableXYColumns | RingXYColumns | OHLCDataPoint[]
+  > = new Array(resolvedOptions.series.length)
+    .fill(null)
+    .map(() => ({ x: [], y: [] }));
   let runtimeRawBoundsByIndex: Array<Bounds | null> = new Array(
     resolvedOptions.series.length,
   ).fill(null);
@@ -949,16 +978,113 @@ export async function createChartGPU(
     null;
   let runtimeHitTestSeriesVersion = 0;
 
+  /**
+   * Rebuilds ChartGPU hit-test columns from coordinator runtime data after
+   * dual-store skip (tooltip-off + maxPoints). Always resizes to current series
+   * count. Chronological clone for OHLC / ring so subsequent tooltip-on appends
+   * stay consistent.
+   */
+  const resyncHitTestStoreFromCoordinator = (): void => {
+    if (!coordinator || !hitTestStoreNeedsResync) return;
+    const n = resolvedOptions.series.length;
+    const nextData: Array<
+      MutableXYColumns | RingXYColumns | OHLCDataPoint[]
+    > = new Array(n);
+    const nextBounds: Array<Bounds | null> = new Array(n);
+    const nextSource: Array<unknown | null> = new Array(n);
+
+    for (let i = 0; i < n; i++) {
+      const s = resolvedOptions.series[i]!;
+      if (s.type === "pie") {
+        nextData[i] = { x: [], y: [] };
+        nextBounds[i] = null;
+        nextSource[i] = null;
+        continue;
+      }
+      const raw = coordinator.getRuntimeSeriesData(i);
+      const bounds = coordinator.getRuntimeSeriesBounds(i);
+      if (raw == null) {
+        // New series or coordinator not yet seeded — fall back to options data.
+        if (s.type === "candlestick") {
+          const ohlc = (s.data as ReadonlyArray<OHLCDataPoint>) ?? [];
+          nextData[i] = ohlc.length === 0 ? [] : ohlc.slice();
+          nextBounds[i] =
+            (s as unknown as { rawBounds?: Bounds | null }).rawBounds ?? null;
+        } else {
+          const cart = (s.data as CartesianSeriesData) ?? [];
+          nextData[i] = cartesianDataToMutableColumns(cart);
+          nextBounds[i] = computeRawBoundsFromCartesianData(cart) as Bounds | null;
+        }
+        nextSource[i] = null;
+        continue;
+      }
+      if (s.type === "candlestick") {
+        const ohlc = raw as ReadonlyArray<OHLCDataPoint>;
+        nextData[i] = ohlc.length === 0 ? [] : ohlc.slice();
+      } else if (isRingXYColumns(raw)) {
+        // Private ring copy (chronological at start=0) for O(append) hit-test.
+        const src = raw as RingXYColumns;
+        const ring = createRingXYColumns(src.capacity);
+        for (let k = 0; k < src.count; k++) {
+          ring.x[k] = getCartesianX(src as unknown as CartesianSeriesData, k);
+          ring.y[k] = getCartesianY(src as unknown as CartesianSeriesData, k);
+        }
+        ring.start = 0;
+        ring.count = src.count;
+        nextData[i] = ring;
+      } else {
+        nextData[i] = cartesianDataToMutableColumns(
+          raw as CartesianSeriesData,
+        );
+      }
+      if (bounds) {
+        nextBounds[i] = bounds as Bounds;
+      } else {
+        nextBounds[i] = computeRawBoundsFromCartesianData(
+          nextData[i] as unknown as CartesianSeriesData,
+        ) as Bounds | null;
+      }
+      // Break source identity so axes-only reuse cannot re-apply stale seed.
+      nextSource[i] = null;
+    }
+
+    runtimeRawDataByIndex = nextData;
+    runtimeRawBoundsByIndex = nextBounds;
+    runtimeHitTestSourceByIndex = nextSource;
+    hitTestStoreNeedsResync = false;
+    runtimeHitTestSeriesCache = null;
+    runtimeHitTestSeriesVersion++;
+    cachedGlobalBounds = computeGlobalBounds(
+      resolvedOptions.series,
+      runtimeRawBoundsByIndex,
+    );
+    interactionScalesCache = null;
+  };
+
   const initRuntimeHitTestStoreFromResolvedOptions = (): void => {
+    // Tooltip re-enable after dual-store skip: prefer coordinator snapshot over
+    // seed series data (which never saw FIFO appends). Resync already resizes
+    // to resolvedOptions.series.length (handles series add/remove in same call).
+    if (
+      hitTestStoreNeedsResync &&
+      resolvedOptions.tooltip?.show !== false &&
+      coordinator
+    ) {
+      resyncHitTestStoreFromCoordinator();
+      runtimeHitTestSeriesCache = null;
+      runtimeHitTestSeriesVersion++;
+      return;
+    }
+
     const nextCount = resolvedOptions.series.length;
     const prevData = runtimeRawDataByIndex;
     const prevBounds = runtimeRawBoundsByIndex;
     const prevSource = runtimeHitTestSourceByIndex;
     const prevCount = prevData.length;
 
-    const nextData: Array<MutableXYColumns | OHLCDataPoint[]> = new Array(
-      nextCount,
-    );
+    const nextData: Array<
+      MutableXYColumns | RingXYColumns | OHLCDataPoint[]
+    > = new Array(nextCount);
     const nextBounds: Array<Bounds | null> = new Array(nextCount);
     const nextSource: Array<unknown | null> = new Array(nextCount);
 
@@ -1004,11 +1130,13 @@ export async function createChartGPU(
         (s as unknown as { rawBounds?: Bounds | null }).rawBounds ?? null;
       // Axes-only / presentation-only setOption keeps the same raw data ref —
       // reuse the existing mutable columns and bounds (O(1)).
+      // Do not reuse when dual-store skip left columns stale (handled above).
       if (
         i < prevCount &&
         prevSource[i] === raw &&
         prevData[i] != null &&
-        !Array.isArray(prevData[i])
+        !Array.isArray(prevData[i]) &&
+        !hitTestStoreNeedsResync
       ) {
         nextData[i] = prevData[i]!;
         // Prefer runtime bounds (may include appendData extensions) over resolver
@@ -1047,8 +1175,10 @@ export async function createChartGPU(
             (s.data as ReadonlyArray<OHLCDataPoint>),
         };
       }
-      // For non-candlestick cartesian series, runtime store is MutableXYColumns (compatible with XYArraysData)
-      const runtimeData = runtimeRawDataByIndex[i] as MutableXYColumns;
+      // For non-candlestick cartesian series: MutableXYColumns or RingXYColumns.
+      const runtimeData = runtimeRawDataByIndex[i] as
+        | MutableXYColumns
+        | RingXYColumns;
       return { ...s, data: runtimeData as CartesianSeriesData };
     }) as ResolvedChartGPUOptions["series"];
     return runtimeHitTestSeriesCache;
@@ -2123,7 +2253,7 @@ export async function createChartGPU(
       // Requirement: setOption triggers a render (and thus series parsing/extent/scales update inside render).
       requestRender();
     },
-    appendData(seriesIndex, newPoints) {
+    appendData(seriesIndex, newPoints, options) {
       if (disposed) return;
       if (!Number.isFinite(seriesIndex)) return;
       if (seriesIndex < 0 || seriesIndex >= resolvedOptions.series.length)
@@ -2152,15 +2282,41 @@ export async function createChartGPU(
       }
       if (pointCount === 0) return;
 
-      // Forward to coordinator (GPU buffers + render-state updates), then keep ChartGPU's
-      // hit-testing runtime store in sync.
-      coordinator?.appendData(seriesIndex, newPoints);
+      const maxPoints = normalizeMaxPoints(options?.maxPoints);
+
+      // Dual-store relief (P1): on high-rate FIFO (`maxPoints` + tooltip off),
+      // skip ChartGPU hit-test columnar growth. Coordinator still applies the
+      // ring for GPU/domain. Unbounded append keeps the hit-test store even when
+      // tooltip is off (hitTest API / axes-only tests). Re-enable tooltip /
+      // hitTest after skip resyncs via coordinator (hitTestStoreNeedsResync).
+      //
+      // IMPORTANT: resync BEFORE coordinator.appendData for this batch. Resync
+      // flushes pending coordinator batches; if we appended first, the snapshot
+      // would already include this batch and the local apply below would double
+      // it. Order: resync prior state → queue this batch on coordinator → apply
+      // once locally when maintaining the hit-test store.
+      const maintainHitTestStore =
+        maxPoints == null || resolvedOptions.tooltip?.show !== false;
+      if (!maintainHitTestStore) {
+        hitTestStoreNeedsResync = true;
+      } else if (hitTestStoreNeedsResync) {
+        resyncHitTestStoreFromCoordinator();
+      }
+
+      // Forward to coordinator (GPU buffers + render-state updates), then keep
+      // ChartGPU's hit-testing runtime store in sync when tooltips / hit-test
+      // history are used. Both layers use planMaxPointsWindow.
+      coordinator?.appendData(
+        seriesIndex,
+        newPoints,
+        maxPoints != null ? { maxPoints } : undefined,
+      );
 
       // Track xExtent during append (avoids separate iteration when listeners present)
       let appendXMin = Number.POSITIVE_INFINITY;
       let appendXMax = Number.NEGATIVE_INFINITY;
 
-      if (s.type === "candlestick") {
+      if (maintainHitTestStore && s.type === "candlestick") {
         // Handle candlestick series with OHLC data points.
         const existing = runtimeRawDataByIndex[seriesIndex];
         const owned = (
@@ -2179,128 +2335,288 @@ export async function createChartGPU(
           }
         }
 
-        owned.push(...ohlcPoints);
-        runtimeRawDataByIndex[seriesIndex] = owned;
-
-        runtimeRawBoundsByIndex[seriesIndex] = extendBoundsWithOHLCDataPoints(
-          runtimeRawBoundsByIndex[seriesIndex],
-          ohlcPoints,
+        const planOhlc = planMaxPointsWindow(
+          owned.length,
+          pointCount,
+          maxPoints,
         );
-      } else {
+        if (planOhlc.dropPrevCount > 0) {
+          owned.splice(0, planOhlc.dropPrevCount);
+        }
+        if (planOhlc.keepNewCount > 0) {
+          const start = planOhlc.newSrcOffset;
+          const end = start + planOhlc.keepNewCount;
+          for (let i = start; i < end; i++) {
+            owned.push(ohlcPoints[i]!);
+          }
+        }
+        if (!planOhlc.didWindow) {
+          runtimeRawBoundsByIndex[seriesIndex] =
+            extendBoundsWithOHLCDataPoints(
+              runtimeRawBoundsByIndex[seriesIndex],
+              ohlcPoints,
+            );
+        } else {
+          runtimeRawBoundsByIndex[seriesIndex] =
+            extendBoundsWithOHLCDataPoints(null, owned);
+        }
+        runtimeRawDataByIndex[seriesIndex] = owned;
+      } else if (maintainHitTestStore) {
         // Handle other cartesian series (line, area, bar, scatter) with columnar append.
-        const owned = runtimeRawDataByIndex[seriesIndex] as MutableXYColumns;
+        // Prefer RingXY when maxPoints is set (matches coordinator O(append) policy).
+        let owned = runtimeRawDataByIndex[seriesIndex] as
+          | MutableXYColumns
+          | RingXYColumns;
         const appendData = newPoints as CartesianSeriesData;
 
-        // Hoist type detection outside loops to avoid per-point type checks
-        // Check format once, then use specialized fast paths
-        // NOTE: Format detection logic is duplicated in 2 places and must stay in sync:
-        // 1. extendBoundsWithCartesianData - for bounds updates
-        // 2. appendData method (here) - for columnar store appends (also computes xExtent inline)
-        const isXYArrays =
-          typeof appendData === "object" &&
-          appendData !== null &&
-          !Array.isArray(appendData) &&
-          "x" in appendData &&
-          "y" in appendData;
-
-        const isInterleaved =
-          typeof appendData === "object" &&
-          appendData !== null &&
-          !Array.isArray(appendData) &&
-          ArrayBuffer.isView(appendData);
-
-        // Track if any appended point has a size value
-        let hasAnySizeValue = false;
-        const sizesToAppend: (number | undefined)[] = new Array(pointCount);
-
-        if (isXYArrays) {
-          // Fast path for XYArraysData: direct array access without type checks
-          const xyData = appendData as {
-            x: ArrayLike<number>;
-            y: ArrayLike<number>;
-            size?: ArrayLike<number>;
-          };
-
-          // Append x, y values (and track xExtent if listeners present)
-          for (let i = 0; i < pointCount; i++) {
-            const x = xyData.x[i]!;
-            owned.x.push(x);
-            owned.y.push(xyData.y[i]!);
-
-            // Track xExtent during iteration (avoids second O(n) pass)
-            if (hasDataAppendListeners && Number.isFinite(x)) {
-              if (x < appendXMin) appendXMin = x;
-              if (x > appendXMax) appendXMax = x;
+        if (maxPoints != null) {
+          // Promote linear hit-test store to ring (Issue 15).
+          if (!isRingXYColumns(owned)) {
+            const linear = owned as MutableXYColumns;
+            const ring = createRingXYColumns(maxPoints);
+            const seedCount = Math.min(linear.x.length, maxPoints);
+            const seedStart = Math.max(0, linear.x.length - seedCount);
+            for (let i = 0; i < seedCount; i++) {
+              ring.x[i] = linear.x[seedStart + i]!;
+              ring.y[i] = linear.y[seedStart + i]!;
             }
+            ring.count = seedCount;
+            ring.start = 0;
+            owned = ring;
+            runtimeRawDataByIndex[seriesIndex] = ring;
+          } else if (owned.capacity !== maxPoints) {
+            // Capacity change: demote to linear chronological then re-promote.
+            const prev = owned;
+            const linear: MutableXYColumns = { x: [], y: [] };
+            for (let i = 0; i < prev.count; i++) {
+              linear.x.push(
+                getCartesianX(prev as unknown as CartesianSeriesData, i),
+              );
+              linear.y.push(
+                getCartesianY(prev as unknown as CartesianSeriesData, i),
+              );
+            }
+            const ring = createRingXYColumns(maxPoints);
+            const seedCount = Math.min(linear.x.length, maxPoints);
+            const seedStart = Math.max(0, linear.x.length - seedCount);
+            for (let i = 0; i < seedCount; i++) {
+              ring.x[i] = linear.x[seedStart + i]!;
+              ring.y[i] = linear.y[seedStart + i]!;
+            }
+            ring.count = seedCount;
+            ring.start = 0;
+            owned = ring;
+            runtimeRawDataByIndex[seriesIndex] = ring;
           }
 
-          // Handle size array if present
-          if (xyData.size) {
-            hasAnySizeValue = true;
-            for (let i = 0; i < pointCount; i++) {
-              sizesToAppend[i] = xyData.size[i];
+          const plan = planMaxPointsWindow(
+            (owned as RingXYColumns).count,
+            pointCount,
+            maxPoints,
+          );
+          appendIntoRingXY(
+            owned as RingXYColumns,
+            appendData,
+            plan.newSrcOffset,
+            plan.keepNewCount,
+            plan.dropPrevCount,
+          );
+          if (hasDataAppendListeners) {
+            const end = plan.newSrcOffset + plan.keepNewCount;
+            for (let i = plan.newSrcOffset; i < end; i++) {
+              const x = getCartesianX(appendData, i);
+              if (Number.isFinite(x)) {
+                if (x < appendXMin) appendXMin = x;
+                if (x > appendXMax) appendXMax = x;
+              }
             }
           }
-        } else if (isInterleaved) {
-          // Fast path for InterleavedXYData: direct typed array access
-          const arr = appendData as Float32Array | Float64Array;
-
-          // Append x, y values from interleaved layout (and track xExtent if listeners present)
-          for (let i = 0; i < pointCount; i++) {
-            const x = arr[i * 2]!;
-            owned.x.push(x);
-            owned.y.push(arr[i * 2 + 1]!);
-
-            // Track xExtent during iteration
-            if (hasDataAppendListeners && Number.isFinite(x)) {
-              if (x < appendXMin) appendXMin = x;
-              if (x > appendXMax) appendXMax = x;
-            }
+          if (!plan.didWindow) {
+            runtimeRawBoundsByIndex[seriesIndex] =
+              extendBoundsWithCartesianData(
+                runtimeRawBoundsByIndex[seriesIndex],
+                appendData,
+              );
+          } else {
+            runtimeRawBoundsByIndex[seriesIndex] =
+              computeRawBoundsFromCartesianData(
+                owned as unknown as CartesianSeriesData,
+              );
           }
-          // InterleavedXYData doesn't support size
         } else {
-          // Array<DataPoint> path: use helper functions
+          // Unbounded: demote ring → linear if needed, then grow arrays.
+          if (isRingXYColumns(owned)) {
+            const prev = owned;
+            const linear: MutableXYColumns = { x: [], y: [] };
+            for (let i = 0; i < prev.count; i++) {
+              linear.x.push(
+                getCartesianX(prev as unknown as CartesianSeriesData, i),
+              );
+              linear.y.push(
+                getCartesianY(prev as unknown as CartesianSeriesData, i),
+              );
+            }
+            owned = linear;
+            runtimeRawDataByIndex[seriesIndex] = linear;
+          }
+          const linear = owned as MutableXYColumns;
+
+          // Hoist type detection outside loops to avoid per-point type checks
+          // Check format once, then use specialized fast paths
+          // NOTE: Format detection logic is duplicated in 2 places and must stay in sync:
+          // 1. extendBoundsWithCartesianData - for bounds updates
+          // 2. appendData method (here) - for columnar store appends (also computes xExtent inline)
+          const isXYArrays =
+            typeof appendData === "object" &&
+            appendData !== null &&
+            !Array.isArray(appendData) &&
+            "x" in appendData &&
+            "y" in appendData;
+
+          const isInterleaved =
+            typeof appendData === "object" &&
+            appendData !== null &&
+            !Array.isArray(appendData) &&
+            ArrayBuffer.isView(appendData);
+
+          const plan = planMaxPointsWindow(
+            linear.x.length,
+            pointCount,
+            maxPoints,
+          );
+          if (plan.dropPrevCount > 0) {
+            dropPrefixXY(linear.x, linear.y, plan.dropPrevCount, linear.size);
+          }
+
+          // Track if any appended point has a size value
+          let hasAnySizeValue = false;
+          const sizesToAppend: (number | undefined)[] = new Array(
+            plan.keepNewCount,
+          );
+          const rawLenBefore = linear.x.length;
+
+          if (isXYArrays) {
+            // Fast path for XYArraysData: direct array access without type checks
+            const xyData = appendData as {
+              x: ArrayLike<number>;
+              y: ArrayLike<number>;
+              size?: ArrayLike<number>;
+            };
+
+            const end = plan.newSrcOffset + plan.keepNewCount;
+            for (let i = plan.newSrcOffset; i < end; i++) {
+              const x = xyData.x[i]!;
+              linear.x.push(x);
+              linear.y.push(xyData.y[i]!);
+
+              // Track xExtent during iteration (avoids second O(n) pass)
+              if (hasDataAppendListeners && Number.isFinite(x)) {
+                if (x < appendXMin) appendXMin = x;
+                if (x > appendXMax) appendXMax = x;
+              }
+            }
+
+            // Handle size array if present
+            if (xyData.size) {
+              hasAnySizeValue = true;
+              for (let j = 0; j < plan.keepNewCount; j++) {
+                sizesToAppend[j] = xyData.size[plan.newSrcOffset + j];
+              }
+            }
+          } else if (isInterleaved) {
+            // Fast path for InterleavedXYData: direct typed array access
+            const arr = appendData as Float32Array | Float64Array;
+
+            const end = plan.newSrcOffset + plan.keepNewCount;
+            for (let i = plan.newSrcOffset; i < end; i++) {
+              const x = arr[i * 2]!;
+              linear.x.push(x);
+              linear.y.push(arr[i * 2 + 1]!);
+
+              // Track xExtent during iteration
+              if (hasDataAppendListeners && Number.isFinite(x)) {
+                if (x < appendXMin) appendXMin = x;
+                if (x > appendXMax) appendXMax = x;
+              }
+            }
+            // InterleavedXYData doesn't support size
+          } else {
+            // Array<DataPoint> path: use helper functions
+            const end = plan.newSrcOffset + plan.keepNewCount;
+            for (let i = plan.newSrcOffset; i < end; i++) {
+              const x = getCartesianX(appendData, i);
+              linear.x.push(x);
+              linear.y.push(getCartesianY(appendData, i));
+              const size = getCartesianSize(appendData, i);
+              sizesToAppend[i - plan.newSrcOffset] = size;
+              if (size !== undefined) hasAnySizeValue = true;
+
+              // Track xExtent during iteration
+              if (hasDataAppendListeners && Number.isFinite(x)) {
+                if (x < appendXMin) appendXMin = x;
+                if (x > appendXMax) appendXMax = x;
+              }
+            }
+          }
+
+          // Handle size array alignment: ensure size array indices match x/y array indices
+          // If we've ever had a size array, keep it aligned by appending `undefined` when missing.
+          if (linear.size || hasAnySizeValue) {
+            if (!linear.size) {
+              // Backfill undefined for existing points that didn't have size values
+              linear.size = new Array(rawLenBefore);
+            }
+            // Append size values (including undefined for points without size)
+            linear.size.push(...sizesToAppend);
+          }
+
+          if (!plan.didWindow) {
+            runtimeRawBoundsByIndex[seriesIndex] =
+              extendBoundsWithCartesianData(
+                runtimeRawBoundsByIndex[seriesIndex],
+                appendData,
+              );
+          } else {
+            // Prefix drop / strict replace can invalidate prior extrema — rescan.
+            runtimeRawBoundsByIndex[seriesIndex] =
+              computeRawBoundsFromCartesianData(
+                linear as unknown as CartesianSeriesData,
+              );
+          }
+        }
+      } else if (hasDataAppendListeners) {
+        // Hit-test store skipped; still compute xExtent for dataAppend listeners.
+        if (s.type === "candlestick") {
+          const ohlcPoints = newPoints as OHLCDataPoint[];
+          for (let i = 0; i < pointCount; i++) {
+            const x = getOHLCTimestamp(ohlcPoints[i]!);
+            if (Number.isFinite(x)) {
+              if (x < appendXMin) appendXMin = x;
+              if (x > appendXMax) appendXMax = x;
+            }
+          }
+        } else {
+          const appendData = newPoints as CartesianSeriesData;
           for (let i = 0; i < pointCount; i++) {
             const x = getCartesianX(appendData, i);
-            owned.x.push(x);
-            owned.y.push(getCartesianY(appendData, i));
-            const size = getCartesianSize(appendData, i);
-            sizesToAppend[i] = size;
-            if (size !== undefined) hasAnySizeValue = true;
-
-            // Track xExtent during iteration
-            if (hasDataAppendListeners && Number.isFinite(x)) {
+            if (Number.isFinite(x)) {
               if (x < appendXMin) appendXMin = x;
               if (x > appendXMax) appendXMax = x;
             }
           }
         }
-
-        // Handle size array alignment: ensure size array indices match x/y array indices
-        // If we've ever had a size array, keep it aligned by appending `undefined` when missing.
-        if (owned.size || hasAnySizeValue) {
-          if (!owned.size) {
-            // Backfill undefined for existing points that didn't have size values
-            owned.size = new Array(owned.x.length - pointCount);
-          }
-          // Append size values (including undefined for points without size)
-          owned.size.push(...sizesToAppend);
-        }
-
-        runtimeRawBoundsByIndex[seriesIndex] = extendBoundsWithCartesianData(
-          runtimeRawBoundsByIndex[seriesIndex],
-          appendData,
-        );
       }
 
-      cachedGlobalBounds = computeGlobalBounds(
-        resolvedOptions.series,
-        runtimeRawBoundsByIndex,
-      );
+      if (maintainHitTestStore) {
+        cachedGlobalBounds = computeGlobalBounds(
+          resolvedOptions.series,
+          runtimeRawBoundsByIndex,
+        );
 
-      runtimeHitTestSeriesCache = null;
-      runtimeHitTestSeriesVersion++;
-      interactionScalesCache = null;
+        runtimeHitTestSeriesCache = null;
+        runtimeHitTestSeriesVersion++;
+        interactionScalesCache = null;
+      }
 
       // Ensure a render is scheduled (coalesced) like setOption does.
       requestRender();
@@ -2445,6 +2761,11 @@ export async function createChartGPU(
       };
     },
     hitTest(e) {
+      // Resync hit-test columns if dual-store skip left them stale.
+      if (hitTestStoreNeedsResync) {
+        resyncHitTestStoreFromCoordinator();
+      }
+
       const rect = canvas.getBoundingClientRect();
       const canvasX = e.clientX - rect.left;
       const canvasY = e.clientY - rect.top;

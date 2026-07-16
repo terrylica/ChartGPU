@@ -45,9 +45,37 @@ type TypedArray =
   | Float64Array;
 
 /**
+ * Fixed-capacity modular ring used by FIFO streaming (`maxPoints`).
+ * Chronological index `i` maps to physical `(start + i) % capacity`.
+ * Internal-only — not part of the public CartesianSeriesData union, but accepted
+ * at runtime by getX/getY/getPointCount so coordinator columns stay O(append).
+ */
+export type RingXYColumns = {
+  readonly __ring: true;
+  x: Float64Array;
+  y: Float64Array;
+  size?: Float64Array;
+  start: number;
+  count: number;
+  capacity: number;
+};
+
+export function isRingXYColumns(data: unknown): data is RingXYColumns {
+  return (
+    typeof data === "object" &&
+    data !== null &&
+    (data as RingXYColumns).__ring === true &&
+    typeof (data as RingXYColumns).capacity === "number"
+  );
+}
+
+/**
  * Type guard for XYArraysData format.
  */
 function isXYArraysData(data: CartesianSeriesData): data is XYArraysData {
+  // Ring columns also have x/y; detect them first so we don't treat modular
+  // storage as linear XYArraysData (wrong length / indexing).
+  if (isRingXYColumns(data)) return false;
   return (
     typeof data === "object" &&
     data !== null &&
@@ -59,6 +87,58 @@ function isXYArraysData(data: CartesianSeriesData): data is XYArraysData {
     "length" in (data as any).x &&
     "length" in (data as any).y
   );
+}
+
+/**
+ * Creates a fixed-capacity ring for FIFO streaming. Physical buffers are sized
+ * to `capacity`; logical length starts at 0.
+ */
+export function createRingXYColumns(capacity: number): RingXYColumns {
+  const cap = Math.max(1, capacity | 0);
+  return {
+    __ring: true,
+    x: new Float64Array(cap),
+    y: new Float64Array(cap),
+    start: 0,
+    count: 0,
+    capacity: cap,
+  };
+}
+
+/**
+ * Appends points into a ring, applying the same drop/keep plan as
+ * `planMaxPointsWindow`. Drop first, then write — O(keepNewCount) only.
+ * Never rewrites the retained window.
+ */
+export function appendIntoRingXY(
+  ring: RingXYColumns,
+  src: CartesianSeriesData,
+  newSrcOffset: number,
+  keepNewCount: number,
+  dropPrevCount: number,
+): void {
+  const cap = ring.capacity;
+  if (dropPrevCount > 0) {
+    if (dropPrevCount >= ring.count) {
+      ring.start = 0;
+      ring.count = 0;
+    } else {
+      ring.start = (ring.start + dropPrevCount) % cap;
+      ring.count -= dropPrevCount;
+    }
+  }
+  if (keepNewCount <= 0) return;
+  // After drop, free space is enough for keepNewCount (plan guarantees
+  // count + keepNewCount <= capacity). Write head is the first free slot.
+  let write = (ring.start + ring.count) % cap;
+  for (let i = 0; i < keepNewCount; i++) {
+    const srcIdx = newSrcOffset + i;
+    ring.x[write] = getX(src, srcIdx);
+    ring.y[write] = getY(src, srcIdx);
+    write++;
+    if (write >= cap) write = 0;
+  }
+  ring.count = Math.min(cap, ring.count + keepNewCount);
 }
 
 /**
@@ -88,6 +168,9 @@ function isTupleDataPoint(
  * Returns the number of points in the CartesianSeriesData.
  */
 export function getPointCount(data: CartesianSeriesData): number {
+  if (isRingXYColumns(data)) {
+    return data.count;
+  }
   if (isXYArraysData(data)) {
     // Use minimum of x and y array lengths for safety
     return Math.min(data.x.length, data.y.length);
@@ -116,6 +199,10 @@ export function getPointCount(data: CartesianSeriesData): number {
  * This allows callers using `Number.isFinite()` to naturally skip missing points.
  */
 export function getX(data: CartesianSeriesData, i: number): number {
+  if (isRingXYColumns(data)) {
+    if (i < 0 || i >= data.count) return NaN;
+    return data.x[(data.start + i) % data.capacity]!;
+  }
   if (isXYArraysData(data)) {
     return data.x[i]!;
   }
@@ -145,6 +232,10 @@ export function getX(data: CartesianSeriesData, i: number): number {
  * This allows callers using `Number.isFinite()` to naturally skip missing points.
  */
 export function getY(data: CartesianSeriesData, i: number): number {
+  if (isRingXYColumns(data)) {
+    if (i < 0 || i >= data.count) return NaN;
+    return data.y[(data.start + i) % data.capacity]!;
+  }
   if (isXYArraysData(data)) {
     return data.y[i]!;
   }
@@ -177,6 +268,10 @@ export function getSize(
   data: CartesianSeriesData,
   i: number,
 ): number | undefined {
+  if (isRingXYColumns(data)) {
+    if (!data.size || i < 0 || i >= data.count) return undefined;
+    return data.size[(data.start + i) % data.capacity];
+  }
   if (isXYArraysData(data)) {
     return data.size?.[i];
   }
@@ -230,6 +325,19 @@ export function packXYInto(
     throw new Error(
       `packXYInto: output buffer too small (need ${requiredOutLength} floats, have ${out.length})`,
     );
+  }
+
+  if (isRingXYColumns(src)) {
+    const cap = src.capacity;
+    let phys = (src.start + srcPointOffset) % cap;
+    for (let i = 0; i < actualPointCount; i++) {
+      const outIdx = outFloatOffset + i * 2;
+      out[outIdx] = src.x[phys]! - xOffset;
+      out[outIdx + 1] = src.y[phys]!;
+      phys++;
+      if (phys >= cap) phys = 0;
+    }
+    return;
   }
 
   if (isXYArraysData(src)) {
@@ -300,7 +408,22 @@ export function computeRawBoundsFromCartesianData(
   let yMax = Number.NEGATIVE_INFINITY;
 
   // Hoist type detection outside loop to avoid per-point type checks
-  if (isXYArraysData(data)) {
+  if (isRingXYColumns(data)) {
+    const n = data.count;
+    const cap = data.capacity;
+    let phys = data.start;
+    for (let i = 0; i < n; i++) {
+      const x = data.x[phys]!;
+      const y = data.y[phys]!;
+      phys++;
+      if (phys >= cap) phys = 0;
+      if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+      if (x < xMin) xMin = x;
+      if (x > xMax) xMax = x;
+      if (y < yMin) yMin = y;
+      if (y > yMax) yMax = y;
+    }
+  } else if (isXYArraysData(data)) {
     // Fast path for XYArraysData
     const count = Math.min(data.x.length, data.y.length);
     for (let i = 0; i < count; i++) {
@@ -374,8 +497,37 @@ export function computeRawBoundsFromCartesianData(
  * InterleavedXYData cannot contain null entries and always return false.
  */
 export function hasNullGaps(data: CartesianSeriesData): boolean {
+  if (isRingXYColumns(data)) return false;
   if (!Array.isArray(data)) return false;
   return data.includes(null);
+}
+
+/**
+ * Drops the oldest `dropCount` points from mutable x/y (and optional size) columns
+ * in place via `copyWithin` — used by FIFO / maxPoints streaming without reallocating
+ * the backing arrays when possible.
+ */
+export function dropPrefixXY(
+  x: number[],
+  y: number[],
+  dropCount: number,
+  size?: (number | undefined)[],
+): void {
+  if (dropCount <= 0) return;
+  if (dropCount >= x.length) {
+    x.length = 0;
+    y.length = 0;
+    if (size) size.length = 0;
+    return;
+  }
+  x.copyWithin(0, dropCount);
+  y.copyWithin(0, dropCount);
+  x.length -= dropCount;
+  y.length -= dropCount;
+  if (size) {
+    size.copyWithin(0, dropCount);
+    size.length -= dropCount;
+  }
 }
 
 /**
