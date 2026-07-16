@@ -10,8 +10,12 @@ import type {
   ResolvedSeriesConfig,
 } from "../config/OptionResolver";
 import type { LinearScale } from "../utils/scales";
+import { bucketStackedXKey } from "../utils/barStackKey";
 import { getPointCount, getX, getY, getSize } from "../data/cartesianData";
 import { isMonotonicNonDecreasingFiniteX } from "../core/renderCoordinator/data/computeVisibleSlice";
+
+/** Re-export for callers that imported from this module. Prefer `utils/barStackKey`. */
+export { bucketStackedXKey };
 
 const DEFAULT_MAX_DISTANCE_PX = 20;
 const DEFAULT_BAR_GAP = 0.01; // Minimal gap between bars within a group (was 0.1)
@@ -407,32 +411,6 @@ export function computeBaselineDomainAndPx(
   }
 
   return { baselineDomain, baselinePx };
-}
-
-export function bucketStackedXKey(
-  xCenterPx: number,
-  categoryWidthPx: number,
-  xDomain: number,
-  categoryStep: number,
-): number {
-  // Match renderer intent:
-  // - Prefer bucketing in *range-space* to avoid float-equality issues in domain-x.
-  // - Requirement: Math.round(xCenterPx / categoryWidthPx) (grid-local).
-  if (
-    Number.isFinite(categoryWidthPx) &&
-    categoryWidthPx > 0 &&
-    Number.isFinite(xCenterPx)
-  ) {
-    return Math.round(xCenterPx / categoryWidthPx);
-  }
-  if (
-    Number.isFinite(categoryStep) &&
-    categoryStep > 0 &&
-    Number.isFinite(xDomain)
-  ) {
-    return Math.round(xDomain / categoryStep);
-  }
-  return Math.round(xDomain * 1e6);
 }
 
 /**

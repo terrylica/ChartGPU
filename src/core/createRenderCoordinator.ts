@@ -3666,14 +3666,16 @@ export function createRenderCoordinator(
     // values in-place). setSeriesIfChanged short-circuits on reference identity, so clear
     // the cache every animation frame so GPU uploads are not silently skipped (P1-2).
     // Same for filterGaps (P2-12): in-place mutation under a stable ref must re-filter.
-    // Same for area geometry: domain-space vertices are cached by data ref identity.
+    // Same for area/bar geometry: domain-space verts/instances are cached by data identity.
     if (updateTransition && updateP < 1) {
       lastSetSeriesCache.clear();
       filterGapsCache.clear();
-      const areas = rendererPool.getState().areaRenderers;
+      const pool = rendererPool.getState();
+      const areas = pool.areaRenderers;
       for (let ai = 0; ai < areas.length; ai++) {
         areas[ai]!.invalidateGeometry();
       }
+      pool.barRenderer.invalidateGeometry();
     }
 
     // Keep `interactionX` in sync with real pointer movement (domain units).

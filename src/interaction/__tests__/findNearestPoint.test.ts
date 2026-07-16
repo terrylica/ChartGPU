@@ -4,6 +4,7 @@
 
 import { describe, it, expect } from "vitest";
 import { findNearestPoint } from "../findNearestPoint";
+import { bucketStackedXKey } from "../../utils/barStackKey";
 import { createLinearScale } from "../../utils/scales";
 import type { ResolvedSeriesConfig } from "../../config/OptionResolver";
 import type { DataPoint, CartesianSeriesData } from "../../config/types";
@@ -498,6 +499,16 @@ describe("findNearestPoint", () => {
       );
       expect(result).not.toBeNull();
       expect(result?.seriesIndex).toBe(0); // First series preferred
+    });
+  });
+
+  describe("bucketStackedXKey", () => {
+    it("prefers domain categoryStep over range-space buckets (matches bar renderer)", () => {
+      // Noisy domain x near category 2 with step 1 → key 2 even if range-space would disagree.
+      expect(bucketStackedXKey(999, 50, 2.04, 1)).toBe(2);
+      expect(bucketStackedXKey(10, 5, 4.6, 1)).toBe(5);
+      // Fall back to range-space only when categoryStep is unusable.
+      expect(bucketStackedXKey(105, 50, 2.04, 0)).toBe(2);
     });
   });
 });
