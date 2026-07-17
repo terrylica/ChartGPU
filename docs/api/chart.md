@@ -15,6 +15,7 @@ const chart = await ChartGPU.create(container, {
 
 - **`container`**: mount target (ChartGPU owns a canvas inside it)
 - **`options`**: configuration (see [options.md](options.md))
+  - **Create-only options:** `antialias` and `devicePixelRatio` are applied when the chart / render coordinator is constructed (MSAA pipelines, texture manager, canvas backing store, text-overlay DPR). Changing them later with `setOption` has no effect on those resources — dispose and recreate the chart instead.
 - **`context?`**: optional shared WebGPU `{ adapter, device, pipelineCache? }`
 
 ## Sharing GPU resources (optional)
@@ -60,8 +61,14 @@ See [ChartGPU.ts](../../src/ChartGPU.ts) for the full interface and lifecycle be
 **Common methods:**
 
 - `setOption(...)`: update options and schedule a render.
-- `appendData(seriesIndex, newPoints)`: streaming append for cartesian series.
+  - **Series identity:** Prefer immutable series configs. When the same series **element objects** are re-passed (axes-only y/x range ticks), ChartGPU may reuse the previous resolved series array without re-scanning each series. To change data, color, visibility, or style, pass **new series element objects** (or a new `series` array). See [options.md — series array identity reuse](options.md#series-configuration).
+- `appendData(seriesIndex, newPoints, options?)`: streaming append for cartesian series.
   - Formats: `DataPoint[]`, `XYArraysData`, `InterleavedXYData`, `OHLCDataPoint[]`
+  - Optional `{ maxPoints }` (**per call**, not sticky series state — omit later for unbounded growth):
+    - If a single batch is ≥ `maxPoints`, keep only that batch’s tail (strict replace; prior points discarded).
+    - Otherwise **fixed-capacity ring**: fill up to `maxPoints`, then overwrite oldest slots (GPU modular writes — O(append), no full retained-window rewrite). Peak retained length / GPU reservation = **`maxPoints`**.
+    - Prefer over sliding-window full `setOption` for high-rate streaming (fixed-capacity ring; not sticky series construction state).
+    - When both `maxPoints` is set and `tooltip.show === false`, ChartGPU’s hit-test columnar store is not updated on append (dual-store relief); coordinator/GPU still apply the ring.
   - Types: [`src/config/types.ts`](../../src/config/types.ts)
 - `resize()`, `dispose()`
 - `on(...)`, `off(...)`: events (see [interaction.md](interaction.md))
@@ -85,6 +92,25 @@ function loop() {
 }
 loop();
 ```
+
+### GPU submit timing
+
+`renderFrame()` **encodes** the frame but **defers** `device.queue.submit` to a
+`queueMicrotask`. Multi-chart dashboards that share one `GPUDevice` and call
+`renderFrame()` on every surface in the same JS turn therefore collapse into a
+single batched submit (shared-device multi-chart present).
+
+If you need GPU work on the queue before `onSubmittedWorkDone()` (or any
+immediate post-submit fence), drain the microtask first:
+
+```ts
+chart.renderFrame();
+await Promise.resolve(); // flush batched submit
+await device.queue.onSubmittedWorkDone();
+```
+
+`dispose()` flushes any pending batched submit for that chart’s device before
+destroying textures/buffers.
 
 Example: [`examples/external-render-mode/`](../../examples/external-render-mode/).
 

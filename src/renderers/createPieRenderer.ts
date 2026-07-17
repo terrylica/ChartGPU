@@ -1,14 +1,10 @@
-import pieWgsl from "../shaders/pie.wgsl?raw";
-import type { ResolvedPieSeriesConfig } from "../config/OptionResolver";
-import type { PieCenter, PieRadius } from "../config/types";
-import { parseCssColorToRgba01 } from "../utils/colors";
-import type { GridArea } from "./createGridRenderer";
-import {
-  createRenderPipeline,
-  createUniformBuffer,
-  writeUniformBuffer,
-} from "./rendererUtils";
-import type { PipelineCache } from "../core/PipelineCache";
+import pieWgsl from '../shaders/pie.wgsl?raw';
+import type { ResolvedPieSeriesConfig } from '../config/OptionResolver';
+import type { PieCenter, PieRadius } from '../config/types';
+import { parseCssColorToRgba01 } from '../utils/colors';
+import type { GridArea } from './createGridRenderer';
+import { createRenderPipeline, createUniformBuffer, writeUniformBuffer } from './rendererUtils';
+import type { PipelineCache } from '../core/PipelineCache';
 
 export interface PieRenderer {
   prepare(seriesConfig: ResolvedPieSeriesConfig, gridArea: GridArea): void;
@@ -39,7 +35,7 @@ export interface PieRendererOptions {
 
 type Rgba = readonly [r: number, g: number, b: number, a: number];
 
-const DEFAULT_TARGET_FORMAT: GPUTextureFormat = "bgra8unorm";
+const DEFAULT_TARGET_FORMAT: GPUTextureFormat = 'bgra8unorm';
 
 // Instance layout (must match `pie.wgsl` locations):
 // @location(0) center: vec2<f32>
@@ -53,8 +49,7 @@ const INSTANCE_STRIDE_FLOATS = INSTANCE_STRIDE_BYTES / 4;
 const TAU = Math.PI * 2;
 
 const clamp01 = (v: number): number => Math.min(1, Math.max(0, v));
-const clampInt = (v: number, lo: number, hi: number): number =>
-  Math.min(hi, Math.max(lo, v | 0));
+const clampInt = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v | 0));
 
 const nextPow2 = (v: number): number => {
   if (!Number.isFinite(v) || v <= 0) return 1;
@@ -70,8 +65,7 @@ const wrapToTau = (thetaRad: number): number => {
 
 const parseColor = (cssColor: string, fallbackCssColor: string): Rgba => {
   const parsed = parseCssColorToRgba01(cssColor);
-  if (parsed)
-    return [parsed[0], parsed[1], parsed[2], clamp01(parsed[3])] as const;
+  if (parsed) return [parsed[0], parsed[1], parsed[2], clamp01(parsed[3])] as const;
 
   const fb = parseCssColorToRgba01(fallbackCssColor);
   if (fb) return [fb[0], fb[1], fb[2], clamp01(fb[3])] as const;
@@ -79,17 +73,14 @@ const parseColor = (cssColor: string, fallbackCssColor: string): Rgba => {
   return [0, 0, 0, 1] as const;
 };
 
-const parseNumberOrPercent = (
-  value: number | string,
-  basis: number,
-): number | null => {
-  if (typeof value === "number") return Number.isFinite(value) ? value : null;
-  if (typeof value !== "string") return null;
+const parseNumberOrPercent = (value: number | string, basis: number): number | null => {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  if (typeof value !== 'string') return null;
 
   const s = value.trim();
   if (s.length === 0) return null;
 
-  if (s.endsWith("%")) {
+  if (s.endsWith('%')) {
     const pct = Number.parseFloat(s.slice(0, -1));
     if (!Number.isFinite(pct)) return null;
     return (pct / 100) * basis;
@@ -103,10 +94,10 @@ const parseNumberOrPercent = (
 const resolveCenterPlotCss = (
   center: PieCenter | undefined,
   plotWidthCss: number,
-  plotHeightCss: number,
+  plotHeightCss: number
 ): { readonly x: number; readonly y: number } => {
-  const xRaw = center?.[0] ?? "50%";
-  const yRaw = center?.[1] ?? "50%";
+  const xRaw = center?.[0] ?? '50%';
+  const yRaw = center?.[1] ?? '50%';
 
   const x = parseNumberOrPercent(xRaw, plotWidthCss);
   const y = parseNumberOrPercent(yRaw, plotHeightCss);
@@ -117,14 +108,12 @@ const resolveCenterPlotCss = (
   };
 };
 
-const isRadiusTuple = (
-  radius: PieRadius,
-): radius is readonly [inner: number | string, outer: number | string] =>
+const isRadiusTuple = (radius: PieRadius): radius is readonly [inner: number | string, outer: number | string] =>
   Array.isArray(radius);
 
 const resolveRadiiCss = (
   radius: PieRadius | undefined,
-  maxRadiusCss: number,
+  maxRadiusCss: number
 ): { readonly inner: number; readonly outer: number } => {
   // Default similar to common chart libs.
   if (radius == null) return { inner: 0, outer: maxRadiusCss * 0.7 };
@@ -133,23 +122,17 @@ const resolveRadiiCss = (
     const inner = parseNumberOrPercent(radius[0], maxRadiusCss);
     const outer = parseNumberOrPercent(radius[1], maxRadiusCss);
     const innerCss = Math.max(0, Number.isFinite(inner) ? inner! : 0);
-    const outerCss = Math.max(
-      innerCss,
-      Number.isFinite(outer) ? outer! : maxRadiusCss * 0.7,
-    );
+    const outerCss = Math.max(innerCss, Number.isFinite(outer) ? outer! : maxRadiusCss * 0.7);
     return { inner: innerCss, outer: Math.min(maxRadiusCss, outerCss) };
   }
 
   const outer = parseNumberOrPercent(radius, maxRadiusCss);
-  const outerCss = Math.max(
-    0,
-    Number.isFinite(outer) ? outer! : maxRadiusCss * 0.7,
-  );
+  const outerCss = Math.max(0, Number.isFinite(outer) ? outer! : maxRadiusCss * 0.7);
   return { inner: 0, outer: Math.min(maxRadiusCss, outerCss) };
 };
 
 const computePlotScissorDevicePx = (
-  gridArea: GridArea,
+  gridArea: GridArea
 ): {
   readonly x: number;
   readonly y: number;
@@ -163,26 +146,10 @@ const computePlotScissorDevicePx = (
   const plotTopDevice = gridArea.top * devicePixelRatio;
   const plotBottomDevice = canvasHeight - gridArea.bottom * devicePixelRatio;
 
-  const scissorX = clampInt(
-    Math.floor(plotLeftDevice),
-    0,
-    Math.max(0, canvasWidth),
-  );
-  const scissorY = clampInt(
-    Math.floor(plotTopDevice),
-    0,
-    Math.max(0, canvasHeight),
-  );
-  const scissorR = clampInt(
-    Math.ceil(plotRightDevice),
-    0,
-    Math.max(0, canvasWidth),
-  );
-  const scissorB = clampInt(
-    Math.ceil(plotBottomDevice),
-    0,
-    Math.max(0, canvasHeight),
-  );
+  const scissorX = clampInt(Math.floor(plotLeftDevice), 0, Math.max(0, canvasWidth));
+  const scissorY = clampInt(Math.floor(plotTopDevice), 0, Math.max(0, canvasHeight));
+  const scissorR = clampInt(Math.ceil(plotRightDevice), 0, Math.max(0, canvasWidth));
+  const scissorB = clampInt(Math.ceil(plotBottomDevice), 0, Math.max(0, canvasHeight));
   const scissorW = Math.max(0, scissorR - scissorX);
   const scissorH = Math.max(0, scissorB - scissorY);
 
@@ -208,17 +175,12 @@ const IDENTITY_MAT4_F32 = new Float32Array([
   1, // col3
 ]);
 
-export function createPieRenderer(
-  device: GPUDevice,
-  options?: PieRendererOptions,
-): PieRenderer {
+export function createPieRenderer(device: GPUDevice, options?: PieRendererOptions): PieRenderer {
   let disposed = false;
   const targetFormat = options?.targetFormat ?? DEFAULT_TARGET_FORMAT;
   // Be resilient: coerce invalid values to 1 (no MSAA).
   const sampleCountRaw = options?.sampleCount ?? 1;
-  const sampleCount = Number.isFinite(sampleCountRaw)
-    ? Math.max(1, Math.floor(sampleCountRaw))
-    : 1;
+  const sampleCount = Number.isFinite(sampleCountRaw) ? Math.max(1, Math.floor(sampleCountRaw)) : 1;
   const pipelineCache = options?.pipelineCache;
 
   const bindGroupLayout = device.createBindGroupLayout({
@@ -226,14 +188,14 @@ export function createPieRenderer(
       {
         binding: 0,
         visibility: GPUShaderStage.VERTEX,
-        buffer: { type: "uniform" },
+        buffer: { type: 'uniform' },
       },
     ],
   });
 
   // VSUniforms in `pie.wgsl`: mat4x4 (64) + viewportPx vec2 (8) + pad vec2 (8) = 80 bytes.
   const vsUniformBuffer = createUniformBuffer(device, 80, {
-    label: "pieRenderer/vsUniforms",
+    label: 'pieRenderer/vsUniforms',
   });
 
   // Reused CPU-side staging for uniform writes (avoid per-frame allocations).
@@ -248,47 +210,47 @@ export function createPieRenderer(
   const pipeline = createRenderPipeline(
     device,
     {
-      label: "pieRenderer/pipeline",
+      label: 'pieRenderer/pipeline',
       bindGroupLayouts: [bindGroupLayout],
       vertex: {
         code: pieWgsl,
-        label: "pie.wgsl",
+        label: 'pie.wgsl',
         buffers: [
           {
             arrayStride: INSTANCE_STRIDE_BYTES,
-            stepMode: "instance",
+            stepMode: 'instance',
             attributes: [
-              { shaderLocation: 0, format: "float32x2", offset: 0 }, // center
-              { shaderLocation: 1, format: "float32", offset: 8 }, // startAngleRad
-              { shaderLocation: 2, format: "float32", offset: 12 }, // endAngleRad
-              { shaderLocation: 3, format: "float32x2", offset: 16 }, // radiiPx
-              { shaderLocation: 4, format: "float32x4", offset: 24 }, // color
+              { shaderLocation: 0, format: 'float32x2', offset: 0 }, // center
+              { shaderLocation: 1, format: 'float32', offset: 8 }, // startAngleRad
+              { shaderLocation: 2, format: 'float32', offset: 12 }, // endAngleRad
+              { shaderLocation: 3, format: 'float32x2', offset: 16 }, // radiiPx
+              { shaderLocation: 4, format: 'float32x4', offset: 24 }, // color
             ],
           },
         ],
       },
       fragment: {
         code: pieWgsl,
-        label: "pie.wgsl",
+        label: 'pie.wgsl',
         formats: targetFormat,
         // Standard alpha blending for AA edges and translucent slice colors.
         blend: {
           color: {
-            operation: "add",
-            srcFactor: "src-alpha",
-            dstFactor: "one-minus-src-alpha",
+            operation: 'add',
+            srcFactor: 'src-alpha',
+            dstFactor: 'one-minus-src-alpha',
           },
           alpha: {
-            operation: "add",
-            srcFactor: "one",
-            dstFactor: "one-minus-src-alpha",
+            operation: 'add',
+            srcFactor: 'one',
+            dstFactor: 'one-minus-src-alpha',
           },
         },
       },
-      primitive: { topology: "triangle-list", cullMode: "none" },
+      primitive: { topology: 'triangle-list', cullMode: 'none' },
       multisample: { count: sampleCount },
     },
-    pipelineCache,
+    pipelineCache
   );
 
   let instanceBuffer: GPUBuffer | null = null;
@@ -306,7 +268,7 @@ export function createPieRenderer(
   } | null = null;
 
   const assertNotDisposed = (): void => {
-    if (disposed) throw new Error("PieRenderer is disposed.");
+    if (disposed) throw new Error('PieRenderer is disposed.');
   };
 
   const ensureCpuInstanceCapacityFloats = (requiredFloats: number): void => {
@@ -316,18 +278,9 @@ export function createPieRenderer(
     cpuInstanceStagingF32 = new Float32Array(cpuInstanceStagingBuffer);
   };
 
-  const writeVsUniforms = (
-    viewportWDevicePx: number,
-    viewportHDevicePx: number,
-  ): void => {
-    const w =
-      Number.isFinite(viewportWDevicePx) && viewportWDevicePx > 0
-        ? viewportWDevicePx
-        : 1;
-    const h =
-      Number.isFinite(viewportHDevicePx) && viewportHDevicePx > 0
-        ? viewportHDevicePx
-        : 1;
+  const writeVsUniforms = (viewportWDevicePx: number, viewportHDevicePx: number): void => {
+    const w = Number.isFinite(viewportWDevicePx) && viewportWDevicePx > 0 ? viewportWDevicePx : 1;
+    const h = Number.isFinite(viewportHDevicePx) && viewportHDevicePx > 0 ? viewportHDevicePx : 1;
 
     vsUniformScratchF32.set(IDENTITY_MAT4_F32, 0);
     vsUniformScratchF32[16] = w;
@@ -337,7 +290,7 @@ export function createPieRenderer(
     writeUniformBuffer(device, vsUniformBuffer, vsUniformScratchBuffer);
   };
 
-  const prepare: PieRenderer["prepare"] = (seriesConfig, gridArea) => {
+  const prepare: PieRenderer['prepare'] = (seriesConfig, gridArea) => {
     assertNotDisposed();
 
     const dprRaw = gridArea.devicePixelRatio;
@@ -369,11 +322,7 @@ export function createPieRenderer(
     }
 
     // Center specified in plot-local CSS px (or %), then shifted by GridArea CSS margins.
-    const centerPlotCss = resolveCenterPlotCss(
-      seriesConfig.center,
-      plotWidthCss,
-      plotHeightCss,
-    );
+    const centerPlotCss = resolveCenterPlotCss(seriesConfig.center, plotWidthCss, plotHeightCss);
     const centerCanvasCssX = gridArea.left + centerPlotCss.x;
     const centerCanvasCssY = gridArea.top + centerPlotCss.y;
 
@@ -402,12 +351,7 @@ export function createPieRenderer(
     for (let i = 0; i < seriesConfig.data.length; i++) {
       const item = seriesConfig.data[i];
       const v = item?.value;
-      if (
-        typeof v === "number" &&
-        Number.isFinite(v) &&
-        v > 0 &&
-        item.visible !== false
-      ) {
+      if (typeof v === 'number' && Number.isFinite(v) && v > 0 && item.visible !== false) {
         total += v;
         validCount++;
       }
@@ -422,8 +366,7 @@ export function createPieRenderer(
 
     // IMPORTANT: shader assumes start/end are already wrapped to [0, 2π) (it only adds TAU once).
     const startDeg =
-      typeof seriesConfig.startAngle === "number" &&
-      Number.isFinite(seriesConfig.startAngle)
+      typeof seriesConfig.startAngle === 'number' && Number.isFinite(seriesConfig.startAngle)
         ? seriesConfig.startAngle
         : 90;
     let current = wrapToTau((startDeg * Math.PI) / 180);
@@ -436,7 +379,7 @@ export function createPieRenderer(
     for (let i = 0; i < seriesConfig.data.length; i++) {
       const item = seriesConfig.data[i];
       const v = item?.value;
-      if (typeof v !== "number" || !Number.isFinite(v) || v <= 0) continue;
+      if (typeof v !== 'number' || !Number.isFinite(v) || v <= 0) continue;
       // Skip hidden slices
       if (item.visible === false) continue;
 
@@ -457,8 +400,7 @@ export function createPieRenderer(
       const startRad = current;
       // When there's only one visible slice, it should span the full circle (0 to TAU).
       // Don't wrap the end angle in this case, as wrapping (start + TAU) gives start again.
-      const endRad =
-        validCount === 1 ? current + TAU : wrapToTau(current + span);
+      const endRad = validCount === 1 ? current + TAU : wrapToTau(current + span);
       current = wrapToTau(current + span);
 
       const [r, g, b, a] = parseColor(item.color, seriesConfig.color);
@@ -480,10 +422,7 @@ export function createPieRenderer(
     const requiredBytes = Math.max(4, instanceCount * INSTANCE_STRIDE_BYTES);
 
     if (!instanceBuffer || instanceBuffer.size < requiredBytes) {
-      const grownBytes = Math.max(
-        Math.max(4, nextPow2(requiredBytes)),
-        instanceBuffer ? instanceBuffer.size : 0,
-      );
+      const grownBytes = Math.max(Math.max(4, nextPow2(requiredBytes)), instanceBuffer ? instanceBuffer.size : 0);
       if (instanceBuffer) {
         try {
           instanceBuffer.destroy();
@@ -492,35 +431,24 @@ export function createPieRenderer(
         }
       }
       instanceBuffer = device.createBuffer({
-        label: "pieRenderer/instanceBuffer",
+        label: 'pieRenderer/instanceBuffer',
         size: grownBytes,
         usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
       });
     }
 
     if (instanceBuffer && instanceCount > 0) {
-      device.queue.writeBuffer(
-        instanceBuffer,
-        0,
-        cpuInstanceStagingBuffer,
-        0,
-        instanceCount * INSTANCE_STRIDE_BYTES,
-      );
+      device.queue.writeBuffer(instanceBuffer, 0, cpuInstanceStagingBuffer, 0, instanceCount * INSTANCE_STRIDE_BYTES);
     }
   };
 
-  const render: PieRenderer["render"] = (passEncoder) => {
+  const render: PieRenderer['render'] = (passEncoder) => {
     assertNotDisposed();
     if (!instanceBuffer || instanceCount === 0) return;
 
     // Clip to plot area (scissor is in device pixels).
     if (lastScissor && lastCanvasWidth > 0 && lastCanvasHeight > 0) {
-      passEncoder.setScissorRect(
-        lastScissor.x,
-        lastScissor.y,
-        lastScissor.w,
-        lastScissor.h,
-      );
+      passEncoder.setScissorRect(lastScissor.x, lastScissor.y, lastScissor.w, lastScissor.h);
     }
 
     passEncoder.setPipeline(pipeline);
@@ -534,7 +462,7 @@ export function createPieRenderer(
     }
   };
 
-  const dispose: PieRenderer["dispose"] = () => {
+  const dispose: PieRenderer['dispose'] = () => {
     if (disposed) return;
     disposed = true;
 

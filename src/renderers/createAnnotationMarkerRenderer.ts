@@ -1,10 +1,6 @@
-import annotationMarkerWgsl from "../shaders/annotationMarker.wgsl?raw";
-import {
-  createRenderPipeline,
-  createUniformBuffer,
-  writeUniformBuffer,
-} from "./rendererUtils";
-import type { PipelineCache } from "../core/PipelineCache";
+import annotationMarkerWgsl from '../shaders/annotationMarker.wgsl?raw';
+import { createRenderPipeline, createUniformBuffer, writeUniformBuffer } from './rendererUtils';
+import type { PipelineCache } from '../core/PipelineCache';
 
 export type AnnotationMarkerInstance = Readonly<{
   /**
@@ -46,15 +42,11 @@ export interface AnnotationMarkerRenderer {
       canvasHeight: number;
       devicePixelRatio: number;
       instances: readonly AnnotationMarkerInstance[];
-    }>,
+    }>
   ): void;
 
   /** Draws all prepared instances (if any). */
-  render(
-    passEncoder: GPURenderPassEncoder,
-    firstInstance?: number,
-    instanceCount?: number,
-  ): void;
+  render(passEncoder: GPURenderPassEncoder, firstInstance?: number, instanceCount?: number): void;
 
   /** Cleans up GPU resources (best-effort). */
   dispose(): void;
@@ -82,7 +74,7 @@ export interface AnnotationMarkerRendererOptions {
   readonly pipelineCache?: PipelineCache;
 }
 
-const DEFAULT_TARGET_FORMAT: GPUTextureFormat = "bgra8unorm";
+const DEFAULT_TARGET_FORMAT: GPUTextureFormat = 'bgra8unorm';
 
 // Instance layout (WGSL VSIn):
 // centerCssPx.xy, sizeCssPx, strokeWidthCssPx, fillRgba.rgba, strokeRgba.rgba
@@ -99,15 +91,13 @@ const nextPow2 = (v: number): number => {
 
 export function createAnnotationMarkerRenderer(
   device: GPUDevice,
-  options?: AnnotationMarkerRendererOptions,
+  options?: AnnotationMarkerRendererOptions
 ): AnnotationMarkerRenderer {
   let disposed = false;
   const targetFormat = options?.targetFormat ?? DEFAULT_TARGET_FORMAT;
   // Be resilient: coerce invalid values to 1 (no MSAA).
   const sampleCountRaw = options?.sampleCount ?? 1;
-  const sampleCount = Number.isFinite(sampleCountRaw)
-    ? Math.max(1, Math.floor(sampleCountRaw))
-    : 1;
+  const sampleCount = Number.isFinite(sampleCountRaw) ? Math.max(1, Math.floor(sampleCountRaw)) : 1;
   const pipelineCache = options?.pipelineCache;
 
   const bindGroupLayout = device.createBindGroupLayout({
@@ -115,7 +105,7 @@ export function createAnnotationMarkerRenderer(
       {
         binding: 0,
         visibility: GPUShaderStage.VERTEX,
-        buffer: { type: "uniform" },
+        buffer: { type: 'uniform' },
       },
     ],
   });
@@ -123,7 +113,7 @@ export function createAnnotationMarkerRenderer(
   // VSUniforms (WGSL):
   // viewportPx vec2 + dpr f32 + pad f32 = 16 bytes
   const vsUniformBuffer = createUniformBuffer(device, 16, {
-    label: "annotationMarkerRenderer/vsUniforms",
+    label: 'annotationMarkerRenderer/vsUniforms',
   });
   const vsUniformScratchF32 = new Float32Array(4);
 
@@ -135,46 +125,46 @@ export function createAnnotationMarkerRenderer(
   const pipeline = createRenderPipeline(
     device,
     {
-      label: "annotationMarkerRenderer/pipeline",
+      label: 'annotationMarkerRenderer/pipeline',
       bindGroupLayouts: [bindGroupLayout],
       vertex: {
         code: annotationMarkerWgsl,
-        label: "annotationMarker.wgsl",
+        label: 'annotationMarker.wgsl',
         buffers: [
           {
             arrayStride: INSTANCE_STRIDE_BYTES,
-            stepMode: "instance",
+            stepMode: 'instance',
             attributes: [
-              { shaderLocation: 0, format: "float32x2", offset: 0 }, // centerCssPx
-              { shaderLocation: 1, format: "float32", offset: 8 }, // sizeCssPx
-              { shaderLocation: 2, format: "float32", offset: 12 }, // strokeWidthCssPx
-              { shaderLocation: 3, format: "float32x4", offset: 16 }, // fillRgba
-              { shaderLocation: 4, format: "float32x4", offset: 32 }, // strokeRgba
+              { shaderLocation: 0, format: 'float32x2', offset: 0 }, // centerCssPx
+              { shaderLocation: 1, format: 'float32', offset: 8 }, // sizeCssPx
+              { shaderLocation: 2, format: 'float32', offset: 12 }, // strokeWidthCssPx
+              { shaderLocation: 3, format: 'float32x4', offset: 16 }, // fillRgba
+              { shaderLocation: 4, format: 'float32x4', offset: 32 }, // strokeRgba
             ],
           },
         ],
       },
       fragment: {
         code: annotationMarkerWgsl,
-        label: "annotationMarker.wgsl",
+        label: 'annotationMarker.wgsl',
         formats: targetFormat,
         blend: {
           color: {
-            operation: "add",
-            srcFactor: "src-alpha",
-            dstFactor: "one-minus-src-alpha",
+            operation: 'add',
+            srcFactor: 'src-alpha',
+            dstFactor: 'one-minus-src-alpha',
           },
           alpha: {
-            operation: "add",
-            srcFactor: "one",
-            dstFactor: "one-minus-src-alpha",
+            operation: 'add',
+            srcFactor: 'one',
+            dstFactor: 'one-minus-src-alpha',
           },
         },
       },
-      primitive: { topology: "triangle-list", cullMode: "none" },
+      primitive: { topology: 'triangle-list', cullMode: 'none' },
       multisample: { count: sampleCount },
     },
-    pipelineCache,
+    pipelineCache
   );
 
   let instanceBuffer: GPUBuffer | null = null;
@@ -183,7 +173,7 @@ export function createAnnotationMarkerRenderer(
   let cpuInstanceStagingF32 = new Float32Array(cpuInstanceStagingBuffer);
 
   const assertNotDisposed = (): void => {
-    if (disposed) throw new Error("AnnotationMarkerRenderer is disposed.");
+    if (disposed) throw new Error('AnnotationMarkerRenderer is disposed.');
   };
 
   const ensureCpuInstanceCapacityFloats = (requiredFloats: number): void => {
@@ -196,20 +186,11 @@ export function createAnnotationMarkerRenderer(
   const writeVsUniforms = (
     canvasWidthDevicePx: number,
     canvasHeightDevicePx: number,
-    devicePixelRatio: number,
+    devicePixelRatio: number
   ): void => {
-    const w =
-      Number.isFinite(canvasWidthDevicePx) && canvasWidthDevicePx > 0
-        ? canvasWidthDevicePx
-        : 1;
-    const h =
-      Number.isFinite(canvasHeightDevicePx) && canvasHeightDevicePx > 0
-        ? canvasHeightDevicePx
-        : 1;
-    const dpr =
-      Number.isFinite(devicePixelRatio) && devicePixelRatio > 0
-        ? devicePixelRatio
-        : 1;
+    const w = Number.isFinite(canvasWidthDevicePx) && canvasWidthDevicePx > 0 ? canvasWidthDevicePx : 1;
+    const h = Number.isFinite(canvasHeightDevicePx) && canvasHeightDevicePx > 0 ? canvasHeightDevicePx : 1;
+    const dpr = Number.isFinite(devicePixelRatio) && devicePixelRatio > 0 ? devicePixelRatio : 1;
 
     vsUniformScratchF32[0] = w;
     vsUniformScratchF32[1] = h;
@@ -218,28 +199,14 @@ export function createAnnotationMarkerRenderer(
     writeUniformBuffer(device, vsUniformBuffer, vsUniformScratchF32);
   };
 
-  const prepare: AnnotationMarkerRenderer["prepare"] = ({
-    canvasWidth,
-    canvasHeight,
-    devicePixelRatio,
-    instances,
-  }) => {
+  const prepare: AnnotationMarkerRenderer['prepare'] = ({ canvasWidth, canvasHeight, devicePixelRatio, instances }) => {
     assertNotDisposed();
 
-    if (
-      !Number.isFinite(canvasWidth) ||
-      !Number.isFinite(canvasHeight) ||
-      canvasWidth <= 0 ||
-      canvasHeight <= 0
-    ) {
-      throw new Error(
-        "AnnotationMarkerRenderer.prepare: canvasWidth/canvasHeight must be positive finite numbers.",
-      );
+    if (!Number.isFinite(canvasWidth) || !Number.isFinite(canvasHeight) || canvasWidth <= 0 || canvasHeight <= 0) {
+      throw new Error('AnnotationMarkerRenderer.prepare: canvasWidth/canvasHeight must be positive finite numbers.');
     }
     if (!Array.isArray(instances)) {
-      throw new Error(
-        "AnnotationMarkerRenderer.prepare: instances must be an array.",
-      );
+      throw new Error('AnnotationMarkerRenderer.prepare: instances must be an array.');
     }
 
     writeVsUniforms(canvasWidth, canvasHeight, devicePixelRatio);
@@ -270,9 +237,7 @@ export function createAnnotationMarkerRenderer(
       f32[outFloats + 0] = m.xCssPx;
       f32[outFloats + 1] = m.yCssPx;
       f32[outFloats + 2] = m.sizeCssPx;
-      f32[outFloats + 3] = Number.isFinite(strokeWidthCss)
-        ? Math.max(0, strokeWidthCss)
-        : 0;
+      f32[outFloats + 3] = Number.isFinite(strokeWidthCss) ? Math.max(0, strokeWidthCss) : 0;
 
       f32[outFloats + 4] = fr;
       f32[outFloats + 5] = fg;
@@ -297,10 +262,7 @@ export function createAnnotationMarkerRenderer(
     const requiredBytes = Math.max(4, instanceCount * INSTANCE_STRIDE_BYTES);
 
     if (!instanceBuffer || instanceBuffer.size < requiredBytes) {
-      const grownBytes = Math.max(
-        Math.max(4, nextPow2(requiredBytes)),
-        instanceBuffer ? instanceBuffer.size : 0,
-      );
+      const grownBytes = Math.max(Math.max(4, nextPow2(requiredBytes)), instanceBuffer ? instanceBuffer.size : 0);
       if (instanceBuffer) {
         try {
           instanceBuffer.destroy();
@@ -309,33 +271,21 @@ export function createAnnotationMarkerRenderer(
         }
       }
       instanceBuffer = device.createBuffer({
-        label: "annotationMarkerRenderer/instanceBuffer",
+        label: 'annotationMarkerRenderer/instanceBuffer',
         size: grownBytes,
         usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
       });
     }
 
     // PERFORMANCE: Only write buffer when we have instances (instanceCount > 0 already checked above)
-    device.queue.writeBuffer(
-      instanceBuffer,
-      0,
-      cpuInstanceStagingBuffer,
-      0,
-      instanceCount * INSTANCE_STRIDE_BYTES,
-    );
+    device.queue.writeBuffer(instanceBuffer, 0, cpuInstanceStagingBuffer, 0, instanceCount * INSTANCE_STRIDE_BYTES);
   };
 
-  const render: AnnotationMarkerRenderer["render"] = (
-    passEncoder,
-    firstInstance = 0,
-    requestedCount,
-  ) => {
+  const render: AnnotationMarkerRenderer['render'] = (passEncoder, firstInstance = 0, requestedCount) => {
     assertNotDisposed();
     if (!instanceBuffer || instanceCount === 0) return;
 
-    const first = Number.isFinite(firstInstance)
-      ? Math.max(0, Math.floor(firstInstance))
-      : 0;
+    const first = Number.isFinite(firstInstance) ? Math.max(0, Math.floor(firstInstance)) : 0;
     const available = Math.max(0, instanceCount - first);
     const count =
       requestedCount == null
@@ -351,7 +301,7 @@ export function createAnnotationMarkerRenderer(
     passEncoder.draw(6, count, 0, first);
   };
 
-  const dispose: AnnotationMarkerRenderer["dispose"] = () => {
+  const dispose: AnnotationMarkerRenderer['dispose'] = () => {
     if (disposed) return;
     disposed = true;
 

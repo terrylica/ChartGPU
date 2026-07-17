@@ -14,12 +14,7 @@
  */
 export type RenderCallback = (deltaTime: number) => void;
 
-import type {
-  ExactFPS,
-  Milliseconds,
-  FrameTimeStats,
-  FrameDropStats,
-} from "../config/types";
+import type { ExactFPS, Milliseconds, FrameTimeStats, FrameDropStats } from '../config/types';
 
 /**
  * Represents the state of a render scheduler.
@@ -82,7 +77,7 @@ const internalStateMap = new Map<symbol, RenderSchedulerInternalState>();
  * @returns A new RenderSchedulerState instance
  */
 export function createRenderScheduler(): RenderSchedulerState {
-  const id = Symbol("RenderScheduler");
+  const id = Symbol('RenderScheduler');
   const state: RenderSchedulerState = {
     id,
     running: false,
@@ -124,25 +119,18 @@ export function createRenderScheduler(): RenderSchedulerState {
  * @throws {Error} If scheduler is already running
  * @throws {Error} If state is invalid
  */
-export function startRenderScheduler(
-  state: RenderSchedulerState,
-  callback: RenderCallback,
-): RenderSchedulerState {
+export function startRenderScheduler(state: RenderSchedulerState, callback: RenderCallback): RenderSchedulerState {
   if (!callback) {
-    throw new Error("Render callback is required");
+    throw new Error('Render callback is required');
   }
 
   const internalState = internalStateMap.get(state.id);
   if (!internalState) {
-    throw new Error(
-      "Invalid scheduler state. Use createRenderScheduler() to create a new state.",
-    );
+    throw new Error('Invalid scheduler state. Use createRenderScheduler() to create a new state.');
   }
 
   if (state.running) {
-    throw new Error(
-      "RenderScheduler is already running. Call stopRenderScheduler() before starting again.",
-    );
+    throw new Error('RenderScheduler is already running. Call stopRenderScheduler() before starting again.');
   }
 
   // Update internal state
@@ -165,11 +153,8 @@ export function startRenderScheduler(
     // Record frame timestamp in circular buffer BEFORE rendering
     // Use performance.now() exclusively for exact FPS measurement
     const timestamp = performance.now();
-    currentInternalState.frameTimestamps[
-      currentInternalState.frameTimestampIndex
-    ] = timestamp;
-    currentInternalState.frameTimestampIndex =
-      (currentInternalState.frameTimestampIndex + 1) % FRAME_BUFFER_SIZE;
+    currentInternalState.frameTimestamps[currentInternalState.frameTimestampIndex] = timestamp;
+    currentInternalState.frameTimestampIndex = (currentInternalState.frameTimestampIndex + 1) % FRAME_BUFFER_SIZE;
     if (currentInternalState.frameTimestampCount < FRAME_BUFFER_SIZE) {
       currentInternalState.frameTimestampCount++;
     }
@@ -209,11 +194,7 @@ export function startRenderScheduler(
       // After callback returns, check if dirty was set again (callback-triggered renders for animations)
       // Re-check internal state in case it was destroyed during callback execution
       const nextInternalState = internalStateMap.get(schedulerId);
-      if (
-        nextInternalState &&
-        nextInternalState.callback &&
-        nextInternalState.dirty
-      ) {
+      if (nextInternalState && nextInternalState.callback && nextInternalState.dirty) {
         // Schedule another frame since callback requested a render
         nextInternalState.rafId = requestAnimationFrame(frameHandler);
       }
@@ -245,14 +226,10 @@ export function startRenderScheduler(
  * @returns A new RenderSchedulerState with running set to false
  * @throws {Error} If state is invalid
  */
-export function stopRenderScheduler(
-  state: RenderSchedulerState,
-): RenderSchedulerState {
+export function stopRenderScheduler(state: RenderSchedulerState): RenderSchedulerState {
   const internalState = internalStateMap.get(state.id);
   if (!internalState) {
-    throw new Error(
-      "Invalid scheduler state. Use createRenderScheduler() to create a new state.",
-    );
+    throw new Error('Invalid scheduler state. Use createRenderScheduler() to create a new state.');
   }
 
   internalState.callback = null;
@@ -282,9 +259,7 @@ export function stopRenderScheduler(
 export function requestRender(state: RenderSchedulerState): void {
   const internalState = internalStateMap.get(state.id);
   if (!internalState) {
-    throw new Error(
-      "Invalid scheduler state. Use createRenderScheduler() to create a new state.",
-    );
+    throw new Error('Invalid scheduler state. Use createRenderScheduler() to create a new state.');
   }
 
   // Mark as dirty
@@ -338,8 +313,7 @@ export function getCurrentFPS(state: RenderSchedulerState): ExactFPS {
   // Calculate sum of deltas between consecutive timestamps
   const timestamps = internalState.frameTimestamps;
   const bufferSize = FRAME_BUFFER_SIZE;
-  const startIndex =
-    (internalState.frameTimestampIndex - count + bufferSize) % bufferSize;
+  const startIndex = (internalState.frameTimestampIndex - count + bufferSize) % bufferSize;
 
   let totalDelta = 0;
   for (let i = 1; i < count; i++) {
@@ -392,8 +366,7 @@ export function getFrameStats(state: RenderSchedulerState): FrameTimeStats {
   // Extract deltas from circular buffer
   const timestamps = internalState.frameTimestamps;
   const bufferSize = FRAME_BUFFER_SIZE;
-  const startIndex =
-    (internalState.frameTimestampIndex - count + bufferSize) % bufferSize;
+  const startIndex = (internalState.frameTimestampIndex - count + bufferSize) % bufferSize;
 
   const deltas = new Array<number>(count - 1);
   let min = Number.POSITIVE_INFINITY;
@@ -487,9 +460,7 @@ export function getTotalFrames(state: RenderSchedulerState): {
  * @param state - The scheduler state to destroy
  * @returns A new RenderSchedulerState with reset values
  */
-export function destroyRenderScheduler(
-  state: RenderSchedulerState,
-): RenderSchedulerState {
+export function destroyRenderScheduler(state: RenderSchedulerState): RenderSchedulerState {
   const internalState = internalStateMap.get(state.id);
 
   if (internalState) {
@@ -525,9 +496,7 @@ export function destroyRenderScheduler(
  * });
  * ```
  */
-export function createRenderSchedulerAsync(
-  callback: RenderCallback,
-): RenderSchedulerState {
+export function createRenderSchedulerAsync(callback: RenderCallback): RenderSchedulerState {
   const state = createRenderScheduler();
   return startRenderScheduler(state, callback);
 }

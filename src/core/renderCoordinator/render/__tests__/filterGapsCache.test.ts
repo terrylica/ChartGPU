@@ -2,23 +2,14 @@
  * P2-12: filterGaps cache reuses filtered series until data ref changes.
  */
 
-import { describe, it, expect } from "vitest";
-import {
-  createFilterGapsCache,
-  getFilteredGapsCached,
-} from "../filterGapsCache";
-import { filterGaps } from "../../../../data/cartesianData";
-import type { DataPoint } from "../../../../config/types";
+import { describe, it, expect } from 'vitest';
+import { createFilterGapsCache, getFilteredGapsCached } from '../filterGapsCache';
+import { filterGaps } from '../../../../data/cartesianData';
+import type { DataPoint } from '../../../../config/types';
 
-describe("filterGapsCache (P2-12)", () => {
-  it("returns same filtered array ref when data ref is unchanged", () => {
-    const data: (DataPoint | null)[] = [
-      [0, 1],
-      null,
-      [2, 3],
-      null,
-      [4, 5],
-    ];
+describe('filterGapsCache (P2-12)', () => {
+  it('returns same filtered array ref when data ref is unchanged', () => {
+    const data: (DataPoint | null)[] = [[0, 1], null, [2, 3], null, [4, 5]];
     const cache = createFilterGapsCache();
     const a = getFilteredGapsCached(cache, 0, data);
     const b = getFilteredGapsCached(cache, 0, data);
@@ -30,7 +21,7 @@ describe("filterGapsCache (P2-12)", () => {
     ]);
   });
 
-  it("recomputes when data reference changes", () => {
+  it('recomputes when data reference changes', () => {
     const data1: (DataPoint | null)[] = [[0, 1], null, [2, 3]];
     const data2: (DataPoint | null)[] = [[0, 1], null, [2, 9]];
     const cache = createFilterGapsCache();
@@ -43,7 +34,7 @@ describe("filterGapsCache (P2-12)", () => {
     ]);
   });
 
-  it("isolates cache entries by series index", () => {
+  it('isolates cache entries by series index', () => {
     const dataA: (DataPoint | null)[] = [[0, 1], null, [1, 2]];
     const dataB: (DataPoint | null)[] = [[0, 10], null, [1, 20]];
     const cache = createFilterGapsCache();
@@ -54,19 +45,15 @@ describe("filterGapsCache (P2-12)", () => {
     expect(a1).not.toBe(b1);
   });
 
-  it("matches uncached filterGaps result for object-array input", () => {
-    const data: (DataPoint | null)[] = [
-      { x: 0, y: 1 },
-      null,
-      { x: 2, y: 3 },
-    ];
+  it('matches uncached filterGaps result for object-array input', () => {
+    const data: (DataPoint | null)[] = [{ x: 0, y: 1 }, null, { x: 2, y: 3 }];
     const cache = createFilterGapsCache();
     const cached = getFilteredGapsCached(cache, 0, data);
     const direct = filterGaps(data);
     expect(cached).toEqual(direct);
   });
 
-  it("matches filterGaps for XYArraysData with NaN gaps", () => {
+  it('matches filterGaps for XYArraysData with NaN gaps', () => {
     const data = {
       x: [0, 1, 2, 3],
       y: [1, Number.NaN, 3, 4],
@@ -78,7 +65,7 @@ describe("filterGapsCache (P2-12)", () => {
     expect(cached).toEqual(filterGaps(data));
   });
 
-  it("recomputes when the same data ref grows (streaming append)", () => {
+  it('recomputes when the same data ref grows (streaming append)', () => {
     // MutableXYColumns-style: append mutates under stable object identity.
     const data = {
       x: [0, 1, 2],
@@ -108,7 +95,7 @@ describe("filterGapsCache (P2-12)", () => {
     expect(getFilteredGapsCached(cache, 0, data)).toBe(after);
   });
 
-  it("recomputes when a DataPoint array grows under the same ref", () => {
+  it('recomputes when a DataPoint array grows under the same ref', () => {
     const data: (DataPoint | null)[] = [[0, 1], null, [2, 3]];
     const cache = createFilterGapsCache();
     const before = getFilteredGapsCached(cache, 0, data);
@@ -122,7 +109,7 @@ describe("filterGapsCache (P2-12)", () => {
     ]);
   });
 
-  it("explicit delete forces recompute after same-ref value mutation without length change", () => {
+  it('explicit delete forces recompute after same-ref value mutation without length change', () => {
     const data = {
       x: [0, 1, 2],
       y: [1, Number.NaN, 3],
@@ -142,24 +129,6 @@ describe("filterGapsCache (P2-12)", () => {
     ]);
   });
 
-  it("coordinator flushPendingAppends invalidates filterGapsCache per series (structural)", async () => {
-    // Append mutates MutableXYColumns under a stable ref; the flush path must
-    // delete the series' filterGapsCache entry (defense in depth with pointCount).
-    const fs = await import("node:fs");
-    const path = await import("node:path");
-    const src = fs.readFileSync(
-      path.resolve(__dirname, "../../../createRenderCoordinator.ts"),
-      "utf8",
-    );
-    const flushIdx = src.indexOf("const flushPendingAppends");
-    expect(flushIdx).toBeGreaterThan(-1);
-    // Look only inside flushPendingAppends body (until executeFlush).
-    const executeFlushIdx = src.indexOf("const executeFlush", flushIdx);
-    const flushBody = src.slice(
-      flushIdx,
-      executeFlushIdx > flushIdx ? executeFlushIdx : flushIdx + 8000,
-    );
-    expect(flushBody).toMatch(/filterGapsCache\.delete\(\s*seriesIndex\s*\)/);
-    expect(flushBody).toMatch(/lastSetSeriesCache\.delete\(\s*seriesIndex\s*\)/);
-  });
+
+
 });

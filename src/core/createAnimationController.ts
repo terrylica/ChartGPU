@@ -1,4 +1,4 @@
-import type { EasingFunction } from "../utils/easing";
+import type { EasingFunction } from '../utils/easing';
 
 export type AnimationId = symbol;
 
@@ -9,7 +9,7 @@ export interface AnimationController {
     duration: number,
     easing: EasingFunction,
     onUpdate: (value: number) => void,
-    onComplete?: () => void,
+    onComplete?: () => void
   ): AnimationId;
   animate(
     from: ReadonlyArray<number>,
@@ -17,7 +17,7 @@ export interface AnimationController {
     duration: number,
     easing: EasingFunction,
     onUpdate: (value: ReadonlyArray<number>) => void,
-    onComplete?: () => void,
+    onComplete?: () => void
   ): AnimationId;
 
   cancel(animationId: AnimationId): void;
@@ -31,7 +31,7 @@ export interface AnimationController {
 }
 
 type ScalarAnimation = Readonly<{
-  kind: "scalar";
+  kind: 'scalar';
   from: number;
   to: number;
   duration: number;
@@ -42,7 +42,7 @@ type ScalarAnimation = Readonly<{
 }>;
 
 type ArrayAnimation = Readonly<{
-  kind: "array";
+  kind: 'array';
   from: ReadonlyArray<number>;
   to: ReadonlyArray<number>;
   duration: number;
@@ -55,11 +55,9 @@ type ArrayAnimation = Readonly<{
 
 type AnimationInternal = ScalarAnimation | ArrayAnimation;
 
-const normalizeDurationMs = (duration: number): number =>
-  Number.isFinite(duration) ? duration : 0;
+const normalizeDurationMs = (duration: number): number => (Number.isFinite(duration) ? duration : 0);
 
-const normalizeTimestampMs = (timestamp: number): number | null =>
-  Number.isFinite(timestamp) ? timestamp : null;
+const normalizeTimestampMs = (timestamp: number): number | null => (Number.isFinite(timestamp) ? timestamp : null);
 
 export function createAnimationController(): AnimationController {
   const animations = new Map<AnimationId, AnimationInternal>();
@@ -69,28 +67,22 @@ export function createAnimationController(): AnimationController {
     to: number | ReadonlyArray<number>,
     duration: number,
     easing: EasingFunction,
-    onUpdate:
-      | ((value: number) => void)
-      | ((value: ReadonlyArray<number>) => void),
-    onComplete?: () => void,
+    onUpdate: ((value: number) => void) | ((value: ReadonlyArray<number>) => void),
+    onComplete?: () => void
   ): AnimationId {
-    const id: AnimationId = Symbol("Animation");
+    const id: AnimationId = Symbol('Animation');
 
     if (Array.isArray(from) || Array.isArray(to)) {
       if (!Array.isArray(from) || !Array.isArray(to)) {
-        throw new Error(
-          'Array animation requires both "from" and "to" to be arrays',
-        );
+        throw new Error('Array animation requires both "from" and "to" to be arrays');
       }
       if (from.length !== to.length) {
-        throw new Error(
-          `Array animation length mismatch: from.length=${from.length}, to.length=${to.length}`,
-        );
+        throw new Error(`Array animation length mismatch: from.length=${from.length}, to.length=${to.length}`);
       }
 
       const out = new Array<number>(from.length);
       animations.set(id, {
-        kind: "array",
+        kind: 'array',
         from,
         to,
         duration,
@@ -104,7 +96,7 @@ export function createAnimationController(): AnimationController {
     }
 
     animations.set(id, {
-      kind: "scalar",
+      kind: 'scalar',
       from: from as number,
       to: to as number,
       duration,
@@ -148,7 +140,7 @@ export function createAnimationController(): AnimationController {
       const rawT = durationMs <= 0 ? 1 : elapsed / durationMs;
       const t = shouldComplete ? 1 : anim.easing(rawT);
 
-      if (anim.kind === "scalar") {
+      if (anim.kind === 'scalar') {
         const value = anim.from + (anim.to - anim.from) * t;
         anim.onUpdate(value);
 
@@ -176,7 +168,7 @@ export function createAnimationController(): AnimationController {
   }
 
   return {
-    animate: animate as AnimationController["animate"],
+    animate: animate as AnimationController['animate'],
     cancel,
     cancelAll,
     update,

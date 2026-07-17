@@ -6,7 +6,9 @@ Chart configuration. Full types: [`types.ts`](../../src/config/types.ts).
 
 - **`theme`**: `'dark' | 'light'` or [`ThemeConfig`](themes.md#themeconfig)
 - **`DataPoint`**: tuple `[x, y, size?]` or object `{ x, y, size? }`
-- **`autoScroll?: boolean`**: when `true`, `appendData()` keeps visible x-range anchored to newest data (only when data zoom enabled and `xAxis.min`/`max` unset). Demo: [`live-streaming/`](../../examples/live-streaming/)
+- **`autoScroll?: boolean`**: when `true`, `appendData()` keeps visible x-range anchored to newest data (only when data zoom enabled and `xAxis.min`/`max` unset). Demo: [`live-streaming/`](../../examples/live-streaming/). **Disables sticky X headroom** so FIFO/`maxPoints` sliding windows track the retained data min/max (sticky would freeze historical xMin and compress the waveform into a thin strip on the right).
+- **`antialias?: boolean`** (default `true`): main + overlay GPU passes use **4× MSAA** when `true`, or `sampleCount: 1` when `false` (lower fill-rate / memory for multi-chart dashboards). WebGPU portable multisample counts are only **1 or 4**. **Create-only:** takes effect at `ChartGPU.create` / coordinator construction; changing via `setOption` does **not** rebuild MSAA pipelines or the texture manager. Dispose and recreate the chart to change.
+- **`devicePixelRatio?: number`**: canvas backing-store pixel ratio (defaults to `window.devicePixelRatio`). Set to `1` on multi-chart dashboards to cap GPU fill rate on high-DPI displays. **Create-only:** applied at `ChartGPU.create` (GPU canvas configure + text-overlay DPR); changing via `setOption` does **not** reconfigure the backing store. Dispose and recreate to change.
 
 ## Annotations
 
@@ -17,6 +19,15 @@ Chart configuration. Full types: [`types.ts`](../../src/config/types.ts).
 - **`SeriesType`**: `'line' | 'area' | 'bar' | 'scatter' | 'pie' | 'candlestick'`. See [`types.ts`](../../src/config/types.ts).
 - **Sampling (cartesian)**: `sampling?: 'none' | 'lttb' | 'average' | 'max' | 'min'`, `samplingThreshold?: number` (default 5000). Zoom-aware resampling when data zoom enabled.
 - **`visible?: boolean`**: hide series from rendering and interaction. Legend toggle updates both.
+- **Data identity / in-place mutation**: ChartGPU treats series `data` by **reference identity** for hot paths (`setOption` resolve, content hashing, GPU upload skip, area geometry cache). Mutating point values under a stable array / columns object **without** replacing the reference may not be detected. Prefer a new array (or `appendData(...)`) when content changes. Axes-only / presentation-only updates that re-pass the same `data` reference are intentionally O(1) on the data path.
+- **Series array identity reuse (axes-only `setOption`)**: When consecutive `setOption` calls re-pass the **same series config object identities** (outer `series` array may be the same or a new array wrapping the same elements) and theme/palette refs are unchanged, ChartGPU may **reuse the entire previous resolved series array** without re-walking each series. Treat the outer `series` array **and each series config object** as **immutable** for this path: to change data, color, visibility, or style, pass a **new series element object** (or a new `series` array of new objects). Index assignment (`series[i] = {...}`) is detected; mutating properties under a stable element object (e.g. `series[i].data = newData`) is **not** detected on the full-array path.
+- **Full rewrite (`setOption` with a new `data` array every frame)**: When the data **reference** changes, ChartGPU uses an O(1) content **stamp** (not a full float hash) for dirty tracking. GPU buffers are reused when capacity fits; pack goes into retained staging. Tooltip off skips ChartGPU hit-test columnar rebuild until `hitTest()` or tooltip re-enable (dual-store relief). The coordinator may keep your data array by reference until `appendData` — append always **copies** into owned columns and never mutates caller `{ x, y }` arrays.
+- **Y-only DataStore rewrite (lines)**: When length is stable and every x matches the previous pack, only y floats are rewritten in CPU staging; GPU uploads a dense **N×4** y channel and a compute pass rewrites y lanes into interleaved storage (not a full N×8 `writeBuffer`). Length change, any x change, **any non-finite x** in the series or staging (including stable null gaps), or modular ring layout force a full interleaved rewrite. Unsorted Brownian xy (group 3) never hits this path.
+- **Equal-N y-only scatter (const radius)**: When x is stable (e.g. `x = i`), scatter uses dual x/y instance buffers and uploads only the y channel (N×4). Index-sorted equal-N rewrites with `sampling: 'lttb'` (matching prior sampling + threshold) re-bind y at the **frozen prior LTTB index set** in O(k) instead of full O(N) LTTB — approximate hold: newly emerging y extrema between retained indices do not appear until full LTTB resumes (length, x change, or sampling/threshold config change). min/max/average always re-sample. Brownian xy updates stay on the full path.
+- **Dense scatter draw (const radius)**: When points-per-plot-pixel is high, drawn marker radius may compact toward ~1 device pixel (draw-only; does not change `sampling` or uploaded point count). Low-density charts keep full `symbolSize`.
+- **Dense line draw (hairline)**: When a line series has **≥ ~25 000 displayed points** (raw or `pointCountOverride` after GPU decimation), ChartGPU switches **draw only** to a native **1 device-px `line-list` hairline** (`denseHairline`). Those segments are drawn in a **post-resolve sampleCount:1** pass (not under main 4× MSAA overdraw). Series `lineStyle.width` config is unchanged; low-N lines (e.g. ≤10k, or FIFO rows after LTTB/GPU decimation keeps N low) keep full AA quads + configured width. Applies to **all** high-N lines, not only unsorted full rewrites.
+- **Multi-series dense hairline (total-segment budget)**: When the chart has **≥ 2 visible line series** and the approximate total segment count `visibleLineSeriesCount × max(0, pointCount − 1)` is **≥ ~500 000** (equal-N approximation using each series' own point count), those lines also enter `denseHairline` even if each series is below the 25k per-series threshold. Example: **1000 series × 1000 points** hairlines; **500 × 500** stays standard AA. **Visual tradeoff:** multi-series stress charts draw 1 device-px strokes instead of thick width-2 AA quads. Does not change sampling or uploaded data.
+- **Main scene MSAA (library-wide)**: Main series pass and overlay UI both use **4× MSAA** (`MAIN_SCENE_MSAA_SAMPLE_COUNT` / `ANNOTATION_OVERLAY_MSAA_SAMPLE_COUNT`) by default, or **1×** when `antialias: false` is passed at create. Dense hairline lines additionally use a **legal sampleCount:1** pass after main resolve (see Internals group-3 contract). WebGPU only allows portable multisample counts of **1 or 4** — `sampleCount: 2` is invalid and will fail validation (`Invalid CommandBuffer`). `antialias` / `devicePixelRatio` are **create-only** (see top of this page).
 
 ### CandlestickSeriesConfig
 
@@ -27,6 +38,7 @@ Chart configuration. Full types: [`types.ts`](../../src/config/types.ts).
 ### LineSeriesConfig
 
 - **`lineStyle?: { width?, opacity?, color? }`** (default width 2). **`areaStyle?`** for fill under line. Color precedence: `lineStyle.color` → `series.color` → palette.
+- **High-N hairline topology**: At ≥ ~25k displayed points **or** multi-series total-segment budget ≥ ~500k (see above), the GPU may draw with `line-list` hairline topology (1 device px) regardless of `lineStyle.width` — draw-only LOD; does not change sampling or uploaded point count. See **Dense line draw (hairline)** / **Multi-series dense hairline** above and Internals § full-series rewrite contracts.
 
 #### Null Gaps (Line Segmentation)
 
@@ -104,9 +116,15 @@ Notes (density mode):
 - **Explicit domains (override auto-bounds)**:
   - **`AxisConfig.min?: number` / `AxisConfig.max?: number`**: when set, ChartGPU uses these explicit axis bounds and does **not** auto-derive bounds from data for that axis.
   - **Precedence**: explicit `min`/`max` always override any auto-bounds behavior.
+  - **One-sided explicit**: if only `min` or only `max` is set, the other end is still data-derived; sticky auto-domain headroom (below) is **disabled** whenever either end is explicit so growBy padding never extends past a locked edge.
+- **Sticky auto-domain headroom (streaming / multi-chart)**:
+  - When **both** ends of an axis are auto (no explicit `min`/`max`), ChartGPU uses a sticky domain: **first establish matches the data extrema exactly** (static column/mountain charts fill the plot), then ~**10% growBy headroom** is added only when data **breaches** that domain (streaming compression amortization). If the data **min slides upward** (FIFO/`maxPoints` drop-oldest), sticky **follows** the new min instead of freezing the historical origin. Sticky X is off entirely when `autoScroll: true`.
+  - Purpose: high-rate `appendData` (series compression, multi-chart line slots) would otherwise force grid/axis prepare + label rebuild every frame as the domain creeps by a few points.
+  - Cleared on `setOption` (including axes-only rewrites) and when any end becomes explicit.
+  - Does **not** change sampling contracts (`lttb` stays `lttb`).
 - **Y-axis auto-bounds during x-zoom (new default)**:
   - **`yAxis.autoBounds?: 'visible' | 'global'`** controls how ChartGPU derives the **y-axis** domain when `yAxis.min`/`yAxis.max` are not set.
-    - **`'visible'` (default)**: when x-axis data zoom is active, ChartGPU derives y-bounds from the **visible** (zoomed) x-range.
+    - **`'visible'` (default)**: when x-axis data zoom is active, ChartGPU derives y-bounds from the **visible** (zoomed) x-range (using the same sticky X domain the paint path uses when sticky is active).
     - **`'global'`**: derive y-bounds from the **full dataset** (pre-zoom behavior), even while x-zoomed.
   - This option is intended for `yAxis` (it has no effect on `xAxis`).
 - **`AxisConfig.tickFormatter?: (value: number) => string | null`**: custom formatter for axis tick labels. When provided, replaces the built-in tick label formatting for that axis.

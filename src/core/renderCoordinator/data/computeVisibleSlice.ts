@@ -19,24 +19,19 @@ import type {
   OHLCDataPointObject,
   XYArraysData,
   InterleavedXYData,
-} from "../../../config/types";
-import { getPointCount, getX, getY } from "../../../data/cartesianData";
-import { clampInt } from "../utils/canvasUtils";
+} from '../../../config/types';
+import { getPointCount, getX, getY } from '../../../data/cartesianData';
+import { clampInt } from '../utils/canvasUtils';
 
 // Type guards for OHLC data
-export function isTupleOHLCDataPoint(
-  p: OHLCDataPoint,
-): p is OHLCDataPointTuple {
+export function isTupleOHLCDataPoint(p: OHLCDataPoint): p is OHLCDataPointTuple {
   return Array.isArray(p);
 }
 
 // Cache monotonicity checks to avoid O(n) scans on every zoom operation
 // WeakMap works for arrays, typed arrays, and object references (XYArraysData)
 const monotonicXCache = new WeakMap<object, boolean>();
-const monotonicTimestampCache = new WeakMap<
-  ReadonlyArray<OHLCDataPoint>,
-  boolean
->();
+const monotonicTimestampCache = new WeakMap<ReadonlyArray<OHLCDataPoint>, boolean>();
 
 /**
  * Checks if cartesian data is monotonic non-decreasing by X coordinate with all finite values.
@@ -44,12 +39,10 @@ const monotonicTimestampCache = new WeakMap<
  *
  * Supports all CartesianSeriesData formats: DataPoint[], XYArraysData, InterleavedXYData.
  */
-export function isMonotonicNonDecreasingFiniteX(
-  data: CartesianSeriesData,
-): boolean {
+export function isMonotonicNonDecreasingFiniteX(data: CartesianSeriesData): boolean {
   // For primitive arrays and typed arrays, we can cache by object reference
   // For XYArraysData, we cache by the object itself
-  const cacheKey = typeof data === "object" && data !== null ? data : null;
+  const cacheKey = typeof data === 'object' && data !== null ? data : null;
   if (cacheKey) {
     const cached = monotonicXCache.get(cacheKey);
     if (cached !== undefined) return cached;
@@ -79,9 +72,7 @@ export function isMonotonicNonDecreasingFiniteX(
  * Checks if OHLC data is monotonic non-decreasing by timestamp with all finite values.
  * Results are cached in a WeakMap to avoid repeated O(n) scans.
  */
-export function isMonotonicNonDecreasingFiniteTimestamp(
-  data: ReadonlyArray<OHLCDataPoint>,
-): boolean {
+function isMonotonicNonDecreasingFiniteTimestamp(data: ReadonlyArray<OHLCDataPoint>): boolean {
   const cached = monotonicTimestampCache.get(data);
   if (cached !== undefined) return cached;
 
@@ -130,10 +121,7 @@ function upperBoundX(data: CartesianSeriesData, xTarget: number): number {
   return lo;
 }
 
-function lowerBoundTimestampTuple(
-  data: ReadonlyArray<OHLCDataPointTuple>,
-  timestampTarget: number,
-): number {
+function lowerBoundTimestampTuple(data: ReadonlyArray<OHLCDataPointTuple>, timestampTarget: number): number {
   let lo = 0;
   let hi = data.length;
   while (lo < hi) {
@@ -145,10 +133,7 @@ function lowerBoundTimestampTuple(
   return lo;
 }
 
-function upperBoundTimestampTuple(
-  data: ReadonlyArray<OHLCDataPointTuple>,
-  timestampTarget: number,
-): number {
+function upperBoundTimestampTuple(data: ReadonlyArray<OHLCDataPointTuple>, timestampTarget: number): number {
   let lo = 0;
   let hi = data.length;
   while (lo < hi) {
@@ -160,10 +145,7 @@ function upperBoundTimestampTuple(
   return lo;
 }
 
-function lowerBoundTimestampObject(
-  data: ReadonlyArray<OHLCDataPointObject>,
-  timestampTarget: number,
-): number {
+function lowerBoundTimestampObject(data: ReadonlyArray<OHLCDataPointObject>, timestampTarget: number): number {
   let lo = 0;
   let hi = data.length;
   while (lo < hi) {
@@ -175,10 +157,7 @@ function lowerBoundTimestampObject(
   return lo;
 }
 
-function upperBoundTimestampObject(
-  data: ReadonlyArray<OHLCDataPointObject>,
-  timestampTarget: number,
-): number {
+function upperBoundTimestampObject(data: ReadonlyArray<OHLCDataPointObject>, timestampTarget: number): number {
   let lo = 0;
   let hi = data.length;
   while (lo < hi) {
@@ -195,41 +174,30 @@ function upperBoundTimestampObject(
  */
 function isXYArraysData(data: CartesianSeriesData): data is XYArraysData {
   return (
-    typeof data === "object" &&
+    typeof data === 'object' &&
     data !== null &&
     !Array.isArray(data) &&
-    "x" in data &&
-    "y" in data &&
-    typeof (data as any).x === "object" &&
-    typeof (data as any).y === "object" &&
-    "length" in (data as any).x &&
-    "length" in (data as any).y
+    'x' in data &&
+    'y' in data &&
+    typeof (data as any).x === 'object' &&
+    typeof (data as any).y === 'object' &&
+    'length' in (data as any).x &&
+    'length' in (data as any).y
   );
 }
 
 /**
  * Helper: Check if data is InterleavedXYData format (ArrayBufferView).
  */
-function isInterleavedXYData(
-  data: CartesianSeriesData,
-): data is InterleavedXYData {
-  return (
-    typeof data === "object" &&
-    data !== null &&
-    !Array.isArray(data) &&
-    ArrayBuffer.isView(data)
-  );
+function isInterleavedXYData(data: CartesianSeriesData): data is InterleavedXYData {
+  return typeof data === 'object' && data !== null && !Array.isArray(data) && ArrayBuffer.isView(data);
 }
 
 /**
  * Helper: Slice CartesianSeriesData to index range [start, end).
  * Returns appropriate view/slice for each format.
  */
-function sliceCartesianData(
-  data: CartesianSeriesData,
-  start: number,
-  end: number,
-): CartesianSeriesData {
+function sliceCartesianData(data: CartesianSeriesData, start: number, end: number): CartesianSeriesData {
   // Clamp indices
   const n = getPointCount(data);
   const s = Math.max(0, Math.min(start, n));
@@ -244,7 +212,7 @@ function sliceCartesianData(
     if (isInterleavedXYData(data)) {
       // Return empty view of same type
       if (data instanceof DataView) {
-        throw new Error("DataView is not supported for InterleavedXYData");
+        throw new Error('DataView is not supported for InterleavedXYData');
       }
       const TypedArrayConstructor = (data as any).constructor;
       return new TypedArrayConstructor(0);
@@ -256,13 +224,13 @@ function sliceCartesianData(
   if (isXYArraysData(data)) {
     const xSliced = Array.isArray(data.x)
       ? data.x.slice(s, e)
-      : "subarray" in data.x
+      : 'subarray' in data.x
         ? (data.x as any).subarray(s, e)
         : Array.from(data.x).slice(s, e);
 
     const ySliced = Array.isArray(data.y)
       ? data.y.slice(s, e)
-      : "subarray" in data.y
+      : 'subarray' in data.y
         ? (data.y as any).subarray(s, e)
         : Array.from(data.y).slice(s, e);
 
@@ -271,7 +239,7 @@ function sliceCartesianData(
     if (data.size) {
       const sizeSliced = Array.isArray(data.size)
         ? data.size.slice(s, e)
-        : "subarray" in data.size
+        : 'subarray' in data.size
           ? (data.size as any).subarray(s, e)
           : Array.from(data.size).slice(s, e);
       (result as any).size = sizeSliced;
@@ -283,7 +251,7 @@ function sliceCartesianData(
   // InterleavedXYData: return subarray view (start*2, end*2)
   if (isInterleavedXYData(data)) {
     if (data instanceof DataView) {
-      throw new Error("DataView is not supported for InterleavedXYData");
+      throw new Error('DataView is not supported for InterleavedXYData');
     }
     return (data as any).subarray(s * 2, e * 2);
   }
@@ -303,11 +271,7 @@ function sliceCartesianData(
  * @param xMax - Maximum X value (inclusive)
  * @returns Sliced data in the same format as input
  */
-export function sliceVisibleRangeByX(
-  data: CartesianSeriesData,
-  xMin: number,
-  xMax: number,
-): CartesianSeriesData {
+export function sliceVisibleRangeByX(data: CartesianSeriesData, xMin: number, xMax: number): CartesianSeriesData {
   const n = getPointCount(data);
   if (n === 0) return data;
   if (!Number.isFinite(xMin) || !Number.isFinite(xMax)) return data;
@@ -350,12 +314,11 @@ export function sliceVisibleRangeByX(
 export function findVisibleRangeIndicesByX(
   data: CartesianSeriesData,
   xMin: number,
-  xMax: number,
+  xMax: number
 ): { readonly start: number; readonly end: number } {
   const n = getPointCount(data);
   if (n === 0) return { start: 0, end: 0 };
-  if (!Number.isFinite(xMin) || !Number.isFinite(xMax))
-    return { start: 0, end: n };
+  if (!Number.isFinite(xMin) || !Number.isFinite(xMax)) return { start: 0, end: n };
 
   const canBinarySearch = isMonotonicNonDecreasingFiniteX(data);
   if (!canBinarySearch) {
@@ -386,7 +349,7 @@ export function findVisibleRangeIndicesByX(
 export function sliceVisibleRangeByOHLC(
   data: ReadonlyArray<OHLCDataPoint>,
   xMin: number,
-  xMax: number,
+  xMax: number
 ): ReadonlyArray<OHLCDataPoint> {
   const n = data.length;
   if (n === 0) return data;
@@ -397,23 +360,11 @@ export function sliceVisibleRangeByOHLC(
 
   if (canBinarySearch) {
     const lo = isTuple
-      ? lowerBoundTimestampTuple(
-          data as ReadonlyArray<OHLCDataPointTuple>,
-          xMin,
-        )
-      : lowerBoundTimestampObject(
-          data as ReadonlyArray<OHLCDataPointObject>,
-          xMin,
-        );
+      ? lowerBoundTimestampTuple(data as ReadonlyArray<OHLCDataPointTuple>, xMin)
+      : lowerBoundTimestampObject(data as ReadonlyArray<OHLCDataPointObject>, xMin);
     const hi = isTuple
-      ? upperBoundTimestampTuple(
-          data as ReadonlyArray<OHLCDataPointTuple>,
-          xMax,
-        )
-      : upperBoundTimestampObject(
-          data as ReadonlyArray<OHLCDataPointObject>,
-          xMax,
-        );
+      ? upperBoundTimestampTuple(data as ReadonlyArray<OHLCDataPointTuple>, xMax)
+      : upperBoundTimestampObject(data as ReadonlyArray<OHLCDataPointObject>, xMax);
 
     if (lo <= 0 && hi >= n) return data;
     if (hi <= lo) return [];

@@ -1,12 +1,10 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { createZoomResetButton } from "../createZoomResetButton";
-import type { ZoomState, ZoomRange } from "../../interaction/createZoomState";
-import type { ThemeConfig } from "../../themes/types";
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { createZoomResetButton } from '../createZoomResetButton';
+import type { ZoomState, ZoomRange } from '../../interaction/createZoomState';
+import type { ThemeConfig } from '../../themes/types';
 
-function createMockZoomState(
-  initial: ZoomRange = { start: 0, end: 100 },
-): ZoomState & {
+function createMockZoomState(initial: ZoomRange = { start: 0, end: 100 }): ZoomState & {
   triggerChange(range: ZoomRange): void;
   lastSetRange: ZoomRange | null;
 } {
@@ -40,24 +38,24 @@ function createMockZoomState(
 
 function createMockTheme(): ThemeConfig {
   return {
-    backgroundColor: "#1a1a2e",
-    textColor: "#e0e0e0",
-    axisLineColor: "#444",
-    axisTickColor: "#666",
-    gridLineColor: "rgba(255,255,255,0.1)",
-    fontFamily: "sans-serif",
-    colorPalette: ["#5470c6"],
+    backgroundColor: '#1a1a2e',
+    textColor: '#e0e0e0',
+    axisLineColor: '#444',
+    axisTickColor: '#666',
+    gridLineColor: 'rgba(255,255,255,0.1)',
+    fontFamily: 'sans-serif',
+    colorPalette: ['#5470c6'],
     fontSize: 12,
   };
 }
 
-describe("createZoomResetButton", () => {
+describe('createZoomResetButton', () => {
   let container: HTMLDivElement;
 
   beforeEach(() => {
-    container = document.createElement("div");
+    container = document.createElement('div');
     document.body.appendChild(container);
-    Object.defineProperty(navigator, "maxTouchPoints", {
+    Object.defineProperty(navigator, 'maxTouchPoints', {
       value: 2,
       configurable: true,
     });
@@ -67,87 +65,77 @@ describe("createZoomResetButton", () => {
     container.remove();
   });
 
-  it("is hidden when zoom is at full range", () => {
+  it('is hidden when zoom is at full range', () => {
     const zs = createMockZoomState({ start: 0, end: 100 });
     const btn = createZoomResetButton(container, zs, createMockTheme());
-    const el = container.querySelector("[data-chartgpu-zoom-reset]");
+    const el = container.querySelector('[data-chartgpu-zoom-reset]');
     expect(el).toBeTruthy();
-    expect((el as HTMLElement).style.display).toBe("none");
+    expect((el as HTMLElement).style.display).toBe('none');
     btn.dispose();
   });
 
-  it("is visible when zoomed in", () => {
+  it('is visible when zoomed in', () => {
     const zs = createMockZoomState({ start: 20, end: 80 });
     const btn = createZoomResetButton(container, zs, createMockTheme());
-    const el = container.querySelector(
-      "[data-chartgpu-zoom-reset]",
-    ) as HTMLElement;
-    expect(el.style.display).not.toBe("none");
+    const el = container.querySelector('[data-chartgpu-zoom-reset]') as HTMLElement;
+    expect(el.style.display).not.toBe('none');
     btn.dispose();
   });
 
-  it("becomes visible when zoom state changes to zoomed", () => {
+  it('becomes visible when zoom state changes to zoomed', () => {
     const zs = createMockZoomState({ start: 0, end: 100 });
     const btn = createZoomResetButton(container, zs, createMockTheme());
-    const el = container.querySelector(
-      "[data-chartgpu-zoom-reset]",
-    ) as HTMLElement;
-    expect(el.style.display).toBe("none");
+    const el = container.querySelector('[data-chartgpu-zoom-reset]') as HTMLElement;
+    expect(el.style.display).toBe('none');
     zs.triggerChange({ start: 10, end: 90 });
-    expect(el.style.display).not.toBe("none");
+    expect(el.style.display).not.toBe('none');
     btn.dispose();
   });
 
-  it("resets zoom to full range on click", () => {
+  it('resets zoom to full range on click', () => {
     const zs = createMockZoomState({ start: 20, end: 80 });
     const btn = createZoomResetButton(container, zs, createMockTheme());
-    const el = container.querySelector(
-      "[data-chartgpu-zoom-reset]",
-    ) as HTMLElement;
+    const el = container.querySelector('[data-chartgpu-zoom-reset]') as HTMLElement;
     el.click();
     expect(zs.lastSetRange).toEqual({ start: 0, end: 100 });
     btn.dispose();
   });
 
-  it("removes DOM element on dispose", () => {
+  it('removes DOM element on dispose', () => {
     const zs = createMockZoomState({ start: 20, end: 80 });
     const btn = createZoomResetButton(container, zs, createMockTheme());
-    expect(container.querySelector("[data-chartgpu-zoom-reset]")).toBeTruthy();
+    expect(container.querySelector('[data-chartgpu-zoom-reset]')).toBeTruthy();
     btn.dispose();
-    expect(container.querySelector("[data-chartgpu-zoom-reset]")).toBeNull();
+    expect(container.querySelector('[data-chartgpu-zoom-reset]')).toBeNull();
   });
 
-  it("update(theme) applies new theme colors", () => {
+  it('update(theme) applies new theme colors', () => {
     const zs = createMockZoomState({ start: 20, end: 80 });
     const btn = createZoomResetButton(container, zs, createMockTheme());
-    const el = container.querySelector(
-      "[data-chartgpu-zoom-reset]",
-    ) as HTMLElement;
+    const el = container.querySelector('[data-chartgpu-zoom-reset]') as HTMLElement;
 
     const newTheme = {
       ...createMockTheme(),
-      backgroundColor: "#ffffff",
-      textColor: "#000000",
+      backgroundColor: '#ffffff',
+      textColor: '#000000',
     };
     btn.update(newTheme);
 
     // jsdom normalizes hex to rgb()
-    expect(el.style.backgroundColor).toBe("rgb(255, 255, 255)");
-    expect(el.style.color).toBe("rgb(0, 0, 0)");
+    expect(el.style.backgroundColor).toBe('rgb(255, 255, 255)');
+    expect(el.style.color).toBe('rgb(0, 0, 0)');
     btn.dispose();
   });
 
-  it("is hidden on non-touch devices", () => {
-    Object.defineProperty(navigator, "maxTouchPoints", {
+  it('is hidden on non-touch devices', () => {
+    Object.defineProperty(navigator, 'maxTouchPoints', {
       value: 0,
       configurable: true,
     });
     const zs = createMockZoomState({ start: 20, end: 80 });
     const btn = createZoomResetButton(container, zs, createMockTheme());
-    const el = container.querySelector(
-      "[data-chartgpu-zoom-reset]",
-    ) as HTMLElement;
-    expect(el.style.display).toBe("none");
+    const el = container.querySelector('[data-chartgpu-zoom-reset]') as HTMLElement;
+    expect(el.style.display).toBe('none');
     btn.dispose();
   });
 });

@@ -39,11 +39,12 @@ struct DecimationUniforms {
   targetBuckets : u32,
   // Mode bit 0: 0 = min, 1 = max. Only consulted by `minMaxDecimate`.
   mode          : u32,
+  // Fixed-capacity ring FIFO: physical index of the oldest logical point.
+  // When ringCapacity == 0, raw storage is linear chronological (raw[i] = logical i).
+  ringStart     : u32,
+  ringCapacity  : u32,
   // Struct padded up to 32 bytes so its size is a multiple of 16 (the minimum
-  // alignment for uniform-buffer-backed structs in WGSL). The three pad words
-  // are written as zero on the CPU side.
-  padA          : u32,
-  padB          : u32,
+  // alignment for uniform-buffer-backed structs in WGSL).
   padC          : u32,
 };
 
@@ -51,6 +52,16 @@ struct DecimationUniforms {
 @group(0) @binding(1) var<storage, read> rawPoints : array<vec2<f32>>;
 @group(0) @binding(2) var<storage, read_write> output : array<vec2<f32>>;
 @group(0) @binding(3) var<storage, read_write> averages : array<vec2<f32>>;
+
+// Map a chronological (logical) raw index into physical storage. Ring mode
+// stores points modularly after FIFO wrap; linear mode is a no-op.
+fn rawAt(logicalIdx : u32) -> vec2<f32> {
+  if (uni.ringCapacity == 0u) {
+    return rawPoints[logicalIdx];
+  }
+  let phys = (uni.ringStart + logicalIdx) % uni.ringCapacity;
+  return rawPoints[phys];
+}
 
 // Shared-memory scratchpads for the intra-workgroup reductions. Sized to the
 // literal workgroup width (64) so WGSL front-ends don't have to resolve a
@@ -134,6 +145,46 @@ fn mulDivU32(a : u32, b : u32, denom : u32) -> u32 {
   return main + udiv64by32(prod.x, prod.y, denom);
 }
 
+// Max raw points examined per interior bucket. When the bucket range is
+// larger, candidates are uniformly subsampled (including endpoints).
+//
+// Rationale (FIFO extreme-N, e.g. 10M × 5 series, samplingThreshold=2500):
+//   Parallel LTTB otherwise full-scans the visible span twice per series
+//   (~100M raw reads/frame at 10M×5). Cap keeps quality on dense waveforms
+//   while bounding GPU bandwidth.
+//
+// At 1M × 2500 buckets ≈ 400 pts/bucket → full scan (exact; no 1M×5 regression).
+// At 10M ≈ 4000 pts/bucket → 512 samples (~8× less bandwidth per pass).
+//
+// **Approximation (all three entry points when rangeLen > 512):**
+//   - LTTB / averages: triangle-area / mean over the uniform candidate set.
+//   - min/max: argmin/argmax over candidates only — not the true bucket
+//     extremum. Dense ECG/noise still preserves peaks well at 512 samples.
+//
+// Literal (not module const) so Chrome's WGSL front-end never couples this
+// to workgroup_size / array-size resolution (see AGENTS.md WG_SIZE note).
+//
+// Map candidate index s ∈ [0, candCount) → raw index in [rangeStart, rangeEnd).
+fn candidateRawIndex(rangeStart : u32, rangeLen : u32, s : u32, candCount : u32) -> u32 {
+  if (candCount <= 1u || rangeLen <= 1u) {
+    return rangeStart;
+  }
+  if (candCount >= rangeLen) {
+    return rangeStart + s;
+  }
+  // Uniform including endpoints: floor(s * (rangeLen - 1) / (candCount - 1)).
+  return rangeStart + mulDivU32(rangeLen - 1u, s, candCount - 1u);
+}
+
+// candCount = min(rangeLen, 512). Shared by all three entry points
+// (min/max, averages, LTTB) — see approximation note above.
+fn bucketCandidateCount(rangeLen : u32) -> u32 {
+  if (rangeLen > 512u) {
+    return 512u;
+  }
+  return rangeLen;
+}
+
 // Interior-bucket raw-index range, exclusive upper bound. Guarantees a
 // non-empty range so reductions always have at least one candidate.
 fn interiorBucketRange(bucketId : u32) -> vec2<u32> {
@@ -192,9 +243,9 @@ fn minMaxDecimate(
   // Thread 0 of workgroup 0 writes the two fixed anchors (first/last points).
   // Writes are scalar; no barrier interaction.
   if (bucketId == 0u && tid == 0u && buckets >= 1u && visEnd > visStart) {
-    output[0] = rawPoints[visStart];
+    output[0] = rawAt(visStart);
     if (buckets >= 2u) {
-      output[buckets - 1u] = rawPoints[visEnd - 1u];
+      output[buckets - 1u] = rawAt(visEnd - 1u);
     }
   }
 
@@ -210,12 +261,15 @@ fn minMaxDecimate(
   }
   var bestIdx : u32 = rangeStart;
 
-  // Stride over the bucket range in workgroup-sized chunks (64 threads each).
-  // When rangeStart == rangeEnd (degenerate), every thread skips the loop and
-  // contributes sentinel values; the reduction still runs safely.
-  var i : u32 = rangeStart + tid;
-  while (i < rangeEnd) {
-    let p = rawPoints[i];
+  // Stride over candidates in workgroup-sized chunks (64 threads each).
+  // Oversized buckets are uniformly subsampled (see bucketCandidateCount).
+  // Degenerate empty range → candCount 0 → every thread skips; reduction safe.
+  let rangeLenMm = rangeEnd - rangeStart;
+  let candCountMm = bucketCandidateCount(rangeLenMm);
+  var sMm : u32 = tid;
+  while (sMm < candCountMm) {
+    let i = candidateRawIndex(rangeStart, rangeLenMm, sMm, candCountMm);
+    let p = rawAt(i);
     if (isFiniteVec2(p)) {
       if (wantMax) {
         if (p.y > bestY) {
@@ -229,7 +283,7 @@ fn minMaxDecimate(
         }
       }
     }
-    i = i + 64u;
+    sMm = sMm + 64u;
   }
 
   sharedScore[tid] = bestY;
@@ -262,7 +316,7 @@ fn minMaxDecimate(
   // Workgroup id 0 maps to interior bucket 0 → output slot 1. The last
   // dispatched workgroup maps to interior bucket (buckets - 3) → slot buckets-2.
   if (tid == 0u && buckets >= 3u && bucketId <= buckets - 3u) {
-    output[bucketId + 1u] = rawPoints[sharedIdx[0]];
+    output[bucketId + 1u] = rawAt(sharedIdx[0]);
   }
 }
 
@@ -295,10 +349,10 @@ fn computeBucketAverages(
 
   // Anchor writes are single-scalar, so a non-uniform guard on tid is fine.
   if (isFirstAnchor && tid == 0u && visEnd > visStart) {
-    averages[0] = rawPoints[visStart];
+    averages[0] = rawAt(visStart);
   }
   if (isLastAnchor && tid == 0u && visEnd > visStart) {
-    averages[buckets - 1u] = rawPoints[visEnd - 1u];
+    averages[buckets - 1u] = rawAt(visEnd - 1u);
   }
 
   // Interior bucket reduction. Even when !isInterior, all threads participate
@@ -318,15 +372,20 @@ fn computeBucketAverages(
   var sumY : f32 = 0.0;
   var cnt  : u32 = 0u;
 
-  var i : u32 = rangeStart + tid;
-  while (i < rangeEnd) {
-    let p = rawPoints[i];
+  // Uniform subsample when range is huge (same cap as min/max and LTTB).
+  // Approximate mean is enough for parallel-LTTB triangle anchors at extreme N.
+  let rangeLenAvg = rangeEnd - rangeStart;
+  let candCountAvg = bucketCandidateCount(rangeLenAvg);
+  var sAvg : u32 = tid;
+  while (sAvg < candCountAvg) {
+    let i = candidateRawIndex(rangeStart, rangeLenAvg, sAvg, candCountAvg);
+    let p = rawAt(i);
     if (isFiniteVec2(p)) {
       sumX = sumX + p.x;
       sumY = sumY + p.y;
       cnt  = cnt + 1u;
     }
-    i = i + 64u;
+    sAvg = sAvg + 64u;
   }
 
   sharedSumX[tid]  = sumX;
@@ -350,7 +409,7 @@ fn computeBucketAverages(
     if (totalCount == 0u) {
       // Defensive fallback: empty bucket (all NaN). Use first raw point in the
       // nominal range so the downstream LTTB pass has a usable anchor.
-      averages[bucketId] = rawPoints[range.x];
+      averages[bucketId] = rawAt(range.x);
     } else {
       let inv = 1.0 / f32(totalCount);
       averages[bucketId] = vec2<f32>(sharedSumX[0] * inv, sharedSumY[0] * inv);
@@ -383,10 +442,10 @@ fn parallelLttbDecimate(
   let isInterior    = buckets >= 3u && bucketId >= 1u && bucketId + 1u < buckets;
 
   if (isFirstAnchor && tid == 0u && visEnd > visStart) {
-    output[0] = rawPoints[visStart];
+    output[0] = rawAt(visStart);
   }
   if (isLastAnchor && tid == 0u && visEnd > visStart) {
-    output[buckets - 1u] = rawPoints[visEnd - 1u];
+    output[buckets - 1u] = rawAt(visEnd - 1u);
   }
 
   // Interior reduction — same uniform-barrier structure as computeBucketAverages.
@@ -410,9 +469,13 @@ fn parallelLttbDecimate(
   var bestScore : f32 = -1.0;
   var bestIdx   : u32 = rangeStart;
 
-  var i : u32 = rangeStart + tid;
-  while (i < rangeEnd) {
-    let c = rawPoints[i];
+  // Cap candidates on oversized buckets (see bucketCandidateCount).
+  let rangeLenLttb = rangeEnd - rangeStart;
+  let candCountLttb = bucketCandidateCount(rangeLenLttb);
+  var sLttb : u32 = tid;
+  while (sLttb < candCountLttb) {
+    let i = candidateRawIndex(rangeStart, rangeLenLttb, sLttb, candCountLttb);
+    let c = rawAt(i);
     if (isFiniteVec2(c)) {
       // Unsigned triangle area (scaled by 2) via the cross product.
       let area2 = abs((anchor.x - nextRef.x) * (c.y - anchor.y)
@@ -422,7 +485,7 @@ fn parallelLttbDecimate(
         bestIdx   = i;
       }
     }
-    i = i + 64u;
+    sLttb = sLttb + 64u;
   }
 
   sharedScore[tid] = bestScore;
@@ -443,6 +506,6 @@ fn parallelLttbDecimate(
   }
 
   if (isInterior && tid == 0u) {
-    output[bucketId] = rawPoints[sharedIdx[0]];
+    output[bucketId] = rawAt(sharedIdx[0]);
   }
 }

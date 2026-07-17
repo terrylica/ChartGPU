@@ -10,10 +10,13 @@ ChartGPU follows a **functional-first architecture**:
 - **Render modes**: `'auto'` (internal rAF loop) or `'external'` (application-driven via `renderFrame()`)
 - **Render coordinator**: Modular architecture with 11 specialized modules under `src/core/renderCoordinator/` (see [INTERNALS.md](api/INTERNALS.md))
 - **Pipeline cache**: Optional shared `PipelineCache` for deduplicating shader modules, render pipelines, and compute pipelines across charts on the same device
+- **GPU frame graph**: Compute (scatter density + line decimation) → main scene **4× MSAA** resolve → optional dense-hairline **sampleCount:1** → overlay **4× MSAA** (blit + annotations + axes/crosshair/highlight); one `queue.submit` per frame via `submitBatcher`
 
 ## Architecture Diagram
 
-At a high level, `ChartGPU.create(...)` owns the canvas + WebGPU lifecycle, and delegates render orchestration (layout/scales/data upload/render passes + internal overlays) to the render coordinator. Charts can render via an internal `requestAnimationFrame` loop (`'auto'` mode, the default), or be driven externally by calling `renderFrame()` from an application-controlled loop (`'external'` mode).
+At a high level, `ChartGPU.create(...)` owns the canvas + WebGPU lifecycle, and delegates render orchestration (layout/scales/data upload/frame encode + internal overlays) to the render coordinator. Charts can render via an internal `requestAnimationFrame` loop (`'auto'` mode, the default), or be driven externally by calling `renderFrame()` from an application-controlled loop (`'external'` mode).
+
+Default MSAA is main **4×** / overlay **4×** (`antialias: true` at create). When `antialias: false`, both passes use `sampleCount: 1`. High-N line series may additionally draw in a **dense hairline** pass (`sampleCount: 1` on the resolve texture) between main resolve and the overlay pass — planned by `render/frameRender.ts`.
 
 ```mermaid
 flowchart TB
@@ -22,7 +25,7 @@ flowchart TB
   PublicAPI --> ChartCreate["ChartGPU.create(container, options, context?)"]
   PublicAPI --> SyncAPI["connectCharts(charts)"]
   PublicAPI --> PipelineCacheCreate["createPipelineCache(device)"]
-  
+
   PipelineCacheCreate -. "optional" .-> ChartCreate
 
   subgraph MainThread["Main Thread Rendering - Default"]
@@ -36,7 +39,7 @@ flowchart TB
       ChartCreate --> InstanceAPI["ChartGPUInstance APIs"]
       InstanceAPI --> RequestRender["requestAnimationFrame - coalesced (auto mode)"]
       RequestRender --> Coordinator
-      InstanceAPI --> RenderFrame["renderFrame() - synchronous (external mode)"]
+      InstanceAPI --> RenderFrame["renderFrame() - encode sync; submit microtask-batched (external mode)"]
       RenderFrame --> Coordinator
 
       InstanceAPI --> SetOption["setOption(...)"]
@@ -60,23 +63,24 @@ flowchart TB
       GPUInit --> CanvasConfig["canvasContext.configure(format)"]
     end
 
-    subgraph RenderCoordinatorLayer["Render coordinator - createRenderCoordinator.ts"]
+    subgraph RenderCoordinatorLayer["Render coordinator - shell + renderCoordinator/*"]
       subgraph CoordModules["Coordinator modules - src/core/renderCoordinator/*"]
+        Impl["createRenderCoordinatorImpl - composition root"]
         Utils["utils/ - Canvas, bounds, axes, time formatting"]
-        GPU["gpu/ - Texture management, MSAA"]
-        RenderersModule["renderers/ - Renderer pool management"]
-        DataMods["data/ - Visible slice computation"]
+        GPU["gpu/ - Texture management, MSAA targets"]
+        RenderersModule["renderers/ - Renderer + decimation pool"]
+        DataMods["data/ - Slice, display resolve, append policy, packing xOffset"]
         Zoom["zoom/ - Zoom state utilities"]
         Anim["animation/ - Animation helpers"]
         Interact["interaction/ - Pointer and hit-testing"]
         UI["ui/ - Tooltip and legend helpers"]
         AxisMods["axis/ - Tick computation and labels"]
         Annot["annotations/ - Annotation processing"]
-        Render["render/ - Series, overlays, labels"]
+        Render["render/ - frameRender pass graph, series prepare/draw, overlays"]
       end
 
       Coordinator --> CoordModules
-      
+
       PipelineCacheCreate -. "optional" .-> Coordinator
       Coordinator -. "forwards pipelineCache" .-> RenderersModule
       Coordinator -. "forwards pipelineCache" .-> GPU
@@ -84,10 +88,18 @@ flowchart TB
       Coordinator --> Layout["GridArea layout"]
       Coordinator --> Scales["xScale/yScale - clip space for render"]
       Coordinator --> DataUpload["createDataStore(device) - GPU buffer upload/caching"]
-      Coordinator --> DensityCompute["Encode + submit compute pass - scatter density mode"]
-      PipelineCacheCreate -. "caches compute pipelines" .-> DensityCompute
-      DensityCompute --> RenderPass["Encode + submit render pass"]
-      PipelineCacheCreate -. "caches render pipelines" .-> RenderPass
+
+      subgraph FrameGraph["GPU frame graph - planGpuFrame / encode"]
+        Coordinator --> ComputePasses["Compute: scatter density + line decimation"]
+        PipelineCacheCreate -. "caches compute pipelines" .-> ComputePasses
+        ComputePasses --> MainPass["Main scene pass - 4× MSAA series + grid"]
+        PipelineCacheCreate -. "caches render pipelines" .-> MainPass
+        MainPass --> Resolve["Resolve to mainResolveTexture"]
+        Resolve --> HairlinePass["Optional dense hairline - sampleCount 1"]
+        HairlinePass --> OverlayPass["Overlay pass - 4× MSAA blit + annotations + axes/UI"]
+        Resolve -.->|"no dense hairline"| OverlayPass
+        OverlayPass --> Submit["submitBatcher - one queue.submit"]
+      end
 
       subgraph InternalOverlays["Internal interaction overlays"]
         Coordinator --> Events["createEventManager(canvas, gridArea)"]
@@ -99,33 +111,41 @@ flowchart TB
   end
 
   subgraph GPURenderers["GPU renderers - src/renderers/*"]
-    RenderPass --> GridR["Grid"]
-    RenderPass --> AreaR["Area"]
-    RenderPass --> BarR["Bar"]
-    RenderPass --> ScatterR["Scatter"]
-    RenderPass --> ScatterDensityR["Scatter density/heatmap"]
-    RenderPass --> LineR["Line"]
-    RenderPass --> PieR["Pie"]
-    RenderPass --> CandlestickR["Candlestick"]
-    RenderPass --> ReferenceLineR["Reference lines"]
-    RenderPass --> AnnotationMarkerR["Annotation markers"]
-    RenderPass --> CrosshairR["Crosshair overlay"]
-    RenderPass --> HighlightR["Hover highlight overlay"]
-    RenderPass --> AxisR["Axes/ticks"]
+    MainPass --> GridR["Grid"]
+    MainPass --> AreaR["Area"]
+    MainPass --> BarR["Bar"]
+    MainPass --> ScatterR["Scatter"]
+    MainPass --> ScatterDensityR["Scatter density/heatmap"]
+    MainPass --> LineR["Line - AA quads"]
+    HairlinePass --> LineHairline["Line - dense hairline line-list"]
+    MainPass --> PieR["Pie"]
+    MainPass --> CandlestickR["Candlestick"]
+    MainPass --> ReferenceLineR["Reference lines"]
+    MainPass --> AnnotationMarkerR["Annotation markers - below"]
+    OverlayPass --> AnnotationAbove["Annotation markers - above"]
+    OverlayPass --> CrosshairR["Crosshair overlay"]
+    OverlayPass --> HighlightR["Hover highlight overlay"]
+    OverlayPass --> AxisR["Axes/ticks"]
+    ComputePasses --> DecimationC["Decimation compute"]
+    ComputePasses --> DensityC["Scatter density compute"]
   end
 
   subgraph Shaders["WGSL shaders - src/shaders/*"]
     GridR --> gridWGSL["grid.wgsl"]
+    AxisR --> gridWGSL
     AreaR --> areaWGSL["area.wgsl"]
     BarR --> barWGSL["bar.wgsl"]
     ScatterR --> scatterWGSL["scatter.wgsl"]
-    ScatterDensityR --> scatterDensityBinningWGSL["scatterDensityBinning.wgsl"]
+    DensityC --> scatterDensityBinningWGSL["scatterDensityBinning.wgsl"]
     ScatterDensityR --> scatterDensityColormapWGSL["scatterDensityColormap.wgsl"]
     LineR --> lineWGSL["line.wgsl"]
+    LineHairline --> lineWGSL
+    DecimationC --> decimationWGSL["decimation.wgsl"]
     PieR --> pieWGSL["pie.wgsl"]
     CandlestickR --> candlestickWGSL["candlestick.wgsl"]
     ReferenceLineR --> referenceLineWGSL["referenceLine.wgsl"]
     AnnotationMarkerR --> annotationMarkerWGSL["annotationMarker.wgsl"]
+    AnnotationAbove --> annotationMarkerWGSL
     CrosshairR --> crosshairWGSL["crosshair.wgsl"]
     HighlightR --> highlightWGSL["highlight.wgsl"]
   end
@@ -151,16 +171,19 @@ flowchart TB
 | **ChartGPU** | `src/ChartGPU.ts` | Factory + instance lifecycle, canvas management, public events |
 | **GPUContext** | `src/core/GPUContext.ts` | WebGPU adapter/device/context initialization |
 | **PipelineCache (optional)** | `src/core/PipelineCache.ts` | Shared cache for `GPUShaderModule`, `GPURenderPipeline`, and `GPUComputePipeline` across charts on the same `GPUDevice` (opt-in via `ChartGPU.create(..., { pipelineCache })`) |
-| **Render Coordinator** | `src/core/createRenderCoordinator.ts` | Layout, scales, data upload, **3-pass MSAA rendering** (main scene @ 4x MSAA → blit → overlay) |
-| **Coordinator Modules** | `src/core/renderCoordinator/*` | 11 specialized modules (utils, gpu/textureManager with 4x MSAA, renderers, data, zoom, animation, interaction, ui, axis, annotations, render) |
-| **GPU Renderers** | `src/renderers/*` | Series-type-specific WebGPU pipeline renderers (main-pass @ 4x MSAA, overlay @ 1x) |
-| **WGSL Shaders** | `src/shaders/*` | Vertex/fragment/compute shaders (line shader uses screen-space quad expansion + SDF anti-aliasing) |
+| **Submit batcher** | `src/core/gpu/submitBatcher.ts` | Microtask-coalesced `queue.submit` across charts on the same device |
+| **Render Coordinator shell** | `src/core/createRenderCoordinator.ts` | Public factory re-export |
+| **Render Coordinator impl** | `src/core/renderCoordinator/createRenderCoordinatorImpl.ts` | Composition root: layout, scales, options, DOM overlays, orchestrates encode |
+| **Frame / pass graph** | `src/core/renderCoordinator/render/frameRender.ts` | `planGpuFrame`, compute encode helpers, series pass ownership |
+| **Coordinator Modules** | `src/core/renderCoordinator/*` | Domain modules: utils, gpu/textureManager (main 4× / overlay 4× MSAA), renderers (+ decimation pool), data (display resolve / append policy / flush), zoom, animation, interaction, ui, axis, annotations, render (series + overlays) |
+| **GPU Renderers** | `src/renderers/*` | Series-type pipelines (main scene @ 4× or 1×); overlay axes/crosshair/highlight/above-annotations @ matching MSAA; optional dense-hairline `line-list` @ sampleCount 1; decimation compute |
+| **WGSL Shaders** | `src/shaders/*` | Vertex/fragment/compute shaders (line: screen-space quad expansion + SDF AA; `decimation.wgsl` for GPU sampling; axis shares `grid.wgsl`) |
 | **Chart Sync** | `src/interaction/createChartSync.ts` | Multi-chart crosshair and zoom synchronization |
-| **Data Store** | `src/data/createDataStore.ts` | GPU buffer upload, caching, geometric growth |
+| **Data Store** | `src/data/createDataStore.ts` | GPU buffer upload, caching, geometric growth, ranged append |
 | **External Render Mode** | `src/ChartGPU.ts` | `renderFrame()`, `needsRender()`, `setRenderMode()` — application-driven render scheduling for multi-chart dashboards |
 
 ## Further Reading
 
-- [INTERNALS.md](api/INTERNALS.md) — Deep internal notes for contributors (data store, renderers, coordinator modules)
-- [Performance Guide](performance.md) — Sampling, zoom-aware resampling, streaming best practices
+- [INTERNALS.md](api/INTERNALS.md) — Deep internal notes for contributors (data store, renderers, coordinator modules, upload/decimation contracts)
+- [Performance Guide](performance.md) — Sampling, GPU decimation, zoom-aware resampling, streaming best practices
 - [API Documentation](api/README.md) — Full public API reference

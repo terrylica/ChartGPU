@@ -1,8 +1,6 @@
-import type { OHLCDataPoint, OHLCDataPointTuple } from "../config/types";
+import type { OHLCDataPoint, OHLCDataPointTuple } from '../config/types';
 
-function isTupleOHLCDataPoint(
-  point: OHLCDataPoint,
-): point is OHLCDataPointTuple {
+function isTupleOHLCDataPoint(point: OHLCDataPoint): point is OHLCDataPointTuple {
   return Array.isArray(point);
 }
 
@@ -52,10 +50,7 @@ export function ohlcSample(data: ReadonlyArray<OHLCDataPoint>, targetPoints: num
     for (let bucket = 0; bucket < threshold - 2; bucket++) {
       // Bucket range: [rangeStart, rangeEndExclusive)
       let rangeStart = Math.floor(bucketSize * bucket) + 1;
-      let rangeEndExclusive = Math.min(
-        Math.floor(bucketSize * (bucket + 1)) + 1,
-        n - 1,
-      );
+      let rangeEndExclusive = Math.min(Math.floor(bucketSize * (bucket + 1)) + 1, n - 1);
 
       // Defensive: ensure at least one candidate point.
       if (rangeStart >= rangeEndExclusive) {
@@ -86,17 +81,12 @@ export function ohlcSample(data: ReadonlyArray<OHLCDataPoint>, targetPoints: num
     }
   } else {
     // Object format path: { timestamp, open, close, low, high }
-    const dataAsObjects = data as ReadonlyArray<
-      Exclude<OHLCDataPoint, OHLCDataPointTuple>
-    >;
+    const dataAsObjects = data as ReadonlyArray<Exclude<OHLCDataPoint, OHLCDataPointTuple>>;
 
     for (let bucket = 0; bucket < threshold - 2; bucket++) {
       // Bucket range: [rangeStart, rangeEndExclusive)
       let rangeStart = Math.floor(bucketSize * bucket) + 1;
-      let rangeEndExclusive = Math.min(
-        Math.floor(bucketSize * (bucket + 1)) + 1,
-        n - 1,
-      );
+      let rangeEndExclusive = Math.min(Math.floor(bucketSize * (bucket + 1)) + 1, n - 1);
 
       // Defensive: ensure at least one candidate point.
       if (rangeStart >= rangeEndExclusive) {

@@ -1,36 +1,25 @@
 // @vitest-environment jsdom
-import {
-  describe,
-  it,
-  expect,
-  vi,
-  beforeAll,
-  beforeEach,
-  afterAll,
-} from "vitest";
-import { createInsideZoom } from "../createInsideZoom";
-import type { EventManager, ChartGPUEventPayload } from "../createEventManager";
-import type { ZoomState } from "../createZoomState";
-import type { ZoomRange } from "../createZoomState";
+import { describe, it, expect, vi, beforeAll, beforeEach, afterAll } from 'vitest';
+import { createInsideZoom } from '../createInsideZoom';
+import type { EventManager, ChartGPUEventPayload } from '../createEventManager';
+import type { ZoomState } from '../createZoomState';
+import type { ZoomRange } from '../createZoomState';
 
 // Mock navigator.maxTouchPoints so isTouchDevice evaluates to true in tests.
 let originalMaxTouchPoints: PropertyDescriptor | undefined;
 beforeAll(() => {
-  originalMaxTouchPoints = Object.getOwnPropertyDescriptor(
-    navigator,
-    "maxTouchPoints",
-  );
-  Object.defineProperty(navigator, "maxTouchPoints", {
+  originalMaxTouchPoints = Object.getOwnPropertyDescriptor(navigator, 'maxTouchPoints');
+  Object.defineProperty(navigator, 'maxTouchPoints', {
     value: 10,
     configurable: true,
   });
 });
 afterAll(() => {
   if (originalMaxTouchPoints) {
-    Object.defineProperty(navigator, "maxTouchPoints", originalMaxTouchPoints);
+    Object.defineProperty(navigator, 'maxTouchPoints', originalMaxTouchPoints);
   } else {
     // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
-    delete (navigator as unknown as Record<string, unknown>)["maxTouchPoints"];
+    delete (navigator as unknown as Record<string, unknown>)['maxTouchPoints'];
   }
 });
 
@@ -54,11 +43,9 @@ function createMockEventManager(): EventManager & {
   const canvasListeners: Record<string, EventListener[]> = {};
 
   const canvas = {
-    addEventListener: vi.fn(
-      (type: string, listener: EventListener, _opts?: unknown) => {
-        (canvasListeners[type] ??= []).push(listener);
-      },
-    ),
+    addEventListener: vi.fn((type: string, listener: EventListener, _opts?: unknown) => {
+      (canvasListeners[type] ??= []).push(listener);
+    }),
     removeEventListener: vi.fn((type: string, listener: EventListener) => {
       const list = canvasListeners[type];
       if (list) {
@@ -92,10 +79,10 @@ function createMockEventManager(): EventManager & {
     }),
     updateGridArea: vi.fn(),
     dispose: vi.fn(),
-    simulatePointerDown: (e) => fireCanvasEvent("pointerdown", e),
-    simulatePointerMove: (e) => fireCanvasEvent("pointermove", e),
-    simulatePointerUp: (e) => fireCanvasEvent("pointerup", e),
-    simulatePointerCancel: (e) => fireCanvasEvent("pointercancel", e),
+    simulatePointerDown: (e) => fireCanvasEvent('pointerdown', e),
+    simulatePointerMove: (e) => fireCanvasEvent('pointermove', e),
+    simulatePointerUp: (e) => fireCanvasEvent('pointerup', e),
+    simulatePointerCancel: (e) => fireCanvasEvent('pointercancel', e),
     fireMouseMove: (p) => {
       for (const cb of cbs.mousemove) cb(p);
     },
@@ -105,9 +92,7 @@ function createMockEventManager(): EventManager & {
   };
 }
 
-function createMockZoomState(
-  initial: ZoomRange = { start: 0, end: 100 },
-): ZoomState & {
+function createMockZoomState(initial: ZoomRange = { start: 0, end: 100 }): ZoomState & {
   range: ZoomRange;
   panCalls: number[];
   zoomInCalls: Array<{ center: number; factor: number }>;
@@ -147,9 +132,7 @@ function createMockZoomState(
   };
 }
 
-function makePayload(
-  overrides: Partial<ChartGPUEventPayload> = {},
-): ChartGPUEventPayload {
+function makePayload(overrides: Partial<ChartGPUEventPayload> = {}): ChartGPUEventPayload {
   return {
     x: 400,
     y: 300,
@@ -159,7 +142,7 @@ function makePayload(
     plotHeightCss: 520,
     isInGrid: true,
     originalEvent: {
-      pointerType: "mouse",
+      pointerType: 'mouse',
       shiftKey: false,
       buttons: 0,
     } as unknown as PointerEvent,
@@ -167,11 +150,9 @@ function makePayload(
   };
 }
 
-function makeTouchPointerEvent(
-  overrides: Partial<PointerEvent> = {},
-): Partial<PointerEvent> {
+function makeTouchPointerEvent(overrides: Partial<PointerEvent> = {}): Partial<PointerEvent> {
   return {
-    pointerType: "touch",
+    pointerType: 'touch',
     pointerId: 1,
     clientX: 400,
     clientY: 300,
@@ -185,7 +166,7 @@ function makeTouchPointerEvent(
 
 // --- Task 1: Touch pointer tracking -----------------------------------
 
-describe("createInsideZoom - touch pointer tracking", () => {
+describe('createInsideZoom - touch pointer tracking', () => {
   let em: ReturnType<typeof createMockEventManager>;
   let zs: ReturnType<typeof createMockZoomState>;
 
@@ -194,13 +175,13 @@ describe("createInsideZoom - touch pointer tracking", () => {
     zs = createMockZoomState();
   });
 
-  it("does not track mouse pointers in activePointers", () => {
+  it('does not track mouse pointers in activePointers', () => {
     const zoom = createInsideZoom(em, zs);
     zoom.enable();
 
     // Simulate a mouse pointerdown -- should not trigger touch tracking.
     em.simulatePointerDown({
-      pointerType: "mouse",
+      pointerType: 'mouse',
       pointerId: 1,
       clientX: 400,
       clientY: 300,
@@ -212,7 +193,7 @@ describe("createInsideZoom - touch pointer tracking", () => {
 
     // Simulate a mouse pointermove -- should not result in any touch pan.
     em.simulatePointerMove({
-      pointerType: "mouse",
+      pointerType: 'mouse',
       pointerId: 1,
       clientX: 450,
       clientY: 300,
@@ -228,7 +209,7 @@ describe("createInsideZoom - touch pointer tracking", () => {
     zoom.dispose();
   });
 
-  it("tracks touch pointerdown and cleans up on pointerup", () => {
+  it('tracks touch pointerdown and cleans up on pointerup', () => {
     const zoom = createInsideZoom(em, zs);
     zoom.enable();
 
@@ -244,52 +225,38 @@ describe("createInsideZoom - touch pointer tracking", () => {
     expect(downEvt.preventDefault).toHaveBeenCalled();
 
     // Move to confirm tracking is active (single finger should pan).
-    em.simulatePointerMove(
-      makeTouchPointerEvent({ pointerId: 5, clientX: 250, clientY: 300 }),
-    );
+    em.simulatePointerMove(makeTouchPointerEvent({ pointerId: 5, clientX: 250, clientY: 300 }));
     expect(zs.panCalls.length).toBeGreaterThan(0);
 
     // Lift the finger.
-    em.simulatePointerUp(
-      makeTouchPointerEvent({ pointerId: 5, clientX: 250, clientY: 300 }),
-    );
+    em.simulatePointerUp(makeTouchPointerEvent({ pointerId: 5, clientX: 250, clientY: 300 }));
 
     // Reset panCalls and move again -- should NOT pan because pointer was cleaned up.
     zs.panCalls.length = 0;
-    em.simulatePointerMove(
-      makeTouchPointerEvent({ pointerId: 5, clientX: 300, clientY: 300 }),
-    );
+    em.simulatePointerMove(makeTouchPointerEvent({ pointerId: 5, clientX: 300, clientY: 300 }));
     expect(zs.panCalls).toHaveLength(0);
 
     zoom.dispose();
   });
 
-  it("cleans up on pointercancel", () => {
+  it('cleans up on pointercancel', () => {
     const zoom = createInsideZoom(em, zs);
     zoom.enable();
 
     em.fireMouseMove(makePayload({ isInGrid: true }));
 
-    em.simulatePointerDown(
-      makeTouchPointerEvent({ pointerId: 7, clientX: 200, clientY: 300 }),
-    );
+    em.simulatePointerDown(makeTouchPointerEvent({ pointerId: 7, clientX: 200, clientY: 300 }));
 
     // Move to confirm tracking is active.
-    em.simulatePointerMove(
-      makeTouchPointerEvent({ pointerId: 7, clientX: 250, clientY: 300 }),
-    );
+    em.simulatePointerMove(makeTouchPointerEvent({ pointerId: 7, clientX: 250, clientY: 300 }));
     expect(zs.panCalls.length).toBeGreaterThan(0);
 
     // Cancel the pointer.
-    em.simulatePointerCancel(
-      makeTouchPointerEvent({ pointerId: 7, clientX: 250, clientY: 300 }),
-    );
+    em.simulatePointerCancel(makeTouchPointerEvent({ pointerId: 7, clientX: 250, clientY: 300 }));
 
     // Reset panCalls and move again -- should NOT pan.
     zs.panCalls.length = 0;
-    em.simulatePointerMove(
-      makeTouchPointerEvent({ pointerId: 7, clientX: 300, clientY: 300 }),
-    );
+    em.simulatePointerMove(makeTouchPointerEvent({ pointerId: 7, clientX: 300, clientY: 300 }));
     expect(zs.panCalls).toHaveLength(0);
 
     zoom.dispose();
@@ -298,7 +265,7 @@ describe("createInsideZoom - touch pointer tracking", () => {
 
 // --- Task 2: Single-finger touch pan ----------------------------------
 
-describe("createInsideZoom - single-finger touch pan", () => {
+describe('createInsideZoom - single-finger touch pan', () => {
   let em: ReturnType<typeof createMockEventManager>;
   let zs: ReturnType<typeof createMockZoomState>;
 
@@ -307,7 +274,7 @@ describe("createInsideZoom - single-finger touch pan", () => {
     zs = createMockZoomState({ start: 20, end: 80 });
   });
 
-  it("pans on single-finger horizontal drag", () => {
+  it('pans on single-finger horizontal drag', () => {
     const zoom = createInsideZoom(em, zs);
     zoom.enable();
 
@@ -315,12 +282,8 @@ describe("createInsideZoom - single-finger touch pan", () => {
     em.fireMouseMove(makePayload({ isInGrid: true, plotWidthCss: 720 }));
 
     // Touch down at x=400, then move right to x=472 (72px rightward drag).
-    em.simulatePointerDown(
-      makeTouchPointerEvent({ pointerId: 1, clientX: 400, clientY: 300 }),
-    );
-    em.simulatePointerMove(
-      makeTouchPointerEvent({ pointerId: 1, clientX: 472, clientY: 300 }),
-    );
+    em.simulatePointerDown(makeTouchPointerEvent({ pointerId: 1, clientX: 400, clientY: 300 }));
+    em.simulatePointerMove(makeTouchPointerEvent({ pointerId: 1, clientX: 472, clientY: 300 }));
 
     // Rightward drag => negative delta (pan left to show earlier data).
     // dxCss = 72, span = 60, plotWidthCss = 720
@@ -331,49 +294,37 @@ describe("createInsideZoom - single-finger touch pan", () => {
     zoom.dispose();
   });
 
-  it("does not pan when pointerdown is outside grid", () => {
+  it('does not pan when pointerdown is outside grid', () => {
     const zoom = createInsideZoom(em, zs);
     zoom.enable();
 
     // Mark cursor as outside grid.
     em.fireMouseMove(makePayload({ isInGrid: false }));
 
-    em.simulatePointerDown(
-      makeTouchPointerEvent({ pointerId: 1, clientX: 400, clientY: 300 }),
-    );
-    em.simulatePointerMove(
-      makeTouchPointerEvent({ pointerId: 1, clientX: 472, clientY: 300 }),
-    );
+    em.simulatePointerDown(makeTouchPointerEvent({ pointerId: 1, clientX: 400, clientY: 300 }));
+    em.simulatePointerMove(makeTouchPointerEvent({ pointerId: 1, clientX: 472, clientY: 300 }));
 
     expect(zs.panCalls).toHaveLength(0);
 
     zoom.dispose();
   });
 
-  it("stops panning when finger lifts", () => {
+  it('stops panning when finger lifts', () => {
     const zoom = createInsideZoom(em, zs);
     zoom.enable();
 
     em.fireMouseMove(makePayload({ isInGrid: true, plotWidthCss: 720 }));
 
-    em.simulatePointerDown(
-      makeTouchPointerEvent({ pointerId: 1, clientX: 400, clientY: 300 }),
-    );
-    em.simulatePointerMove(
-      makeTouchPointerEvent({ pointerId: 1, clientX: 450, clientY: 300 }),
-    );
+    em.simulatePointerDown(makeTouchPointerEvent({ pointerId: 1, clientX: 400, clientY: 300 }));
+    em.simulatePointerMove(makeTouchPointerEvent({ pointerId: 1, clientX: 450, clientY: 300 }));
     expect(zs.panCalls.length).toBeGreaterThan(0);
 
     // Lift finger.
-    em.simulatePointerUp(
-      makeTouchPointerEvent({ pointerId: 1, clientX: 450, clientY: 300 }),
-    );
+    em.simulatePointerUp(makeTouchPointerEvent({ pointerId: 1, clientX: 450, clientY: 300 }));
 
     // Reset and move again.
     zs.panCalls.length = 0;
-    em.simulatePointerMove(
-      makeTouchPointerEvent({ pointerId: 1, clientX: 500, clientY: 300 }),
-    );
+    em.simulatePointerMove(makeTouchPointerEvent({ pointerId: 1, clientX: 500, clientY: 300 }));
     expect(zs.panCalls).toHaveLength(0);
 
     zoom.dispose();
@@ -382,7 +333,7 @@ describe("createInsideZoom - single-finger touch pan", () => {
 
 // --- Task 3: Pinch-to-zoom -------------------------------------------
 
-describe("createInsideZoom - pinch-to-zoom", () => {
+describe('createInsideZoom - pinch-to-zoom', () => {
   let em: ReturnType<typeof createMockEventManager>;
   let zs: ReturnType<typeof createMockZoomState>;
 
@@ -391,27 +342,19 @@ describe("createInsideZoom - pinch-to-zoom", () => {
     zs = createMockZoomState({ start: 20, end: 80 });
   });
 
-  it("zooms in when fingers spread apart", () => {
+  it('zooms in when fingers spread apart', () => {
     const zoom = createInsideZoom(em, zs);
     zoom.enable();
 
     em.fireMouseMove(makePayload({ isInGrid: true, plotWidthCss: 720 }));
 
     // Two fingers down, 100px apart horizontally.
-    em.simulatePointerDown(
-      makeTouchPointerEvent({ pointerId: 1, clientX: 350, clientY: 300 }),
-    );
-    em.simulatePointerDown(
-      makeTouchPointerEvent({ pointerId: 2, clientX: 450, clientY: 300 }),
-    );
+    em.simulatePointerDown(makeTouchPointerEvent({ pointerId: 1, clientX: 350, clientY: 300 }));
+    em.simulatePointerDown(makeTouchPointerEvent({ pointerId: 2, clientX: 450, clientY: 300 }));
 
     // Spread to 200px apart.
-    em.simulatePointerMove(
-      makeTouchPointerEvent({ pointerId: 1, clientX: 300, clientY: 300 }),
-    );
-    em.simulatePointerMove(
-      makeTouchPointerEvent({ pointerId: 2, clientX: 500, clientY: 300 }),
-    );
+    em.simulatePointerMove(makeTouchPointerEvent({ pointerId: 1, clientX: 300, clientY: 300 }));
+    em.simulatePointerMove(makeTouchPointerEvent({ pointerId: 2, clientX: 500, clientY: 300 }));
 
     expect(zs.zoomInCalls.length).toBeGreaterThan(0);
     expect(zs.zoomOutCalls).toHaveLength(0);
@@ -419,27 +362,19 @@ describe("createInsideZoom - pinch-to-zoom", () => {
     zoom.dispose();
   });
 
-  it("zooms out when fingers pinch together", () => {
+  it('zooms out when fingers pinch together', () => {
     const zoom = createInsideZoom(em, zs);
     zoom.enable();
 
     em.fireMouseMove(makePayload({ isInGrid: true, plotWidthCss: 720 }));
 
     // Two fingers down, 200px apart.
-    em.simulatePointerDown(
-      makeTouchPointerEvent({ pointerId: 1, clientX: 300, clientY: 300 }),
-    );
-    em.simulatePointerDown(
-      makeTouchPointerEvent({ pointerId: 2, clientX: 500, clientY: 300 }),
-    );
+    em.simulatePointerDown(makeTouchPointerEvent({ pointerId: 1, clientX: 300, clientY: 300 }));
+    em.simulatePointerDown(makeTouchPointerEvent({ pointerId: 2, clientX: 500, clientY: 300 }));
 
     // Pinch to 100px apart.
-    em.simulatePointerMove(
-      makeTouchPointerEvent({ pointerId: 1, clientX: 350, clientY: 300 }),
-    );
-    em.simulatePointerMove(
-      makeTouchPointerEvent({ pointerId: 2, clientX: 450, clientY: 300 }),
-    );
+    em.simulatePointerMove(makeTouchPointerEvent({ pointerId: 1, clientX: 350, clientY: 300 }));
+    em.simulatePointerMove(makeTouchPointerEvent({ pointerId: 2, clientX: 450, clientY: 300 }));
 
     expect(zs.zoomOutCalls.length).toBeGreaterThan(0);
     expect(zs.zoomInCalls).toHaveLength(0);
@@ -447,31 +382,21 @@ describe("createInsideZoom - pinch-to-zoom", () => {
     zoom.dispose();
   });
 
-  it("centers zoom on finger midpoint", () => {
+  it('centers zoom on finger midpoint', () => {
     const zoom = createInsideZoom(em, zs);
     zoom.enable();
 
-    em.fireMouseMove(
-      makePayload({ isInGrid: true, plotWidthCss: 720, gridX: 340 }),
-    );
+    em.fireMouseMove(makePayload({ isInGrid: true, plotWidthCss: 720, gridX: 340 }));
 
     // Two fingers at clientX 350 and 450; midpoint = 400.
     // Canvas bounding rect left = 0, so midpoint in canvas CSS = 400.
     // The grid area starts at gridX offset. We use lastPointer grid info.
-    em.simulatePointerDown(
-      makeTouchPointerEvent({ pointerId: 1, clientX: 350, clientY: 300 }),
-    );
-    em.simulatePointerDown(
-      makeTouchPointerEvent({ pointerId: 2, clientX: 450, clientY: 300 }),
-    );
+    em.simulatePointerDown(makeTouchPointerEvent({ pointerId: 1, clientX: 350, clientY: 300 }));
+    em.simulatePointerDown(makeTouchPointerEvent({ pointerId: 2, clientX: 450, clientY: 300 }));
 
     // Spread apart (zoom in).
-    em.simulatePointerMove(
-      makeTouchPointerEvent({ pointerId: 1, clientX: 300, clientY: 300 }),
-    );
-    em.simulatePointerMove(
-      makeTouchPointerEvent({ pointerId: 2, clientX: 500, clientY: 300 }),
-    );
+    em.simulatePointerMove(makeTouchPointerEvent({ pointerId: 1, clientX: 300, clientY: 300 }));
+    em.simulatePointerMove(makeTouchPointerEvent({ pointerId: 2, clientX: 500, clientY: 300 }));
 
     expect(zs.zoomInCalls.length).toBeGreaterThan(0);
     const call = zs.zoomInCalls[0];
@@ -482,34 +407,24 @@ describe("createInsideZoom - pinch-to-zoom", () => {
     zoom.dispose();
   });
 
-  it("transitions from pan to pinch when second finger arrives", () => {
+  it('transitions from pan to pinch when second finger arrives', () => {
     const zoom = createInsideZoom(em, zs);
     zoom.enable();
 
     em.fireMouseMove(makePayload({ isInGrid: true, plotWidthCss: 720 }));
 
     // Single finger down and drag (pan).
-    em.simulatePointerDown(
-      makeTouchPointerEvent({ pointerId: 1, clientX: 400, clientY: 300 }),
-    );
-    em.simulatePointerMove(
-      makeTouchPointerEvent({ pointerId: 1, clientX: 420, clientY: 300 }),
-    );
+    em.simulatePointerDown(makeTouchPointerEvent({ pointerId: 1, clientX: 400, clientY: 300 }));
+    em.simulatePointerMove(makeTouchPointerEvent({ pointerId: 1, clientX: 420, clientY: 300 }));
     expect(zs.panCalls.length).toBeGreaterThan(0);
 
     // Second finger arrives -- should transition to pinch mode.
     const panCountBefore = zs.panCalls.length;
-    em.simulatePointerDown(
-      makeTouchPointerEvent({ pointerId: 2, clientX: 500, clientY: 300 }),
-    );
+    em.simulatePointerDown(makeTouchPointerEvent({ pointerId: 2, clientX: 500, clientY: 300 }));
 
     // Now move fingers apart (zoom in).
-    em.simulatePointerMove(
-      makeTouchPointerEvent({ pointerId: 1, clientX: 380, clientY: 300 }),
-    );
-    em.simulatePointerMove(
-      makeTouchPointerEvent({ pointerId: 2, clientX: 540, clientY: 300 }),
-    );
+    em.simulatePointerMove(makeTouchPointerEvent({ pointerId: 1, clientX: 380, clientY: 300 }));
+    em.simulatePointerMove(makeTouchPointerEvent({ pointerId: 2, clientX: 540, clientY: 300 }));
 
     // Should zoom, not pan.
     expect(zs.zoomInCalls.length).toBeGreaterThan(0);
@@ -519,41 +434,29 @@ describe("createInsideZoom - pinch-to-zoom", () => {
     zoom.dispose();
   });
 
-  it("reverts to single-finger pan when second finger lifts", () => {
+  it('reverts to single-finger pan when second finger lifts', () => {
     const zoom = createInsideZoom(em, zs);
     zoom.enable();
 
     em.fireMouseMove(makePayload({ isInGrid: true, plotWidthCss: 720 }));
 
     // Two fingers down.
-    em.simulatePointerDown(
-      makeTouchPointerEvent({ pointerId: 1, clientX: 350, clientY: 300 }),
-    );
-    em.simulatePointerDown(
-      makeTouchPointerEvent({ pointerId: 2, clientX: 450, clientY: 300 }),
-    );
+    em.simulatePointerDown(makeTouchPointerEvent({ pointerId: 1, clientX: 350, clientY: 300 }));
+    em.simulatePointerDown(makeTouchPointerEvent({ pointerId: 2, clientX: 450, clientY: 300 }));
 
     // Pinch to verify zoom works.
-    em.simulatePointerMove(
-      makeTouchPointerEvent({ pointerId: 1, clientX: 300, clientY: 300 }),
-    );
-    em.simulatePointerMove(
-      makeTouchPointerEvent({ pointerId: 2, clientX: 500, clientY: 300 }),
-    );
+    em.simulatePointerMove(makeTouchPointerEvent({ pointerId: 1, clientX: 300, clientY: 300 }));
+    em.simulatePointerMove(makeTouchPointerEvent({ pointerId: 2, clientX: 500, clientY: 300 }));
     expect(zs.zoomInCalls.length).toBeGreaterThan(0);
 
     // Lift second finger.
-    em.simulatePointerUp(
-      makeTouchPointerEvent({ pointerId: 2, clientX: 500, clientY: 300 }),
-    );
+    em.simulatePointerUp(makeTouchPointerEvent({ pointerId: 2, clientX: 500, clientY: 300 }));
 
     // Reset tracking.
     const panCountBefore = zs.panCalls.length;
 
     // Now move the remaining finger -- should pan.
-    em.simulatePointerMove(
-      makeTouchPointerEvent({ pointerId: 1, clientX: 350, clientY: 300 }),
-    );
+    em.simulatePointerMove(makeTouchPointerEvent({ pointerId: 1, clientX: 350, clientY: 300 }));
     expect(zs.panCalls.length).toBeGreaterThan(panCountBefore);
 
     zoom.dispose();

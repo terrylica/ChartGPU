@@ -16,8 +16,8 @@
  * @module filterGapsCache
  */
 
-import type { CartesianSeriesData, DataPoint } from "../../../config/types";
-import { filterGaps, getPointCount } from "../../../data/cartesianData";
+import type { CartesianSeriesData, DataPoint } from '../../../config/types';
+import { filterGaps, getPointCount } from '../../../data/cartesianData';
 
 export type FilterGapsCache = Map<
   number,
@@ -41,7 +41,7 @@ export function createFilterGapsCache(): FilterGapsCache {
 export function getFilteredGapsCached(
   cache: FilterGapsCache,
   seriesIndex: number,
-  data: CartesianSeriesData,
+  data: CartesianSeriesData
 ): ReadonlyArray<DataPoint> {
   const pointCount = getPointCount(data);
   const hit = cache.get(seriesIndex);

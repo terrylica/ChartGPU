@@ -1,17 +1,13 @@
-import type {
-  DataPoint,
-  CartesianSeriesData,
-  DataPointTuple,
-  ScatterPointTuple,
-} from "../config/types";
+import type { DataPoint, CartesianSeriesData, DataPointTuple, ScatterPointTuple } from '../config/types';
 import type {
   ResolvedBarSeriesConfig,
   ResolvedScatterSeriesConfig,
   ResolvedSeriesConfig,
-} from "../config/OptionResolver";
-import type { LinearScale } from "../utils/scales";
-import { getPointCount, getX, getY, getSize } from "../data/cartesianData";
-import { isMonotonicNonDecreasingFiniteX } from "../core/renderCoordinator/data/computeVisibleSlice";
+} from '../config/OptionResolver';
+import type { LinearScale } from '../utils/scales';
+import { bucketStackedXKey } from '../utils/barStackKey';
+import { getPointCount, getX, getY, getSize } from '../data/cartesianData';
+import { isMonotonicNonDecreasingFiniteX } from '../core/renderCoordinator/data/computeVisibleSlice';
 
 const DEFAULT_MAX_DISTANCE_PX = 20;
 const DEFAULT_BAR_GAP = 0.01; // Minimal gap between bars within a group (was 0.1)
@@ -49,19 +45,10 @@ export type BarBounds = {
   bottom: number;
 };
 
-export function isPointInBar(
-  x: number,
-  y: number,
-  barBounds: BarBounds,
-): boolean {
+export function isPointInBar(x: number, y: number, barBounds: BarBounds): boolean {
   // Inclusive bounds.
   // Note: stacked bar segments can share edges; tie-breaking is handled by the caller.
-  return (
-    x >= barBounds.left &&
-    x <= barBounds.right &&
-    y >= barBounds.top &&
-    y <= barBounds.bottom
-  );
+  return x >= barBounds.left && x <= barBounds.right && y >= barBounds.top && y <= barBounds.bottom;
 }
 
 const clamp01 = (v: number): number => Math.min(1, Math.max(0, v));
@@ -74,21 +61,20 @@ const parsePercent = (value: string): number | null => {
 };
 
 const normalizeStackId = (stack: unknown): string => {
-  if (typeof stack !== "string") return "";
+  if (typeof stack !== 'string') return '';
   const trimmed = stack.trim();
-  return trimmed.length > 0 ? trimmed : "";
+  return trimmed.length > 0 ? trimmed : '';
 };
 
-const isTupleDataPoint = (p: DataPoint): p is DataPointTuple =>
-  Array.isArray(p);
+const isTupleDataPoint = (p: DataPoint): p is DataPointTuple => Array.isArray(p);
 
 const getPointSizeCssPx = (p: DataPoint): number | null => {
   if (isTupleDataPoint(p)) {
     const s = p[2];
-    return typeof s === "number" && Number.isFinite(s) ? s : null;
+    return typeof s === 'number' && Number.isFinite(s) ? s : null;
   }
   const s = p.size;
-  return typeof s === "number" && Number.isFinite(s) ? s : null;
+  return typeof s === 'number' && Number.isFinite(s) ? s : null;
 };
 
 const toScatterTuple = (p: DataPoint): ScatterPointTuple => {
@@ -96,34 +82,26 @@ const toScatterTuple = (p: DataPoint): ScatterPointTuple => {
   return [p.x, p.y, p.size] as const;
 };
 
-const safeCallSymbolSize = (
-  fn: (value: ScatterPointTuple) => number,
-  value: ScatterPointTuple,
-): number | null => {
+const safeCallSymbolSize = (fn: (value: ScatterPointTuple) => number, value: ScatterPointTuple): number | null => {
   try {
     const v = fn(value);
-    return typeof v === "number" && Number.isFinite(v) ? v : null;
+    return typeof v === 'number' && Number.isFinite(v) ? v : null;
   } catch {
     return null;
   }
 };
 
-const getScatterRadiusCssPx = (
-  seriesCfg: ResolvedScatterSeriesConfig,
-  p: DataPoint,
-): number => {
+const getScatterRadiusCssPx = (seriesCfg: ResolvedScatterSeriesConfig, p: DataPoint): number => {
   // Mirrors `createScatterRenderer.ts` size semantics (but stays in CSS px):
   // point.size -> series.symbolSize -> default 4px.
   const perPoint = getPointSizeCssPx(p);
   if (perPoint != null) return Math.max(0, perPoint);
 
   const seriesSymbolSize = seriesCfg.symbolSize;
-  if (typeof seriesSymbolSize === "number") {
-    return Number.isFinite(seriesSymbolSize)
-      ? Math.max(0, seriesSymbolSize)
-      : DEFAULT_SCATTER_RADIUS_CSS_PX;
+  if (typeof seriesSymbolSize === 'number') {
+    return Number.isFinite(seriesSymbolSize) ? Math.max(0, seriesSymbolSize) : DEFAULT_SCATTER_RADIUS_CSS_PX;
   }
-  if (typeof seriesSymbolSize === "function") {
+  if (typeof seriesSymbolSize === 'function') {
     const v = safeCallSymbolSize(seriesSymbolSize, toScatterTuple(p));
     return v == null ? DEFAULT_SCATTER_RADIUS_CSS_PX : Math.max(0, v);
   }
@@ -140,9 +118,7 @@ export type BarClusterSlots = Readonly<{
   stackIdBySeries: ReadonlyArray<string>;
 }>;
 
-export function computeBarClusterSlots(
-  seriesConfigs: ReadonlyArray<ResolvedBarSeriesConfig>,
-): BarClusterSlots {
+export function computeBarClusterSlots(seriesConfigs: ReadonlyArray<ResolvedBarSeriesConfig>): BarClusterSlots {
   // Cluster slots (mirrors `createBarRenderer.ts`):
   // - Each unique non-empty stackId gets a single cluster slot.
   // - Each unstacked series gets its own cluster slot.
@@ -155,7 +131,7 @@ export function computeBarClusterSlots(
     const stackId = normalizeStackId(seriesConfigs[i].stack);
     stackIdBySeries[i] = stackId;
 
-    if (stackId !== "") {
+    if (stackId !== '') {
       const existing = stackIdToClusterIndex.get(stackId);
       if (existing !== undefined) {
         clusterIndexBySeries[i] = existing;
@@ -176,9 +152,7 @@ export function computeBarClusterSlots(
   };
 }
 
-export function computeBarCategoryStep(
-  seriesConfigs: ReadonlyArray<ResolvedBarSeriesConfig>,
-): number {
+export function computeBarCategoryStep(seriesConfigs: ReadonlyArray<ResolvedBarSeriesConfig>): number {
   const xs: number[] = [];
   for (let s = 0; s < seriesConfigs.length; s++) {
     const data = seriesConfigs[s].data as CartesianSeriesData;
@@ -203,7 +177,7 @@ export function computeBarCategoryStep(
 export function computeCategoryWidthPx(
   seriesConfigs: ReadonlyArray<ResolvedBarSeriesConfig>,
   xScale: LinearScale,
-  categoryStep: number,
+  categoryStep: number
 ): number {
   // Primary path (mirrors renderer): derive width from domain step via scale().
   if (Number.isFinite(categoryStep) && categoryStep > 0) {
@@ -244,20 +218,16 @@ type BarSharedLayout = Readonly<{
   barCategoryGap?: number;
 }>;
 
-const computeSharedBarLayout = (
-  seriesConfigs: ReadonlyArray<ResolvedBarSeriesConfig>,
-): BarSharedLayout => {
+const computeSharedBarLayout = (seriesConfigs: ReadonlyArray<ResolvedBarSeriesConfig>): BarSharedLayout => {
   let barWidth: number | string | undefined = undefined;
   let barGap: number | undefined = undefined;
   let barCategoryGap: number | undefined = undefined;
 
   for (let i = 0; i < seriesConfigs.length; i++) {
     const s = seriesConfigs[i];
-    if (barWidth === undefined && s.barWidth !== undefined)
-      barWidth = s.barWidth;
+    if (barWidth === undefined && s.barWidth !== undefined) barWidth = s.barWidth;
     if (barGap === undefined && s.barGap !== undefined) barGap = s.barGap;
-    if (barCategoryGap === undefined && s.barCategoryGap !== undefined)
-      barCategoryGap = s.barCategoryGap;
+    if (barCategoryGap === undefined && s.barCategoryGap !== undefined) barCategoryGap = s.barCategoryGap;
   }
 
   return { barWidth, barGap, barCategoryGap };
@@ -274,37 +244,28 @@ export type BarLayoutPx = Readonly<{
 
 export function computeBarLayoutPx(
   seriesConfigs: ReadonlyArray<ResolvedBarSeriesConfig>,
-  xScale: LinearScale,
+  xScale: LinearScale
 ): BarLayoutPx {
   const clusterSlots = computeBarClusterSlots(seriesConfigs);
   const clusterCount = clusterSlots.clusterCount;
 
   const categoryStep = computeBarCategoryStep(seriesConfigs);
-  const categoryWidthPx = computeCategoryWidthPx(
-    seriesConfigs,
-    xScale,
-    categoryStep,
-  );
+  const categoryWidthPx = computeCategoryWidthPx(seriesConfigs, xScale, categoryStep);
 
   const layout = computeSharedBarLayout(seriesConfigs);
   const barGap = clamp01(layout.barGap ?? DEFAULT_BAR_GAP);
-  const barCategoryGap = clamp01(
-    layout.barCategoryGap ?? DEFAULT_BAR_CATEGORY_GAP,
-  );
+  const barCategoryGap = clamp01(layout.barCategoryGap ?? DEFAULT_BAR_CATEGORY_GAP);
 
-  const categoryInnerWidthPx = Math.max(
-    0,
-    categoryWidthPx * (1 - barCategoryGap),
-  );
+  const categoryInnerWidthPx = Math.max(0, categoryWidthPx * (1 - barCategoryGap));
   const denom = clusterCount + Math.max(0, clusterCount - 1) * barGap;
   const maxBarWidthPx = denom > 0 ? categoryInnerWidthPx / denom : 0;
 
   let barWidthPx = 0;
   const rawBarWidth = layout.barWidth;
-  if (typeof rawBarWidth === "number") {
+  if (typeof rawBarWidth === 'number') {
     barWidthPx = Math.max(0, rawBarWidth);
     barWidthPx = Math.min(barWidthPx, maxBarWidthPx);
-  } else if (typeof rawBarWidth === "string") {
+  } else if (typeof rawBarWidth === 'string') {
     const p = parsePercent(rawBarWidth);
     barWidthPx = p == null ? 0 : maxBarWidthPx * clamp01(p);
   }
@@ -315,8 +276,7 @@ export function computeBarLayoutPx(
   }
 
   const gapPx = barWidthPx * barGap;
-  const clusterWidthPx =
-    clusterCount * barWidthPx + Math.max(0, clusterCount - 1) * gapPx;
+  const clusterWidthPx = clusterCount * barWidthPx + Math.max(0, clusterCount - 1) * gapPx;
 
   return {
     categoryStep,
@@ -328,9 +288,7 @@ export function computeBarLayoutPx(
   };
 }
 
-const computeBaselineForBarsFromData = (
-  seriesConfigs: ReadonlyArray<ResolvedBarSeriesConfig>,
-): number => {
+const computeBaselineForBarsFromData = (seriesConfigs: ReadonlyArray<ResolvedBarSeriesConfig>): number => {
   let yMin = Number.POSITIVE_INFINITY;
   let yMax = Number.NEGATIVE_INFINITY;
 
@@ -352,7 +310,7 @@ const computeBaselineForBarsFromData = (
 
 export function inferPlotHeightPxForBarHitTesting(
   seriesConfigs: ReadonlyArray<ResolvedBarSeriesConfig>,
-  yScale: LinearScale,
+  yScale: LinearScale
 ): number {
   // We don't have direct access to the scale range endpoints, so infer the plot height in range-space.
   // In the common ChartGPU interaction setup, yScale.range(plotHeightCss, 0), so max(scaledY) should
@@ -374,7 +332,7 @@ export function inferPlotHeightPxForBarHitTesting(
 export function computeBaselineDomainAndPx(
   seriesConfigs: ReadonlyArray<ResolvedBarSeriesConfig>,
   yScale: LinearScale,
-  plotHeightPx: number,
+  plotHeightPx: number
 ): Readonly<{ baselineDomain: number; baselinePx: number }> {
   // Axis-aware baseline logic (mirrors `createBarRenderer.ts`, but in px-space):
   // Determine visible y-domain from yScale via invert(bottom/top) where top=0 and bottom=plotHeightPx.
@@ -409,32 +367,6 @@ export function computeBaselineDomainAndPx(
   return { baselineDomain, baselinePx };
 }
 
-export function bucketStackedXKey(
-  xCenterPx: number,
-  categoryWidthPx: number,
-  xDomain: number,
-  categoryStep: number,
-): number {
-  // Match renderer intent:
-  // - Prefer bucketing in *range-space* to avoid float-equality issues in domain-x.
-  // - Requirement: Math.round(xCenterPx / categoryWidthPx) (grid-local).
-  if (
-    Number.isFinite(categoryWidthPx) &&
-    categoryWidthPx > 0 &&
-    Number.isFinite(xCenterPx)
-  ) {
-    return Math.round(xCenterPx / categoryWidthPx);
-  }
-  if (
-    Number.isFinite(categoryStep) &&
-    categoryStep > 0 &&
-    Number.isFinite(xDomain)
-  ) {
-    return Math.round(xDomain / categoryStep);
-  }
-  return Math.round(xDomain * 1e6);
-}
-
 /**
  * Finds the nearest data point to the given cursor position across all series.
  *
@@ -460,13 +392,11 @@ export function findNearestPoint(
   y: number,
   xScale: LinearScale,
   yScale: LinearScale,
-  maxDistance: number = DEFAULT_MAX_DISTANCE_PX,
+  maxDistance: number = DEFAULT_MAX_DISTANCE_PX
 ): NearestPointMatch | null {
   if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
 
-  const md = Number.isFinite(maxDistance)
-    ? Math.max(0, maxDistance)
-    : DEFAULT_MAX_DISTANCE_PX;
+  const md = Number.isFinite(maxDistance) ? Math.max(0, maxDistance) : DEFAULT_MAX_DISTANCE_PX;
   const maxDistSq = md * md;
 
   const xTarget = xScale.invert(x);
@@ -486,7 +416,7 @@ export function findNearestPoint(
   const barSeriesIndexByBar: number[] = [];
   for (let s = 0; s < series.length; s++) {
     const cfg = series[s];
-    if (cfg?.type === "bar" && cfg.visible !== false) {
+    if (cfg?.type === 'bar' && cfg.visible !== false) {
       barSeriesConfigs.push(cfg);
       barSeriesIndexByBar.push(s);
     }
@@ -495,28 +425,11 @@ export function findNearestPoint(
   if (barSeriesConfigs.length > 0) {
     const layoutPx = computeBarLayoutPx(barSeriesConfigs, xScale);
     if (layoutPx.barWidthPx > 0 && layoutPx.clusterWidthPx >= 0) {
-      const plotHeightPx = inferPlotHeightPxForBarHitTesting(
-        barSeriesConfigs,
-        yScale,
-      );
-      const { baselineDomain, baselinePx } = computeBaselineDomainAndPx(
-        barSeriesConfigs,
-        yScale,
-        plotHeightPx,
-      );
+      const plotHeightPx = inferPlotHeightPxForBarHitTesting(barSeriesConfigs, yScale);
+      const { baselineDomain, baselinePx } = computeBaselineDomainAndPx(barSeriesConfigs, yScale, plotHeightPx);
 
-      const {
-        clusterSlots,
-        barWidthPx,
-        gapPx,
-        clusterWidthPx,
-        categoryWidthPx,
-        categoryStep,
-      } = layoutPx;
-      const stackSumsByStackId = new Map<
-        string,
-        Map<number, { posSum: number; negSum: number }>
-      >();
+      const { clusterSlots, barWidthPx, gapPx, clusterWidthPx, categoryWidthPx, categoryStep } = layoutPx;
+      const stackSumsByStackId = new Map<string, Map<number, { posSum: number; negSum: number }>>();
 
       let bestBarHit: {
         readonly seriesIndex: number;
@@ -532,7 +445,7 @@ export function findNearestPoint(
         const data = seriesCfg.data as CartesianSeriesData;
         const n = getPointCount(data);
         const clusterIndex = clusterSlots.clusterIndexBySeries[b] ?? 0;
-        const stackId = clusterSlots.stackIdBySeries[b] ?? "";
+        const stackId = clusterSlots.stackIdBySeries[b] ?? '';
 
         for (let i = 0; i < n; i++) {
           const xDomain = getX(data, i);
@@ -542,28 +455,20 @@ export function findNearestPoint(
           const xCenterPx = xScale.scale(xDomain);
           if (!Number.isFinite(xCenterPx)) continue;
 
-          const left =
-            xCenterPx -
-            clusterWidthPx / 2 +
-            clusterIndex * (barWidthPx + gapPx);
+          const left = xCenterPx - clusterWidthPx / 2 + clusterIndex * (barWidthPx + gapPx);
           const right = left + barWidthPx;
 
           let baseDomain = baselineDomain;
           let topDomain = yDomain;
 
-          if (stackId !== "") {
+          if (stackId !== '') {
             let sumsForX = stackSumsByStackId.get(stackId);
             if (!sumsForX) {
               sumsForX = new Map<number, { posSum: number; negSum: number }>();
               stackSumsByStackId.set(stackId, sumsForX);
             }
 
-            const xKey = bucketStackedXKey(
-              xCenterPx,
-              categoryWidthPx,
-              xDomain,
-              categoryStep,
-            );
+            const xKey = bucketStackedXKey(xCenterPx, categoryWidthPx, xDomain, categoryStep);
             let sums = sumsForX.get(xKey);
             if (!sums) {
               sums = { posSum: baselineDomain, negSum: baselineDomain };
@@ -584,7 +489,7 @@ export function findNearestPoint(
             topDomain = yDomain;
           }
 
-          const basePx = stackId !== "" ? yScale.scale(baseDomain) : baselinePx;
+          const basePx = stackId !== '' ? yScale.scale(baseDomain) : baselinePx;
           const topPx = yScale.scale(topDomain);
           if (!Number.isFinite(basePx) || !Number.isFinite(topPx)) continue;
 
@@ -600,8 +505,7 @@ export function findNearestPoint(
           const isBetter =
             bestBarHit === null ||
             bounds.top < bestBarHit.top ||
-            (bounds.top === bestBarHit.top &&
-              originalSeriesIndex > bestBarHit.seriesIndex);
+            (bounds.top === bestBarHit.top && originalSeriesIndex > bestBarHit.seriesIndex);
 
           if (isBetter) {
             bestBarHit = {
@@ -614,9 +518,7 @@ export function findNearestPoint(
       }
 
       if (bestBarHit) {
-        const seriesData = series[bestBarHit.seriesIndex]?.data as
-          | CartesianSeriesData
-          | undefined;
+        const seriesData = series[bestBarHit.seriesIndex]?.data as CartesianSeriesData | undefined;
         if (seriesData) {
           const x = getX(seriesData, bestBarHit.dataIndex);
           const y = getY(seriesData, bestBarHit.dataIndex);
@@ -640,7 +542,7 @@ export function findNearestPoint(
   for (let s = 0; s < series.length; s++) {
     const seriesCfg = series[s];
     // Pie and candlestick series are non-cartesian (or not yet implemented); they don't participate in x/y nearest-point hit-testing.
-    if (seriesCfg.type === "pie" || seriesCfg.type === "candlestick") continue;
+    if (seriesCfg.type === 'pie' || seriesCfg.type === 'candlestick') continue;
 
     // Skip invisible series (matches bar series visibility check above).
     if (seriesCfg.visible === false) continue;
@@ -658,10 +560,8 @@ export function findNearestPoint(
     const n = getPointCount(data);
     if (n === 0) continue;
 
-    const isScatter = seriesCfg.type === "scatter";
-    const scatterCfg = isScatter
-      ? (seriesCfg as ResolvedScatterSeriesConfig)
-      : null;
+    const isScatter = seriesCfg.type === 'scatter';
+    const scatterCfg = isScatter ? (seriesCfg as ResolvedScatterSeriesConfig) : null;
 
     // Check if data is monotonic for O(log n) fast path
     const canBinarySearch = isMonotonicNonDecreasingFiniteX(data);

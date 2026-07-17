@@ -1,9 +1,9 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // Mock window global for SSR-safe checks in checkWebGPU
 beforeEach(() => {
-  if (typeof window === "undefined") {
-    vi.stubGlobal("window", globalThis);
+  if (typeof window === 'undefined') {
+    vi.stubGlobal('window', globalThis);
   }
 });
 
@@ -17,21 +17,21 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("checkWebGPUSupport", () => {
-  it("returns supported: true when adapter is available", async () => {
+describe('checkWebGPUSupport', () => {
+  it('returns supported: true when adapter is available', async () => {
     const mockAdapter = { features: new Set(), limits: {} };
     const requestAdapter = vi.fn().mockResolvedValue(mockAdapter);
 
-    vi.stubGlobal("navigator", { gpu: { requestAdapter } });
+    vi.stubGlobal('navigator', { gpu: { requestAdapter } });
 
-    const { checkWebGPUSupport: freshCheck } = await import("../checkWebGPU");
+    const { checkWebGPUSupport: freshCheck } = await import('../checkWebGPU');
     const result = await freshCheck();
 
     expect(result.supported).toBe(true);
     expect(result.reason).toBeUndefined();
   });
 
-  it("completes adapter check without error (smoke test for GC-safe code path)", async () => {
+  it('completes adapter check without error (smoke test for GC-safe code path)', async () => {
     let adapterRef: WeakRef<object> | null = null;
     const requestAdapter = vi.fn().mockImplementation(async () => {
       const adapter = { features: new Set(), limits: {} };
@@ -39,9 +39,9 @@ describe("checkWebGPUSupport", () => {
       return adapter;
     });
 
-    vi.stubGlobal("navigator", { gpu: { requestAdapter } });
+    vi.stubGlobal('navigator', { gpu: { requestAdapter } });
 
-    const { checkWebGPUSupport: freshCheck } = await import("../checkWebGPU");
+    const { checkWebGPUSupport: freshCheck } = await import('../checkWebGPU');
     await freshCheck();
 
     // Force GC if available (Node --expose-gc)
@@ -54,35 +54,35 @@ describe("checkWebGPUSupport", () => {
     expect(requestAdapter).toHaveBeenCalled();
   });
 
-  it("returns supported: false when no adapter available", async () => {
+  it('returns supported: false when no adapter available', async () => {
     const requestAdapter = vi.fn().mockResolvedValue(null);
 
-    vi.stubGlobal("navigator", { gpu: { requestAdapter } });
+    vi.stubGlobal('navigator', { gpu: { requestAdapter } });
 
-    const { checkWebGPUSupport: freshCheck } = await import("../checkWebGPU");
+    const { checkWebGPUSupport: freshCheck } = await import('../checkWebGPU');
     const result = await freshCheck();
 
     expect(result.supported).toBe(false);
-    expect(result.reason).toContain("No compatible WebGPU adapter");
+    expect(result.reason).toContain('No compatible WebGPU adapter');
   });
 
-  it("returns supported: false when navigator.gpu is absent", async () => {
-    vi.stubGlobal("navigator", {});
+  it('returns supported: false when navigator.gpu is absent', async () => {
+    vi.stubGlobal('navigator', {});
 
-    const { checkWebGPUSupport: freshCheck } = await import("../checkWebGPU");
+    const { checkWebGPUSupport: freshCheck } = await import('../checkWebGPU');
     const result = await freshCheck();
 
     expect(result.supported).toBe(false);
-    expect(result.reason).toContain("navigator.gpu");
+    expect(result.reason).toContain('navigator.gpu');
   });
 
-  it("memoizes the result across multiple calls", async () => {
+  it('memoizes the result across multiple calls', async () => {
     const mockAdapter = { features: new Set(), limits: {} };
     const requestAdapter = vi.fn().mockResolvedValue(mockAdapter);
 
-    vi.stubGlobal("navigator", { gpu: { requestAdapter } });
+    vi.stubGlobal('navigator', { gpu: { requestAdapter } });
 
-    const { checkWebGPUSupport: freshCheck } = await import("../checkWebGPU");
+    const { checkWebGPUSupport: freshCheck } = await import('../checkWebGPU');
     const r1 = await freshCheck();
     const r2 = await freshCheck();
 

@@ -1,4 +1,4 @@
-import type { ResolvedPieSeriesConfig } from "../config/OptionResolver";
+import type { ResolvedPieSeriesConfig } from '../config/OptionResolver';
 
 const TAU = Math.PI * 2;
 
@@ -11,7 +11,7 @@ const wrapToTau = (thetaRad: number): number => {
 export type PieSliceMatch = Readonly<{
   seriesIndex: number;
   dataIndex: number;
-  slice: ResolvedPieSeriesConfig["data"][number];
+  slice: ResolvedPieSeriesConfig['data'][number];
 }>;
 
 export type PieHitTestConfig = Readonly<{
@@ -43,7 +43,7 @@ export function findPieSlice(
   y: number,
   pieConfig: PieHitTestConfig,
   center: PieCenterCssPx,
-  radius: PieRadiusCssPx,
+  radius: PieRadiusCssPx
 ): PieSliceMatch | null {
   if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
   if (!Number.isFinite(center.x) || !Number.isFinite(center.y)) return null;
@@ -74,22 +74,14 @@ export function findPieSlice(
   for (let i = 0; i < data.length; i++) {
     const item = data[i];
     const v = item?.value;
-    if (
-      typeof v === "number" &&
-      Number.isFinite(v) &&
-      v > 0 &&
-      item.visible !== false
-    ) {
+    if (typeof v === 'number' && Number.isFinite(v) && v > 0 && item.visible !== false) {
       total += v;
       validCount++;
     }
   }
   if (!(total > 0) || validCount === 0) return null;
 
-  const startDeg =
-    typeof series.startAngle === "number" && Number.isFinite(series.startAngle)
-      ? series.startAngle
-      : 90;
+  const startDeg = typeof series.startAngle === 'number' && Number.isFinite(series.startAngle) ? series.startAngle : 90;
   let current = wrapToTau((startDeg * Math.PI) / 180);
 
   // Mirror renderer float-drift mitigation: force last slice to close the circle.
@@ -99,7 +91,7 @@ export function findPieSlice(
   for (let i = 0; i < data.length; i++) {
     const slice = data[i];
     const v = slice?.value;
-    if (typeof v !== "number" || !Number.isFinite(v) || v <= 0) continue;
+    if (typeof v !== 'number' || !Number.isFinite(v) || v <= 0) continue;
     // Skip hidden slices
     if (slice?.visible === false) continue;
 

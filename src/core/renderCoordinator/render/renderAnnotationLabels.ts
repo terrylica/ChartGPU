@@ -8,17 +8,14 @@
  * @module renderAnnotationLabels
  */
 
-import type { ResolvedChartGPUOptions } from "../../../config/OptionResolver";
-import type { LinearScale } from "../../../utils/scales";
-import type {
-  TextOverlay,
-  TextOverlayAnchor,
-} from "../../../components/createTextOverlay";
-import { parseCssColorToRgba01 } from "../../../utils/colors";
-import { clamp01 } from "../utils/axisUtils";
-import { assertUnreachable } from "../utils/dataPointUtils";
+import type { ResolvedChartGPUOptions } from '../../../config/OptionResolver';
+import type { LinearScale } from '../../../utils/scales';
+import type { TextOverlay, TextOverlayAnchor } from '../../../components/createTextOverlay';
+import { parseCssColorToRgba01 } from '../../../utils/colors';
+import { clamp01 } from '../utils/axisUtils';
+import { assertUnreachable } from '../utils/dataPointUtils';
 
-export interface AnnotationLabelRenderContext {
+interface AnnotationLabelRenderContext {
   currentOptions: ResolvedChartGPUOptions;
   xScale: LinearScale;
   yScales: Map<string, LinearScale>;
@@ -45,10 +42,8 @@ interface AnnotationLabelData {
   };
 }
 
-function isHTMLCanvasElement(
-  canvas: HTMLCanvasElement,
-): canvas is HTMLCanvasElement {
-  return "offsetLeft" in canvas;
+function isHTMLCanvasElement(canvas: HTMLCanvasElement): canvas is HTMLCanvasElement {
+  return 'offsetLeft' in canvas;
 }
 
 function clipXToCanvasCssPx(xClip: number, canvasCssWidth: number): number {
@@ -69,7 +64,7 @@ function toCssRgba(color: string, opacity01: number): string {
 }
 
 function formatNumber(n: number, decimals?: number): string {
-  if (!Number.isFinite(n)) return "";
+  if (!Number.isFinite(n)) return '';
   if (decimals == null) return String(n);
   const d = Math.min(20, Math.max(0, Math.floor(decimals)));
   return n.toFixed(d);
@@ -81,28 +76,26 @@ const templateRegex = /\{(x|y|value|name)\}/g;
 function renderTemplate(
   template: string,
   values: Readonly<{ x?: number; y?: number; value?: number; name?: string }>,
-  decimals?: number,
+  decimals?: number
 ): string {
   // PERFORMANCE: Reset regex lastIndex to ensure consistent behavior
   templateRegex.lastIndex = 0;
   return template.replace(templateRegex, (_m, key) => {
-    if (key === "name") return values.name ?? "";
+    if (key === 'name') return values.name ?? '';
     const v = (values as any)[key] as number | undefined;
-    return v == null ? "" : formatNumber(v, decimals);
+    return v == null ? '' : formatNumber(v, decimals);
   });
 }
 
-function mapAnchor(
-  anchor: "start" | "center" | "end" | undefined,
-): TextOverlayAnchor {
+function mapAnchor(anchor: 'start' | 'center' | 'end' | undefined): TextOverlayAnchor {
   switch (anchor) {
-    case "center":
-      return "middle";
-    case "end":
-      return "end";
-    case "start":
+    case 'center':
+      return 'middle';
+    case 'end':
+      return 'end';
+    case 'start':
     default:
-      return "start";
+      return 'start';
   }
 }
 
@@ -119,7 +112,7 @@ function mapAnchor(
 export function renderAnnotationLabels(
   annotationOverlay: TextOverlay | null,
   overlayContainer: HTMLElement | null,
-  context: AnnotationLabelRenderContext,
+  context: AnnotationLabelRenderContext
 ): void {
   const {
     currentOptions,
@@ -137,9 +130,7 @@ export function renderAnnotationLabels(
   // Use primary y-axis scale for annotation positioning
   const yScale = yScales.values().next().value ?? xScale;
 
-  const hasCartesianSeries = currentOptions.series.some(
-    (s) => s.type !== "pie",
-  );
+  const hasCartesianSeries = currentOptions.series.some((s) => s.type !== 'pie');
   if (!hasCartesianSeries || !annotationOverlay || !overlayContainer) {
     return;
   }
@@ -172,20 +163,20 @@ export function renderAnnotationLabels(
     const a = annotations[i]!;
 
     const labelCfg = a.label;
-    const wantsLabel = labelCfg != null || a.type === "text";
+    const wantsLabel = labelCfg != null || a.type === 'text';
     if (!wantsLabel) continue;
     // bandX regions carry no label — narrow it out of the label switch below.
-    if (a.type === "bandX") continue;
+    if (a.type === 'bandX') continue;
 
     // Compute anchor point (canvas-local CSS px)
     let anchorXCss: number | null = null;
     let anchorYCss: number | null = null;
     let values: { x?: number; y?: number; value?: number; name?: string } = {
-      name: a.id ?? "",
+      name: a.id ?? '',
     };
 
     switch (a.type) {
-      case "lineX": {
+      case 'lineX': {
         const xClip = xScale.scale(a.x);
         const xCss = clipXToCanvasCssPx(xClip, canvasCssWidthForAnnotations);
         anchorXCss = xCss;
@@ -193,7 +184,7 @@ export function renderAnnotationLabels(
         values = { ...values, x: a.x, value: a.x };
         break;
       }
-      case "lineY": {
+      case 'lineY': {
         const yClip = yScale.scale(a.y);
         const yCss = clipYToCanvasCssPx(yClip, canvasCssHeightForAnnotations);
         anchorXCss = plotLeftCss;
@@ -202,7 +193,7 @@ export function renderAnnotationLabels(
         values = { ...values, y: a.y, value: a.y };
         break;
       }
-      case "point": {
+      case 'point': {
         const xClip = xScale.scale(a.x);
         const yClip = yScale.scale(a.y);
         const xCss = clipXToCanvasCssPx(xClip, canvasCssWidthForAnnotations);
@@ -212,8 +203,8 @@ export function renderAnnotationLabels(
         values = { ...values, x: a.x, y: a.y, value: a.y };
         break;
       }
-      case "text": {
-        if (a.position.space === "data") {
+      case 'text': {
+        if (a.position.space === 'data') {
           const xClip = xScale.scale(a.position.x);
           const yClip = yScale.scale(a.position.y);
           const xCss = clipXToCanvasCssPx(xClip, canvasCssWidthForAnnotations);
@@ -244,12 +235,7 @@ export function renderAnnotationLabels(
         assertUnreachable(a);
     }
 
-    if (
-      anchorXCss == null ||
-      anchorYCss == null ||
-      !Number.isFinite(anchorXCss) ||
-      !Number.isFinite(anchorYCss)
-    ) {
+    if (anchorXCss == null || anchorYCss == null || !Number.isFinite(anchorXCss) || !Number.isFinite(anchorYCss)) {
       continue;
     }
 
@@ -277,24 +263,24 @@ export function renderAnnotationLabels(
         : labelCfg
           ? (() => {
               const defaultTemplate =
-                a.type === "lineX"
-                  ? "x={x}"
-                  : a.type === "lineY"
-                    ? "y={y}"
-                    : a.type === "point"
-                      ? "({x}, {y})"
-                      : a.type === "text"
+                a.type === 'lineX'
+                  ? 'x={x}'
+                  : a.type === 'lineY'
+                    ? 'y={y}'
+                    : a.type === 'point'
+                      ? '({x}, {y})'
+                      : a.type === 'text'
                         ? a.text
-                        : "";
-              return defaultTemplate.includes("{")
+                        : '';
+              return defaultTemplate.includes('{')
                 ? renderTemplate(defaultTemplate, values, labelCfg.decimals)
                 : defaultTemplate;
             })()
-          : a.type === "text"
+          : a.type === 'text'
             ? a.text
-            : "");
+            : '');
 
-    const trimmed = typeof text === "string" ? text.trim() : "";
+    const trimmed = typeof text === 'string' ? text.trim() : '';
     if (trimmed.length === 0) continue;
 
     const anchor = mapAnchor(labelCfg?.anchor);
@@ -302,25 +288,17 @@ export function renderAnnotationLabels(
     const fontSize = currentOptions.theme.fontSize;
 
     const bg = labelCfg?.background;
-    const bgColor =
-      bg?.color != null ? toCssRgba(bg.color, bg.opacity ?? 1) : undefined;
+    const bgColor = bg?.color != null ? toCssRgba(bg.color, bg.opacity ?? 1) : undefined;
     const padding = (() => {
       const p = bg?.padding;
-      if (typeof p === "number" && Number.isFinite(p))
-        return [p, p, p, p] as const;
-      if (
-        Array.isArray(p) &&
-        p.length === 4 &&
-        p.every((n) => typeof n === "number" && Number.isFinite(n))
-      ) {
+      if (typeof p === 'number' && Number.isFinite(p)) return [p, p, p, p] as const;
+      if (Array.isArray(p) && p.length === 4 && p.every((n) => typeof n === 'number' && Number.isFinite(n))) {
         return [p[0], p[1], p[2], p[3]] as const;
       }
       return bg ? ([2, 4, 2, 4] as const) : undefined;
     })();
     const borderRadius =
-      typeof bg?.borderRadius === "number" && Number.isFinite(bg.borderRadius)
-        ? bg.borderRadius
-        : undefined;
+      typeof bg?.borderRadius === 'number' && Number.isFinite(bg.borderRadius) ? bg.borderRadius : undefined;
 
     const labelData: AnnotationLabelData = {
       text: trimmed,
@@ -351,8 +329,8 @@ export function renderAnnotationLabels(
 
     if (labelData.background) {
       span.style.backgroundColor = labelData.background.backgroundColor;
-      span.style.display = "inline-block";
-      span.style.boxSizing = "border-box";
+      span.style.display = 'inline-block';
+      span.style.boxSizing = 'border-box';
       if (labelData.background.padding) {
         const [t, r, b, l] = labelData.background.padding;
         span.style.padding = `${t}px ${r}px ${b}px ${l}px`;

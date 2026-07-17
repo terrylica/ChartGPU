@@ -21,17 +21,13 @@ export function getAxisTitleFontSize(baseFontSize: number): number {
 /**
  * Applies consistent styling to an axis label span element.
  */
-export function styleAxisLabelSpan(
-  span: HTMLSpanElement,
-  isTitle: boolean,
-  theme: AxisLabelThemeConfig,
-): void {
+export function styleAxisLabelSpan(span: HTMLSpanElement, isTitle: boolean, theme: AxisLabelThemeConfig): void {
   // Set inline styles
-  span.dir = "auto";
+  span.dir = 'auto';
   span.style.fontFamily = theme.fontFamily;
 
   // Axis titles are bold
   if (isTitle) {
-    span.style.fontWeight = "600";
+    span.style.fontWeight = '600';
   }
 }

@@ -12,13 +12,10 @@
  * - Device mismatch guard at chart creation should throw (integration test).
  */
 
-import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { ChartGPU } from "../ChartGPU";
-import type { ChartGPUOptions } from "../config/types";
-import {
-  createPipelineCache,
-  getPipelineCacheStats,
-} from "../core/createPipelineCache";
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { ChartGPU } from '../ChartGPU';
+import type { ChartGPUOptions } from '../config/types';
+import { createPipelineCache, getPipelineCacheStats } from '../core/createPipelineCache';
 
 type Deferred<T> = {
   readonly promise: Promise<T>;
@@ -37,16 +34,16 @@ const createDeferred = <T>(): Deferred<T> => {
 };
 
 beforeAll(() => {
-  if (typeof window === "undefined") {
+  if (typeof window === 'undefined') {
     // @ts-ignore
     globalThis.window = globalThis;
   }
 
-  if (typeof document === "undefined") {
+  if (typeof document === 'undefined') {
     // @ts-ignore
     globalThis.document = {
       createElement: (tagName: string) => {
-        if (tagName === "canvas") return createMockCanvas();
+        if (tagName === 'canvas') return createMockCanvas();
         return { style: {}, appendChild: vi.fn(), removeChild: vi.fn() } as any;
       },
     } as unknown as Document;
@@ -102,7 +99,7 @@ function createMockCanvas(): HTMLCanvasElement {
       toJSON: () => ({}),
     })),
     getContext: vi.fn((contextId: string) => {
-      if (contextId !== "webgpu") return null;
+      if (contextId !== 'webgpu') return null;
       return {
         configure: vi.fn(),
         unconfigure: vi.fn(),
@@ -141,9 +138,7 @@ function createMockContainer(): HTMLElement {
   } as any;
 }
 
-function createMockDevice(opts?: {
-  readonly lost?: Promise<GPUDeviceLostInfo>;
-}): GPUDevice {
+function createMockDevice(opts?: { readonly lost?: Promise<GPUDeviceLostInfo> }): GPUDevice {
   // Use separate ID counters for different resource types to accurately simulate WebGPU object identity.
   let nextShaderModuleId = 1;
   let nextRenderPipelineId = 1;
@@ -159,19 +154,19 @@ function createMockDevice(opts?: {
     createShaderModule: vi.fn(
       ({ code, label }: GPUShaderModuleDescriptor) =>
         ({
-          __kind: "shaderModule",
+          __kind: 'shaderModule',
           __id: nextShaderModuleId++,
           code,
           label,
-        }) as any,
+        }) as any
     ),
     createRenderPipeline: vi.fn(
       (descriptor: GPURenderPipelineDescriptor) =>
         ({
-          __kind: "renderPipeline",
+          __kind: 'renderPipeline',
           __id: nextRenderPipelineId++,
           descriptor,
-        }) as any,
+        }) as any
     ),
     // Methods required by GPUContext/createChartGPU integration (shared device mode).
     destroy: vi.fn(),
@@ -184,16 +179,14 @@ function createMockDevice(opts?: {
           unmap: vi.fn(),
           getMappedRange: vi.fn(() => new ArrayBuffer(0)),
           size: 0,
-        }) as any,
+        }) as any
     ),
-    createTexture: vi.fn(
-      () => ({ destroy: vi.fn(), createView: vi.fn(() => ({})) }) as any,
-    ),
+    createTexture: vi.fn(() => ({ destroy: vi.fn(), createView: vi.fn(() => ({})) }) as any),
     createBindGroup: vi.fn(() => ({})),
     createBindGroupLayout: vi.fn(() => ({})),
     createPipelineLayout: vi.fn(() => ({})),
     createComputePipeline: vi.fn(() => ({
-      __kind: "computePipeline",
+      __kind: 'computePipeline',
       __id: nextComputePipelineId++,
     })),
     createCommandEncoder: vi.fn(() => ({
@@ -217,22 +210,22 @@ function createMockAdapter(device: GPUDevice): GPUAdapter {
 }
 
 function setupMockNavigatorGPU(adapter: GPUAdapter | null): void {
-  vi.stubGlobal("navigator", {
+  vi.stubGlobal('navigator', {
     gpu: {
       requestAdapter: vi.fn(async () => adapter),
-      getPreferredCanvasFormat: vi.fn(() => "bgra8unorm"),
+      getPreferredCanvasFormat: vi.fn(() => 'bgra8unorm'),
     },
   });
 }
 
-describe("CGPU-PIPELINE-CACHE", () => {
-  it("dedupes shader modules by exact WGSL string (strict equality)", () => {
+describe('CGPU-PIPELINE-CACHE', () => {
+  it('dedupes shader modules by exact WGSL string (strict equality)', () => {
     const device = createMockDevice();
     const cache = createPipelineCache(device);
 
-    const wgsl = "fn main() {}";
-    const m1 = cache.getOrCreateShaderModule(wgsl, "a");
-    const m2 = cache.getOrCreateShaderModule(wgsl, "b");
+    const wgsl = 'fn main() {}';
+    const m1 = cache.getOrCreateShaderModule(wgsl, 'a');
+    const m2 = cache.getOrCreateShaderModule(wgsl, 'b');
 
     expect(m1).toBe(m2);
 
@@ -243,22 +236,22 @@ describe("CGPU-PIPELINE-CACHE", () => {
     expect(stats.shaderModules.entries).toBe(1);
   });
 
-  it("dedupes render pipelines by equivalent descriptor (strict equality)", () => {
+  it('dedupes render pipelines by equivalent descriptor (strict equality)', () => {
     const device = createMockDevice();
     const cache = createPipelineCache(device);
 
-    const wgsl = "fn main() {}";
+    const wgsl = 'fn main() {}';
     const module = cache.getOrCreateShaderModule(wgsl);
 
     const desc: GPURenderPipelineDescriptor = {
-      layout: "auto",
-      vertex: { module, entryPoint: "vsMain" },
+      layout: 'auto',
+      vertex: { module, entryPoint: 'vsMain' },
       fragment: {
         module,
-        entryPoint: "fsMain",
-        targets: [{ format: "bgra8unorm" }],
+        entryPoint: 'fsMain',
+        targets: [{ format: 'bgra8unorm' }],
       },
-      primitive: { topology: "triangle-list" },
+      primitive: { topology: 'triangle-list' },
     };
 
     const p1 = cache.getOrCreateRenderPipeline(desc);
@@ -273,30 +266,30 @@ describe("CGPU-PIPELINE-CACHE", () => {
     expect(stats.renderPipelines.entries).toBe(1);
   });
 
-  it("different target format => pipeline miss, shader hit", () => {
+  it('different target format => pipeline miss, shader hit', () => {
     const device = createMockDevice();
     const cache = createPipelineCache(device);
 
-    const wgsl = "fn main() {}";
+    const wgsl = 'fn main() {}';
     const m1 = cache.getOrCreateShaderModule(wgsl);
     const p1 = cache.getOrCreateRenderPipeline({
-      layout: "auto",
-      vertex: { module: m1, entryPoint: "vsMain" },
+      layout: 'auto',
+      vertex: { module: m1, entryPoint: 'vsMain' },
       fragment: {
         module: m1,
-        entryPoint: "fsMain",
-        targets: [{ format: "bgra8unorm" }],
+        entryPoint: 'fsMain',
+        targets: [{ format: 'bgra8unorm' }],
       },
     });
 
     const m2 = cache.getOrCreateShaderModule(wgsl); // hit
     const p2 = cache.getOrCreateRenderPipeline({
-      layout: "auto",
-      vertex: { module: m2, entryPoint: "vsMain" },
+      layout: 'auto',
+      vertex: { module: m2, entryPoint: 'vsMain' },
       fragment: {
         module: m2,
-        entryPoint: "fsMain",
-        targets: [{ format: "rgba8unorm" }],
+        entryPoint: 'fsMain',
+        targets: [{ format: 'rgba8unorm' }],
       },
     });
 
@@ -316,30 +309,30 @@ describe("CGPU-PIPELINE-CACHE", () => {
     expect(stats.renderPipelines.entries).toBe(2);
   });
 
-  it("stats correctness for mixed shaderModules + renderPipelines operations", () => {
+  it('stats correctness for mixed shaderModules + renderPipelines operations', () => {
     const device = createMockDevice();
     const cache = createPipelineCache(device);
 
-    const a = cache.getOrCreateShaderModule("wgsl-a"); // miss
-    cache.getOrCreateShaderModule("wgsl-b"); // miss
-    cache.getOrCreateShaderModule("wgsl-a"); // hit
+    const a = cache.getOrCreateShaderModule('wgsl-a'); // miss
+    cache.getOrCreateShaderModule('wgsl-b'); // miss
+    cache.getOrCreateShaderModule('wgsl-a'); // hit
 
     cache.getOrCreateRenderPipeline({
-      layout: "auto",
-      vertex: { module: a, entryPoint: "vsMain" },
+      layout: 'auto',
+      vertex: { module: a, entryPoint: 'vsMain' },
       fragment: {
         module: a,
-        entryPoint: "fsMain",
-        targets: [{ format: "bgra8unorm" }],
+        entryPoint: 'fsMain',
+        targets: [{ format: 'bgra8unorm' }],
       },
     }); // miss
     cache.getOrCreateRenderPipeline({
-      layout: "auto",
-      vertex: { module: a, entryPoint: "vsMain" },
+      layout: 'auto',
+      vertex: { module: a, entryPoint: 'vsMain' },
       fragment: {
         module: a,
-        entryPoint: "fsMain",
-        targets: [{ format: "bgra8unorm" }],
+        entryPoint: 'fsMain',
+        targets: [{ format: 'bgra8unorm' }],
       },
     }); // hit
 
@@ -353,21 +346,21 @@ describe("CGPU-PIPELINE-CACHE", () => {
     expect(stats.renderPipelines.hits).toBe(1);
   });
 
-  it("device loss clears cache and resets stats", async () => {
+  it('device loss clears cache and resets stats', async () => {
     const lost = createDeferred<GPUDeviceLostInfo>();
     const device = createMockDevice({ lost: lost.promise });
     const cache = createPipelineCache(device);
 
-    const wgsl = "fn main() {}";
+    const wgsl = 'fn main() {}';
     const m1 = cache.getOrCreateShaderModule(wgsl); // miss
     cache.getOrCreateShaderModule(wgsl); // hit
     cache.getOrCreateRenderPipeline({
-      layout: "auto",
-      vertex: { module: m1, entryPoint: "vsMain" },
+      layout: 'auto',
+      vertex: { module: m1, entryPoint: 'vsMain' },
       fragment: {
         module: m1,
-        entryPoint: "fsMain",
-        targets: [{ format: "bgra8unorm" }],
+        entryPoint: 'fsMain',
+        targets: [{ format: 'bgra8unorm' }],
       },
     }); // miss
 
@@ -375,8 +368,8 @@ describe("CGPU-PIPELINE-CACHE", () => {
     expect(cache.getStats().renderPipelines.total).toBe(1);
 
     lost.resolve({
-      reason: "unknown" as GPUDeviceLostReason,
-      message: "simulated",
+      reason: 'unknown' as GPUDeviceLostReason,
+      message: 'simulated',
     } as any);
     await lost.promise;
     // Allow the `.then(...)` handler in the cache to run.
@@ -398,8 +391,8 @@ describe("CGPU-PIPELINE-CACHE", () => {
     });
   });
 
-  it("ChartGPU.create throws when pipelineCache.device !== context.device (device mismatch guard)", async () => {
-    vi.stubGlobal("devicePixelRatio", 1);
+  it('ChartGPU.create throws when pipelineCache.device !== context.device (device mismatch guard)', async () => {
+    vi.stubGlobal('devicePixelRatio', 1);
 
     const device1 = createMockDevice();
     const device2 = createMockDevice();
@@ -410,7 +403,7 @@ describe("CGPU-PIPELINE-CACHE", () => {
 
     const container = createMockContainer();
     const options: ChartGPUOptions = {
-      series: [{ type: "line", data: [{ x: 0, y: 0 }] }],
+      series: [{ type: 'line', data: [{ x: 0, y: 0 }] }],
     };
 
     await expect(
@@ -418,27 +411,27 @@ describe("CGPU-PIPELINE-CACHE", () => {
         adapter,
         device: device2,
         pipelineCache: cache,
-      }),
+      })
     ).rejects.toThrow(/pipelineCache\.device must match the GPUDevice/i);
   });
 
-  it("enforces layout: auto when pipelineCache is provided (cross-chart reuse)", () => {
+  it('enforces layout: auto when pipelineCache is provided (cross-chart reuse)', () => {
     const device = createMockDevice();
     const cache = createPipelineCache(device);
 
-    const wgsl = "fn main() {}";
+    const wgsl = 'fn main() {}';
     const module = cache.getOrCreateShaderModule(wgsl);
 
     // When pipelineCache is provided, rendererUtils forces 'layout: auto' even when
     // bindGroupLayouts are specified. This is a deliberate design choice to maximize
     // cross-chart pipeline dedupe (explicit layouts prevent cache hits even when structurally identical).
     const desc1: GPURenderPipelineDescriptor = {
-      layout: "auto",
-      vertex: { module, entryPoint: "vsMain" },
+      layout: 'auto',
+      vertex: { module, entryPoint: 'vsMain' },
       fragment: {
         module,
-        entryPoint: "fsMain",
-        targets: [{ format: "bgra8unorm" }],
+        entryPoint: 'fsMain',
+        targets: [{ format: 'bgra8unorm' }],
       },
     };
 
@@ -450,15 +443,15 @@ describe("CGPU-PIPELINE-CACHE", () => {
 
     // Verify descriptor has layout: 'auto'
     const pipelineObj = p1 as any;
-    expect(pipelineObj.descriptor.layout).toBe("auto");
+    expect(pipelineObj.descriptor.layout).toBe('auto');
   });
 
-  it("maintains separate shader module and pipeline entry counts", () => {
+  it('maintains separate shader module and pipeline entry counts', () => {
     const device = createMockDevice();
     const cache = createPipelineCache(device);
 
-    const wgsl1 = "fn main1() {}";
-    const wgsl2 = "fn main2() {}";
+    const wgsl1 = 'fn main1() {}';
+    const wgsl2 = 'fn main2() {}';
 
     const m1 = cache.getOrCreateShaderModule(wgsl1);
     const m2 = cache.getOrCreateShaderModule(wgsl2);
@@ -478,17 +471,17 @@ describe("CGPU-PIPELINE-CACHE", () => {
     expect(stats.renderPipelines.total).toBe(0);
   });
 
-  it("dedupes compute pipelines by equivalent descriptor (strict equality)", () => {
+  it('dedupes compute pipelines by equivalent descriptor (strict equality)', () => {
     const device = createMockDevice();
     const cache = createPipelineCache(device);
 
-    const wgsl = "@compute @workgroup_size(64) fn main() {}";
+    const wgsl = '@compute @workgroup_size(64) fn main() {}';
     const module = cache.getOrCreateShaderModule(wgsl);
     const layout = device.createPipelineLayout({ bindGroupLayouts: [] });
 
     const desc: GPUComputePipelineDescriptor = {
       layout,
-      compute: { module, entryPoint: "main" },
+      compute: { module, entryPoint: 'main' },
     };
 
     const p1 = cache.getOrCreateComputePipeline(desc);
@@ -503,22 +496,21 @@ describe("CGPU-PIPELINE-CACHE", () => {
     expect(stats.computePipelines.entries).toBe(1);
   });
 
-  it("compute pipeline: different entry points => separate cache entries", () => {
+  it('compute pipeline: different entry points => separate cache entries', () => {
     const device = createMockDevice();
     const cache = createPipelineCache(device);
 
-    const wgsl =
-      "@compute @workgroup_size(64) fn binPoints() {} fn reduceMax() {}";
+    const wgsl = '@compute @workgroup_size(64) fn binPoints() {} fn reduceMax() {}';
     const module = cache.getOrCreateShaderModule(wgsl);
     const layout = device.createPipelineLayout({ bindGroupLayouts: [] });
 
     const p1 = cache.getOrCreateComputePipeline({
       layout,
-      compute: { module, entryPoint: "binPoints" },
+      compute: { module, entryPoint: 'binPoints' },
     });
     const p2 = cache.getOrCreateComputePipeline({
       layout,
-      compute: { module, entryPoint: "reduceMax" },
+      compute: { module, entryPoint: 'reduceMax' },
     });
 
     expect(p1).not.toBe(p2);
@@ -530,18 +522,18 @@ describe("CGPU-PIPELINE-CACHE", () => {
     expect(stats.computePipelines.entries).toBe(2);
   });
 
-  it("device loss clears compute pipeline cache", async () => {
+  it('device loss clears compute pipeline cache', async () => {
     const lost = createDeferred<GPUDeviceLostInfo>();
     const device = createMockDevice({ lost: lost.promise });
     const cache = createPipelineCache(device);
 
-    const wgsl = "@compute @workgroup_size(64) fn main() {}";
+    const wgsl = '@compute @workgroup_size(64) fn main() {}';
     const module = cache.getOrCreateShaderModule(wgsl);
     const layout = device.createPipelineLayout({ bindGroupLayouts: [] });
 
     cache.getOrCreateComputePipeline({
       layout,
-      compute: { module, entryPoint: "main" },
+      compute: { module, entryPoint: 'main' },
     }); // miss
 
     expect(cache.getStats().computePipelines.total).toBe(1);
@@ -549,8 +541,8 @@ describe("CGPU-PIPELINE-CACHE", () => {
     expect(cache.getStats().computePipelines.entries).toBe(1);
 
     lost.resolve({
-      reason: "unknown" as GPUDeviceLostReason,
-      message: "simulated",
+      reason: 'unknown' as GPUDeviceLostReason,
+      message: 'simulated',
     } as any);
     await lost.promise;
     // Allow the `.then(...)` handler in the cache to run.
@@ -564,14 +556,14 @@ describe("CGPU-PIPELINE-CACHE", () => {
     });
   });
 
-  it("stats include computePipelines in getStats()", () => {
+  it('stats include computePipelines in getStats()', () => {
     const device = createMockDevice();
     const cache = createPipelineCache(device);
 
     const stats = cache.getStats();
 
     // Verify the computePipelines stats object exists with the correct shape.
-    expect(stats).toHaveProperty("computePipelines");
+    expect(stats).toHaveProperty('computePipelines');
     expect(stats.computePipelines).toEqual({
       total: 0,
       hits: 0,
@@ -580,7 +572,7 @@ describe("CGPU-PIPELINE-CACHE", () => {
     });
 
     // Also verify other stats sections are still present.
-    expect(stats).toHaveProperty("shaderModules");
-    expect(stats).toHaveProperty("renderPipelines");
+    expect(stats).toHaveProperty('shaderModules');
+    expect(stats).toHaveProperty('renderPipelines');
   });
 });

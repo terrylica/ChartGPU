@@ -8,20 +8,22 @@
  * @module animationHelpers
  */
 
-import type { AnimationConfig, DataPoint } from "../../../config/types";
-import type { ResolvedPieSeriesConfig } from "../../../config/OptionResolver";
-import type { EasingFunction } from "../../../utils/easing";
-import { getPointXY, isTupleDataPoint } from "../utils/dataPointUtils";
+import type { AnimationConfig, DataPoint } from '../../../config/types';
+import type { ResolvedPieSeriesConfig } from '../../../config/OptionResolver';
+import type { EasingFunction } from '../../../utils/easing';
+import { isTupleDataPoint } from '../utils/dataPointUtils';
+import { getPointCount, getX, getY } from '../../../data/cartesianData';
+import type { CartesianSeriesData } from '../../../config/types';
 
 /**
  * Intro animation phase state machine.
  */
-export type IntroPhase = "pending" | "running" | "done";
+type IntroPhase = 'pending' | 'running' | 'done';
 
 /**
  * Domain boundaries with min and max values.
  */
-export interface DomainBounds {
+interface DomainBounds {
   readonly min: number;
   readonly max: number;
 }
@@ -29,7 +31,7 @@ export interface DomainBounds {
 /**
  * Resolved animation configuration with timing and easing.
  */
-export interface ResolvedAnimationConfig {
+interface ResolvedAnimationConfig {
   readonly delayMs: number;
   readonly durationMs: number;
   readonly easing: EasingFunction;
@@ -39,11 +41,11 @@ export interface ResolvedAnimationConfig {
  * Series configuration type that supports all series types.
  */
 export type AnySeriesConfig =
-  | { readonly type: "line"; readonly data: ReadonlyArray<DataPoint> }
-  | { readonly type: "area"; readonly data: ReadonlyArray<DataPoint> }
-  | { readonly type: "bar"; readonly data: ReadonlyArray<DataPoint> }
-  | { readonly type: "scatter"; readonly data: ReadonlyArray<DataPoint> }
-  | { readonly type: "candlestick"; readonly data: ReadonlyArray<any> }
+  | { readonly type: 'line'; readonly data: ReadonlyArray<DataPoint> }
+  | { readonly type: 'area'; readonly data: ReadonlyArray<DataPoint> }
+  | { readonly type: 'bar'; readonly data: ReadonlyArray<DataPoint> }
+  | { readonly type: 'scatter'; readonly data: ReadonlyArray<DataPoint> }
+  | { readonly type: 'candlestick'; readonly data: ReadonlyArray<any> }
   | ResolvedPieSeriesConfig;
 
 /**
@@ -69,7 +71,7 @@ export function clamp01(value: number): number {
  */
 export function resolveAnimationConfig(
   animation: boolean | AnimationConfig | null | undefined,
-  getEasingFn: (name: string) => EasingFunction,
+  getEasingFn: (name: string) => EasingFunction
 ): ResolvedAnimationConfig | null {
   if (animation === false || animation == null) return null;
 
@@ -80,15 +82,12 @@ export function resolveAnimationConfig(
   const durationMsRaw = cfg.duration ?? 300;
   const delayMsRaw = cfg.delay ?? 0;
 
-  const durationMs = Number.isFinite(durationMsRaw)
-    ? Math.max(0, durationMsRaw)
-    : 300;
+  const durationMs = Number.isFinite(durationMsRaw) ? Math.max(0, durationMsRaw) : 300;
   const delayMs = Number.isFinite(delayMsRaw) ? Math.max(0, delayMsRaw) : 0;
 
   // Resolve easing (string name or function)
-  const easingConfig = cfg.easing ?? "cubicOut";
-  const easing =
-    typeof easingConfig === "string" ? getEasingFn(easingConfig) : easingConfig;
+  const easingConfig = cfg.easing ?? 'cubicOut';
+  const easing = typeof easingConfig === 'string' ? getEasingFn(easingConfig) : easingConfig;
 
   return {
     durationMs,
@@ -111,11 +110,7 @@ export function resolveAnimationConfig(
  * @param easing - Base easing function to apply after delay
  * @returns Easing function with delay incorporated
  */
-export function createEasingWithDelay(
-  delayMs: number,
-  durationMs: number,
-  easing: EasingFunction,
-): EasingFunction {
+export function createEasingWithDelay(delayMs: number, durationMs: number, easing: EasingFunction): EasingFunction {
   return (t01: number): number => {
     const t = clamp01(t01);
     const totalMs = delayMs + durationMs;
@@ -141,22 +136,19 @@ export function createEasingWithDelay(
  * @param series - Series configuration to check
  * @returns True if series has drawable content
  */
-export function hasDrawableMarks(series: AnySeriesConfig): boolean {
+function hasDrawableMarks(series: AnySeriesConfig): boolean {
   switch (series.type) {
-    case "pie": {
-      return series.data.some(
-        (it: any) =>
-          typeof it?.value === "number" &&
-          Number.isFinite(it.value) &&
-          it.value > 0,
-      );
+    case 'pie': {
+      return series.data.some((it: any) => typeof it?.value === 'number' && Number.isFinite(it.value) && it.value > 0);
     }
-    case "line":
-    case "area":
-    case "bar":
-    case "scatter":
-    case "candlestick": {
-      return series.data.length > 0;
+    case 'line':
+    case 'area':
+    case 'bar':
+    case 'scatter': {
+      return getPointCount(series.data as CartesianSeriesData) > 0;
+    }
+    case 'candlestick': {
+      return Array.isArray(series.data) ? series.data.length > 0 : getPointCount(series.data as CartesianSeriesData) > 0;
     }
     default: {
       return false;
@@ -170,9 +162,7 @@ export function hasDrawableMarks(series: AnySeriesConfig): boolean {
  * @param seriesList - Array of series configurations
  * @returns True if at least one series has drawable marks
  */
-export function hasAnyDrawableMarks(
-  seriesList: ReadonlyArray<AnySeriesConfig>,
-): boolean {
+export function hasAnyDrawableMarks(seriesList: ReadonlyArray<AnySeriesConfig>): boolean {
   for (let i = 0; i < seriesList.length; i++) {
     if (hasDrawableMarks(seriesList[i]!)) {
       return true;
@@ -189,11 +179,7 @@ export function hasAnyDrawableMarks(
  * @param t - Interpolation progress [0, 1]
  * @returns Interpolated domain
  */
-export function lerpDomain(
-  from: DomainBounds,
-  to: DomainBounds,
-  t: number,
-): DomainBounds {
+export function lerpDomain(from: DomainBounds, to: DomainBounds, t: number): DomainBounds {
   const t01 = clamp01(t);
   return {
     min: from.min + (to.min - from.min) * t01,
@@ -209,7 +195,7 @@ export function lerpDomain(
  * @param t - Interpolation progress [0, 1]
  * @returns Interpolated value
  */
-export function lerp(from: number, to: number, t: number): number {
+function lerp(from: number, to: number, t: number): number {
   return from + (to - from) * clamp01(t);
 }
 
@@ -226,39 +212,43 @@ export function lerp(from: number, to: number, t: number): number {
  * @returns Interpolated data points or null if lengths mismatch
  */
 export function interpolateCartesianData(
-  fromData: ReadonlyArray<DataPoint>,
-  toData: ReadonlyArray<DataPoint>,
+  fromData: CartesianSeriesData | ReadonlyArray<DataPoint>,
+  toData: CartesianSeriesData | ReadonlyArray<DataPoint>,
   t: number,
-  cache: DataPoint[] | null,
+  cache: DataPoint[] | null
 ): DataPoint[] | null {
-  if (fromData.length !== toData.length) return null;
-
-  const n = toData.length;
+  const n = getPointCount(toData as CartesianSeriesData);
+  if (getPointCount(fromData as CartesianSeriesData) !== n) return null;
   if (n === 0) return cache ?? [];
 
-  const out = cache && cache.length === n ? cache : new Array<DataPoint>(n);
+  const out =
+    cache && cache.length === n
+      ? cache
+      : (() => {
+          const created: DataPoint[] = new Array(n);
+          for (let i = 0; i < n; i++) {
+            created[i] = [getX(toData as CartesianSeriesData, i), 0] as DataPoint;
+          }
+          return created;
+        })();
+
   const t01 = clamp01(t);
-
-  // Determine format from first element
-  const isTuple = isTupleDataPoint(toData[0]!);
-
   for (let i = 0; i < n; i++) {
-    const fromPt = fromData[i]!;
-    const toPt = toData[i]!;
-
-    const fromXY = getPointXY(fromPt);
-    const toXY = getPointXY(toPt);
-
-    const x = lerp(fromXY.x, toXY.x, t01);
-    const y = lerp(fromXY.y, toXY.y, t01);
-
-    if (isTuple) {
-      out[i] = [x, y] as DataPoint;
+    const xFrom = getX(fromData as CartesianSeriesData, i);
+    const xTo = getX(toData as CartesianSeriesData, i);
+    const yFrom = getY(fromData as CartesianSeriesData, i);
+    const yTo = getY(toData as CartesianSeriesData, i);
+    const x = Number.isFinite(xFrom) && Number.isFinite(xTo) ? lerp(xFrom, xTo, t01) : xTo;
+    const y = Number.isFinite(yFrom) && Number.isFinite(yTo) ? lerp(yFrom, yTo, t01) : yTo;
+    const p = out[i]!;
+    if (isTupleDataPoint(p)) {
+      (p as unknown as number[])[0] = x;
+      (p as unknown as number[])[1] = y;
     } else {
-      out[i] = { x, y } as DataPoint;
+      (p as { x: number; y: number }).x = x;
+      (p as { y: number }).y = y;
     }
   }
-
   return out;
 }
 
@@ -278,7 +268,7 @@ export function interpolatePieData(
   fromSeries: ResolvedPieSeriesConfig,
   toSeries: ResolvedPieSeriesConfig,
   t: number,
-  cache: ResolvedPieSeriesConfig["data"] | null,
+  cache: ResolvedPieSeriesConfig['data'] | null
 ): ResolvedPieSeriesConfig {
   const fromData = fromSeries.data;
   const toData = toSeries.data;
@@ -298,7 +288,7 @@ export function interpolatePieData(
             // Preserve name/color from "to"; patch value per frame
             created[i] = { ...toData[i]!, value: 0 };
           }
-          return created as ResolvedPieSeriesConfig["data"];
+          return created as ResolvedPieSeriesConfig['data'];
         })();
 
   const t01 = clamp01(t);
@@ -309,12 +299,9 @@ export function interpolatePieData(
 
     // Interpolate value if both are valid numbers
     const nextValue =
-      typeof vFrom === "number" &&
-      typeof vTo === "number" &&
-      Number.isFinite(vFrom) &&
-      Number.isFinite(vTo)
+      typeof vFrom === 'number' && typeof vTo === 'number' && Number.isFinite(vFrom) && Number.isFinite(vTo)
         ? Math.max(0, lerp(vFrom, vTo, t01))
-        : typeof vTo === "number" && Number.isFinite(vTo)
+        : typeof vTo === 'number' && Number.isFinite(vTo)
           ? vTo
           : 0;
 
@@ -353,14 +340,14 @@ export function computeNextIntroPhase(
   currentPhase: IntroPhase,
   hasDrawable: boolean,
   animationEnabled: boolean,
-  retrigger: boolean = false,
+  retrigger: boolean = false
 ): IntroPhase {
-  if (retrigger && currentPhase === "done") {
-    return "pending";
+  if (retrigger && currentPhase === 'done') {
+    return 'pending';
   }
 
-  if (currentPhase === "pending" && hasDrawable && animationEnabled) {
-    return "running";
+  if (currentPhase === 'pending' && hasDrawable && animationEnabled) {
+    return 'running';
   }
 
   return currentPhase;
@@ -378,12 +365,7 @@ export function computeNextIntroPhase(
  * @param progress - Animation progress [0, 1]
  * @returns Y coordinate adjusted for intro animation
  */
-export function applyBarIntroProgress(
-  baseY: number,
-  yMin: number,
-  yMax: number,
-  progress: number,
-): number {
+export function applyBarIntroProgress(baseY: number, yMin: number, yMax: number, progress: number): number {
   const p = clamp01(progress);
 
   // Find zero line or use domain min as anchor

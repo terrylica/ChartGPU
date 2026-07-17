@@ -9,12 +9,11 @@
  * @module axisUtils
  */
 
-import type { GPUContextLike } from "../../createRenderCoordinator";
-import type { ResolvedChartGPUOptions } from "../../../config/OptionResolver";
-import type { GridArea } from "../../../renderers/createGridRenderer";
-import { parseCssColorToRgba01 } from "../../../utils/colors";
-import { normalizeDomain } from "./boundsComputation";
-import { clampInt } from "./canvasUtils";
+import type { GPUContextLike } from '../../createRenderCoordinator';
+import type { ResolvedChartGPUOptions } from '../../../config/OptionResolver';
+import type { GridArea } from '../../../renderers/createGridRenderer';
+import { parseCssColorToRgba01 } from '../../../utils/colors';
+import { clampInt } from './canvasUtils';
 
 /**
  * Computes grid area with margins and canvas dimensions for rendering layout.
@@ -28,13 +27,9 @@ import { clampInt } from "./canvasUtils";
  * @returns GridArea object with margins, canvas dimensions, and DPR
  * @throws If canvas is null or has invalid dimensions
  */
-export const computeGridArea = (
-  gpuContext: GPUContextLike,
-  options: ResolvedChartGPUOptions,
-): GridArea => {
+export const computeGridArea = (gpuContext: GPUContextLike, options: ResolvedChartGPUOptions): GridArea => {
   const canvas = gpuContext.canvas;
-  if (!canvas)
-    throw new Error("RenderCoordinator: gpuContext.canvas is required.");
+  if (!canvas) throw new Error('RenderCoordinator: gpuContext.canvas is required.');
 
   const dpr = gpuContext.devicePixelRatio ?? 1;
   const devicePixelRatio = Number.isFinite(dpr) && dpr > 0 ? dpr : 1;
@@ -46,7 +41,7 @@ export const computeGridArea = (
   if (!Number.isFinite(rawCanvasWidth) || !Number.isFinite(rawCanvasHeight)) {
     throw new Error(
       `RenderCoordinator: Invalid canvas dimensions: width=${rawCanvasWidth}, height=${rawCanvasHeight}. ` +
-        `Canvas must be initialized with finite dimensions before rendering.`,
+        `Canvas must be initialized with finite dimensions before rendering.`
     );
   }
 
@@ -84,9 +79,7 @@ export const computeGridArea = (
  * @param rgba - Array of [r, g, b, a] in range [0, 1]
  * @returns CSS rgba() string
  */
-export const rgba01ToCssRgba = (
-  rgba: readonly [number, number, number, number],
-): string => {
+const rgba01ToCssRgba = (rgba: readonly [number, number, number, number]): string => {
   const r = Math.max(0, Math.min(255, Math.round(rgba[0] * 255)));
   const g = Math.max(0, Math.min(255, Math.round(rgba[1] * 255)));
   const b = Math.max(0, Math.min(255, Math.round(rgba[2] * 255)));
@@ -102,10 +95,7 @@ export const rgba01ToCssRgba = (
  * @param alphaMultiplier - Alpha multiplier in range [0, 1]
  * @returns CSS rgba() string with modified alpha, or original color if parse fails
  */
-export const withAlpha = (
-  cssColor: string,
-  alphaMultiplier: number,
-): string => {
+export const withAlpha = (cssColor: string, alphaMultiplier: number): string => {
   const parsed = parseCssColorToRgba01(cssColor);
   if (!parsed) return cssColor;
   const a = Math.max(0, Math.min(1, parsed[3] * alphaMultiplier));
@@ -121,22 +111,14 @@ export const withAlpha = (
  * @returns Clip rect with left, right, top, bottom in range [-1, 1]
  */
 export const computePlotClipRect = (
-  gridArea: GridArea,
+  gridArea: GridArea
 ): {
   readonly left: number;
   readonly right: number;
   readonly top: number;
   readonly bottom: number;
 } => {
-  const {
-    left,
-    right,
-    top,
-    bottom,
-    canvasWidth,
-    canvasHeight,
-    devicePixelRatio,
-  } = gridArea;
+  const { left, right, top, bottom, canvasWidth, canvasHeight, devicePixelRatio } = gridArea;
 
   const plotLeft = left * devicePixelRatio;
   const plotRight = canvasWidth - right * devicePixelRatio;
@@ -162,38 +144,8 @@ export const computePlotClipRect = (
  * @param v - Value to clamp
  * @returns Clamped value
  */
-export const clamp01 = (v: number): number => Math.min(1, Math.max(0, v));
-
-/**
- * Linear interpolation between two values with clamped t.
- *
- * @param a - Start value
- * @param b - End value
- * @param t01 - Interpolation parameter in range [0, 1]
- * @returns Interpolated value
- */
-export const lerp = (a: number, b: number, t01: number): number =>
-  a + (b - a) * clamp01(t01);
-
-/**
- * Interpolates between two domains (min/max pairs).
- * Ensures result is a valid domain (min ≤ max, both finite).
- *
- * @param from - Start domain
- * @param to - End domain
- * @param t01 - Interpolation parameter in range [0, 1]
- * @returns Interpolated domain
- */
-export const lerpDomain = (
-  from: { readonly min: number; readonly max: number },
-  to: { readonly min: number; readonly max: number },
-  t01: number,
-): { readonly min: number; readonly max: number } => {
-  return normalizeDomain(
-    lerp(from.min, to.min, t01),
-    lerp(from.max, to.max, t01),
-  );
-};
+/** Canonical implementation lives in animationHelpers — re-exported for coordinate/UI importers. */
+export { clamp01 } from '../animation/animationHelpers';
 
 /**
  * Computes scissor rect in device pixels from grid margins.
@@ -203,7 +155,7 @@ export const lerpDomain = (
  * @returns Scissor rect with x, y, w, h in device pixels
  */
 export const computePlotScissorDevicePx = (
-  gridArea: GridArea,
+  gridArea: GridArea
 ): {
   readonly x: number;
   readonly y: number;
@@ -217,26 +169,10 @@ export const computePlotScissorDevicePx = (
   const plotTopDevice = gridArea.top * devicePixelRatio;
   const plotBottomDevice = canvasHeight - gridArea.bottom * devicePixelRatio;
 
-  const scissorX = clampInt(
-    Math.floor(plotLeftDevice),
-    0,
-    Math.max(0, canvasWidth),
-  );
-  const scissorY = clampInt(
-    Math.floor(plotTopDevice),
-    0,
-    Math.max(0, canvasHeight),
-  );
-  const scissorR = clampInt(
-    Math.ceil(plotRightDevice),
-    0,
-    Math.max(0, canvasWidth),
-  );
-  const scissorB = clampInt(
-    Math.ceil(plotBottomDevice),
-    0,
-    Math.max(0, canvasHeight),
-  );
+  const scissorX = clampInt(Math.floor(plotLeftDevice), 0, Math.max(0, canvasWidth));
+  const scissorY = clampInt(Math.floor(plotTopDevice), 0, Math.max(0, canvasHeight));
+  const scissorR = clampInt(Math.ceil(plotRightDevice), 0, Math.max(0, canvasWidth));
+  const scissorB = clampInt(Math.ceil(plotBottomDevice), 0, Math.max(0, canvasHeight));
   const scissorW = Math.max(0, scissorR - scissorX);
   const scissorH = Math.max(0, scissorB - scissorY);
 
@@ -250,10 +186,7 @@ export const computePlotScissorDevicePx = (
  * @param canvasCssWidth - Canvas width in CSS pixels
  * @returns X coordinate in canvas CSS pixels
  */
-export const clipXToCanvasCssPx = (
-  xClip: number,
-  canvasCssWidth: number,
-): number => ((xClip + 1) / 2) * canvasCssWidth;
+export const clipXToCanvasCssPx = (xClip: number, canvasCssWidth: number): number => ((xClip + 1) / 2) * canvasCssWidth;
 
 /**
  * Converts clip-space Y to canvas CSS pixels (from normalized [-1, 1]).
@@ -263,7 +196,5 @@ export const clipXToCanvasCssPx = (
  * @param canvasCssHeight - Canvas height in CSS pixels
  * @returns Y coordinate in canvas CSS pixels
  */
-export const clipYToCanvasCssPx = (
-  yClip: number,
-  canvasCssHeight: number,
-): number => ((1 - yClip) / 2) * canvasCssHeight;
+export const clipYToCanvasCssPx = (yClip: number, canvasCssHeight: number): number =>
+  ((1 - yClip) / 2) * canvasCssHeight;

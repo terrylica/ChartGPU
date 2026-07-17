@@ -170,3 +170,41 @@ fn fsMain(in : VSOut) -> @location(0) vec4<f32> {
   color = vec4<f32>(color.rgb, color.a * coverage);
   return color;
 }
+
+// ── Dense hairline path (group 3 @ ≥DENSE_HAIRLINE_POINT_THRESHOLD) ─────────
+// WebGPU line-list: 2 vertices per instance, native 1 device-px stroke.
+// Avoids AA-quad expansion (6 verts + SDF fill) that cliffs ~50k under 4× MSAA.
+// Used only when resolveLineDrawPolicy returns denseHairline; does not change data/sampling.
+
+@vertex
+fn vsMainHairline(
+  @builtin(vertex_index) vid : u32,
+  @builtin(instance_index) iid : u32,
+) -> VSOut {
+  // Dual-endpoint gap check (matches AA path): if either endpoint is NaN, collapse
+  // the whole segment so one-sided nulls cannot draw a spur to clip origin.
+  let pA = points[iid];
+  let pB = points[iid + 1u];
+  if (pA.x != pA.x || pA.y != pA.y || pB.x != pB.x || pB.y != pB.y) {
+    var out: VSOut;
+    out.clipPosition = vec4<f32>(0.0, 0.0, 0.0, 0.0);
+    out.acrossDevice = 0.0;
+    out.widthDevice = 0.0;
+    return out;
+  }
+
+  // vid is 0 or 1 for line-list topology.
+  let p = select(pA, pB, vid != 0u);
+  let clip = vsUniforms.transform * vec4<f32>(p, 0.0, 1.0);
+  var out: VSOut;
+  out.clipPosition = clip;
+  // Solid coverage for fsMainHairline (varyings unused except color path).
+  out.acrossDevice = 1.0;
+  out.widthDevice = 1.0;
+  return out;
+}
+
+@fragment
+fn fsMainHairline(_in : VSOut) -> @location(0) vec4<f32> {
+  return fsUniforms.color;
+}

@@ -9,12 +9,12 @@
  * @module overlayPrepareMemo
  */
 
-import type { AxisConfig } from "../../../config/types";
-import type { LinearScale } from "../../../utils/scales";
-import type { GridArea } from "../../../renderers/createGridRenderer";
+import type { AxisConfig } from '../../../config/types';
+import type { LinearScale } from '../../../utils/scales';
+import type { GridArea } from '../../../renderers/createGridRenderer';
 
 /** Compact layout + grid line inputs that affect grid vertex/color uploads. */
-export interface GridPrepareSignature {
+interface GridPrepareSignature {
   readonly left: number;
   readonly right: number;
   readonly top: number;
@@ -30,8 +30,8 @@ export interface GridPrepareSignature {
 }
 
 /** Compact axis inputs that affect axis vertex/color uploads. */
-export interface AxisPrepareSignature {
-  readonly orientation: "x" | "y";
+interface AxisPrepareSignature {
+  readonly orientation: 'x' | 'y';
   readonly axisId: string;
   readonly left: number;
   readonly right: number;
@@ -104,10 +104,7 @@ export function buildGridPrepareSignature(input: {
   };
 }
 
-export function gridPrepareSignaturesEqual(
-  a: GridPrepareSignature | null,
-  b: GridPrepareSignature,
-): boolean {
+export function gridPrepareSignaturesEqual(a: GridPrepareSignature | null, b: GridPrepareSignature): boolean {
   if (a == null) return false;
   return (
     a.left === b.left &&
@@ -128,7 +125,7 @@ export function gridPrepareSignaturesEqual(
 export function buildAxisPrepareSignature(input: {
   readonly axisConfig: AxisConfig;
   readonly scale: LinearScale;
-  readonly orientation: "x" | "y";
+  readonly orientation: 'x' | 'y';
   readonly axisId: string;
   readonly gridArea: GridArea;
   readonly axisLineColor: string;
@@ -160,7 +157,7 @@ export function buildAxisPrepareSignature(input: {
 
 export function axisPrepareSignaturesEqual(
   a: AxisPrepareSignature | null | undefined,
-  b: AxisPrepareSignature,
+  b: AxisPrepareSignature
 ): boolean {
   if (a == null) return false;
   return (

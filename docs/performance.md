@@ -17,6 +17,10 @@ Optimize ChartGPU for large datasets and real-time streaming.
 | `max` / `min` | Spikes | Peaks / valleys |
 | `none` | Small datasets (<5K) | All points |
 
+**GPU decimation (line, `lttb`/`min`/`max`, null-gap-free):** compute shaders replace CPU sampling. When points-per-bucket exceed **512**, each bucket evaluates a uniform **512-candidate** set (endpoints included) instead of every raw point — exact below that density; approximate extrema/shape at extreme N (e.g. 10M pts / 2500 buckets). This bounds GPU bandwidth for FIFO streaming without changing `sampling` mode.
+
+**Streaming density cadence (intentional visual lag):** under pure unbounded growth (N increases, same buffer / buckets / ring), recompute period scales with points-per-bucket: **period 2** at density ≥100, **4** at ≥200, **8** at ≥1000. Between recomputes the chart draws a **1–7-frame-old** LTTB sample — acceptable for extreme streaming N, not a sampling-mode change. Equal-N content rewrites always recompute immediately; modular FIFO rings never density-skip.
+
 **Config:** Per-series `sampling`, `samplingThreshold` in [options](api/options.md#series-configuration). See [`examples/sampling/`](../examples/sampling/).
 
 ## Zoom-aware resampling
@@ -43,6 +47,14 @@ Zoom triggers resampling on visible range only. Target scales with zoom level (c
 | `setOption({ series })` | Full replacement |
 
 **appendData:** Cartesian only, append-only. **setOption:** Full data/config changes, supports animation.
+
+### Axes-only multi-series `setOption`
+
+When only axis ranges / grid change and each series config object is identity-stable, resolve reuses the prior series array (O(1) vs O(series count)). Treat series elements as immutable; use `appendData` or new series objects when data changes. See [options.md](api/options.md#series-configuration).
+
+### Multi-series dense hairline (draw LOD)
+
+Many short line series (e.g. 1000×1000) can exceed a **~500k total-segment** budget and switch to **1 device-px hairline** draw (post-resolve sampleCount 1) even when each series is under the 25k per-series threshold. This is draw-only; sampling and data residency are unchanged. Prefer fewer series or lower N for thick AA strokes. Details: [options.md — multi-series dense hairline](api/options.md#series-configuration).
 
 ## Memory & disposal
 

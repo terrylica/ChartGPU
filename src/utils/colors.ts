@@ -15,7 +15,7 @@ const parseHexByte = (hex: string): number => {
 
 const parseHexColorToRgba01 = (color: string): Rgba01 | null => {
   const c = color.trim();
-  if (!c.startsWith("#")) return null;
+  if (!c.startsWith('#')) return null;
 
   const hex = c.slice(1);
 
@@ -60,7 +60,7 @@ const parseRgbNumberOrPercent = (token: string): number | null => {
   const t = token.trim();
   if (t.length === 0) return null;
 
-  if (t.endsWith("%")) {
+  if (t.endsWith('%')) {
     const n = Number.parseFloat(t.slice(0, -1));
     if (!Number.isFinite(n)) return null;
     return clamp255((n / 100) * 255);
@@ -75,7 +75,7 @@ const parseAlphaNumberOrPercent = (token: string): number | null => {
   const t = token.trim();
   if (t.length === 0) return null;
 
-  if (t.endsWith("%")) {
+  if (t.endsWith('%')) {
     const n = Number.parseFloat(t.slice(0, -1));
     if (!Number.isFinite(n)) return null;
     return clamp01(n / 100);
@@ -96,8 +96,8 @@ const parseRgbFuncToRgba01 = (color: string): Rgba01 | null => {
 
   // Requirement scope: support comma-separated rgb()/rgba().
   // (We intentionally do not attempt full CSS Color 4 space-separated syntax here.)
-  const parts = argsRaw.split(",").map((p) => p.trim());
-  if (fn === "rgb") {
+  const parts = argsRaw.split(',').map((p) => p.trim());
+  if (fn === 'rgb') {
     if (parts.length !== 3) return null;
     const r = parseRgbNumberOrPercent(parts[0]);
     const g = parseRgbNumberOrPercent(parts[1]);
@@ -106,7 +106,7 @@ const parseRgbFuncToRgba01 = (color: string): Rgba01 | null => {
     return [r / 255, g / 255, b / 255, 1];
   }
 
-  if (fn === "rgba") {
+  if (fn === 'rgba') {
     if (parts.length !== 4) return null;
     const r = parseRgbNumberOrPercent(parts[0]);
     const g = parseRgbNumberOrPercent(parts[1]);
@@ -130,7 +130,7 @@ const parseRgbFuncToRgba01 = (color: string): Rgba01 | null => {
  * Returns null when parsing fails.
  */
 export const parseCssColorToRgba01 = (color: string): Rgba01 | null => {
-  if (typeof color !== "string") return null;
+  if (typeof color !== 'string') return null;
   const c = color.trim();
   if (c.length === 0) return null;
 
@@ -143,10 +143,7 @@ export const parseCssColorToRgba01 = (color: string): Rgba01 | null => {
   return null;
 };
 
-export const parseCssColorToGPUColor = (
-  color: string,
-  fallback: GPUColor = { r: 0, g: 0, b: 0, a: 1 },
-): GPUColor => {
+export const parseCssColorToGPUColor = (color: string, fallback: GPUColor = { r: 0, g: 0, b: 0, a: 1 }): GPUColor => {
   const rgba = parseCssColorToRgba01(color);
   if (!rgba) return fallback;
   const [r, g, b, a] = rgba;

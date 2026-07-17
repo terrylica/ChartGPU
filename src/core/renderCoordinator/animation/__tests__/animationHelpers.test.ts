@@ -3,63 +3,60 @@
  * Verifies animation config resolution, easing, interpolation, and state transitions.
  */
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect } from 'vitest';
 import {
   clamp01,
   resolveAnimationConfig,
   createEasingWithDelay,
-  hasDrawableMarks,
   hasAnyDrawableMarks,
   lerpDomain,
-  lerp,
   interpolateCartesianData,
   interpolatePieData,
   isDomainEqual,
   computeNextIntroPhase,
   applyBarIntroProgress,
-  type IntroPhase,
-} from "../animationHelpers";
+} from '../animationHelpers';
 
-describe("clamp01", () => {
-  it("clamps value to [0, 1]", () => {
+describe('clamp01', () => {
+  it('clamps value to [0, 1]', () => {
     expect(clamp01(0.5)).toBe(0.5);
     expect(clamp01(0)).toBe(0);
     expect(clamp01(1)).toBe(1);
   });
 
-  it("clamps values below 0", () => {
+  it('clamps values below 0', () => {
     expect(clamp01(-0.5)).toBe(0);
     expect(clamp01(-100)).toBe(0);
   });
 
-  it("clamps values above 1", () => {
+  it('clamps values above 1', () => {
     expect(clamp01(1.5)).toBe(1);
     expect(clamp01(100)).toBe(1);
   });
 });
 
-describe("resolveAnimationConfig", () => {
+describe('resolveAnimationConfig', () => {
   const linearEasing = (t: number) => t;
   const getEasing = (name: string) => linearEasing;
 
-  it("returns null when animation is false", () => {
+  it('returns null when animation is false', () => {
     expect(resolveAnimationConfig(false, getEasing)).toBe(null);
   });
 
-  it("returns null when animation is null", () => {
+  it('returns null when animation is null', () => {
     expect(resolveAnimationConfig(null, getEasing)).toBe(null);
   });
 
-  it("returns default config when animation is true", () => {
+  it('returns default config when animation is true', () => {
     const config = resolveAnimationConfig(true, getEasing);
 
     expect(config).not.toBe(null);
     expect(config!.delayMs).toBe(0);
     expect(config!.durationMs).toBe(300);
-    expect(typeof config!.easing).toBe("function");
+    expect(typeof config!.easing).toBe('function');
   });
 
-  it("returns default config when animation is empty object", () => {
+  it('returns default config when animation is empty object', () => {
     const config = resolveAnimationConfig({}, getEasing);
 
     expect(config).not.toBe(null);
@@ -67,36 +64,36 @@ describe("resolveAnimationConfig", () => {
     expect(config!.durationMs).toBe(300);
   });
 
-  it("uses provided delay", () => {
+  it('uses provided delay', () => {
     const config = resolveAnimationConfig({ delay: 100 }, getEasing);
 
     expect(config!.delayMs).toBe(100);
     expect(config!.durationMs).toBe(300); // Default
   });
 
-  it("uses provided duration", () => {
+  it('uses provided duration', () => {
     const config = resolveAnimationConfig({ duration: 1000 }, getEasing);
 
     expect(config!.delayMs).toBe(0); // Default
     expect(config!.durationMs).toBe(1000);
   });
 
-  it("uses provided easing function", () => {
+  it('uses provided easing function', () => {
     const customEasing = (t: number) => t * t;
     const config = resolveAnimationConfig({ easing: customEasing }, getEasing);
 
     expect(config!.easing).toBe(customEasing);
   });
 
-  it("resolves easing from string name", () => {
+  it('resolves easing from string name', () => {
     const customEasing = (t: number) => t * t;
     const getCustom = (name: string) => customEasing;
-    const config = resolveAnimationConfig({ easing: "cubicOut" }, getCustom);
+    const config = resolveAnimationConfig({ easing: 'cubicOut' }, getCustom);
 
     expect(config!.easing).toBe(customEasing);
   });
 
-  it("combines all config options", () => {
+  it('combines all config options', () => {
     const customEasing = (t: number) => t * t;
     const config = resolveAnimationConfig(
       {
@@ -104,7 +101,7 @@ describe("resolveAnimationConfig", () => {
         duration: 500,
         easing: customEasing,
       },
-      getEasing,
+      getEasing
     );
 
     expect(config!.delayMs).toBe(200);
@@ -113,10 +110,10 @@ describe("resolveAnimationConfig", () => {
   });
 });
 
-describe("createEasingWithDelay", () => {
+describe('createEasingWithDelay', () => {
   const linear = (t: number) => t;
 
-  it("returns 0 during delay phase", () => {
+  it('returns 0 during delay phase', () => {
     const easing = createEasingWithDelay(100, 200, linear);
 
     expect(easing(0)).toBe(0);
@@ -124,7 +121,7 @@ describe("createEasingWithDelay", () => {
     expect(easing(100 / 300)).toBe(0); // Exactly at delay end
   });
 
-  it("applies easing after delay", () => {
+  it('applies easing after delay', () => {
     const easing = createEasingWithDelay(100, 200, linear);
 
     // After delay (100ms), 50% through duration (100ms of 200ms)
@@ -132,13 +129,13 @@ describe("createEasingWithDelay", () => {
     expect(easing(t)).toBeCloseTo(0.5, 5);
   });
 
-  it("returns 1 after delay + duration", () => {
+  it('returns 1 after delay + duration', () => {
     const easing = createEasingWithDelay(100, 200, linear);
 
     expect(easing(1)).toBe(1);
   });
 
-  it("handles zero delay", () => {
+  it('handles zero delay', () => {
     const easing = createEasingWithDelay(0, 200, linear);
 
     expect(easing(0)).toBe(0);
@@ -146,7 +143,7 @@ describe("createEasingWithDelay", () => {
     expect(easing(1)).toBe(1);
   });
 
-  it("handles zero duration", () => {
+  it('handles zero duration', () => {
     const easing = createEasingWithDelay(100, 0, linear);
 
     expect(easing(0)).toBe(0); // In delay
@@ -154,14 +151,14 @@ describe("createEasingWithDelay", () => {
     expect(easing(1)).toBe(1); // Past delay
   });
 
-  it("applies custom easing function", () => {
+  it('applies custom easing function', () => {
     const quadratic = (t: number) => t * t;
     const easing = createEasingWithDelay(0, 100, quadratic);
 
     expect(easing(0.5)).toBeCloseTo(0.25, 5); // 0.5^2 = 0.25
   });
 
-  it("handles total duration of zero", () => {
+  it('handles total duration of zero', () => {
     const easing = createEasingWithDelay(0, 0, linear);
 
     expect(easing(0)).toBe(1);
@@ -170,98 +167,77 @@ describe("createEasingWithDelay", () => {
   });
 });
 
-describe("hasDrawableMarks", () => {
-  it("returns true for line series with data", () => {
+describe('hasAnyDrawableMarks', () => {
+  it('returns true for line series with data', () => {
     const series = {
-      type: "line" as const,
+      type: 'line' as const,
       data: [
         [0, 1],
         [1, 2],
       ],
     };
-    expect(hasDrawableMarks(series as any)).toBe(true);
+    expect(hasAnyDrawableMarks([series as any])).toBe(true);
   });
 
-  it("returns false for line series with no data", () => {
-    const series = { type: "line" as const, data: [] };
-    expect(hasDrawableMarks(series as any)).toBe(false);
+  it('returns false for line series with no data', () => {
+    const series = { type: 'line' as const, data: [] };
+    expect(hasAnyDrawableMarks([series as any])).toBe(false);
   });
 
-  it("returns true for pie series with positive value", () => {
+  it('returns true for pie series with positive value', () => {
     const series = {
-      type: "pie" as const,
-      data: [
-        { name: "A", value: 10, color: "#000", startAngle: 0, endAngle: 90 },
-      ],
+      type: 'pie' as const,
+      data: [{ name: 'A', value: 10, color: '#000', startAngle: 0, endAngle: 90 }],
     };
-    expect(hasDrawableMarks(series as any)).toBe(true);
+    expect(hasAnyDrawableMarks([series as any])).toBe(true);
   });
 
-  it("returns false for pie series with zero values", () => {
+  it('returns false for pie series with zero values', () => {
     const series = {
-      type: "pie" as const,
-      data: [
-        { name: "A", value: 0, color: "#000", startAngle: 0, endAngle: 0 },
-      ],
+      type: 'pie' as const,
+      data: [{ name: 'A', value: 0, color: '#000', startAngle: 0, endAngle: 0 }],
     };
-    expect(hasDrawableMarks(series as any)).toBe(false);
+    expect(hasAnyDrawableMarks([series as any])).toBe(false);
   });
 
-  it("returns false for pie series with non-finite values", () => {
+  it('returns false for pie series with non-finite values', () => {
     const series = {
-      type: "pie" as const,
-      data: [
-        { name: "A", value: NaN, color: "#000", startAngle: 0, endAngle: 0 },
-      ],
+      type: 'pie' as const,
+      data: [{ name: 'A', value: NaN, color: '#000', startAngle: 0, endAngle: 0 }],
     };
-    expect(hasDrawableMarks(series as any)).toBe(false);
+    expect(hasAnyDrawableMarks([series as any])).toBe(false);
   });
 
-  it("returns true for area series with data", () => {
-    const series = { type: "area" as const, data: [[0, 1]] };
-    expect(hasDrawableMarks(series as any)).toBe(true);
+  it('returns true for area/bar/scatter/candlestick series with data', () => {
+    expect(hasAnyDrawableMarks([{ type: 'area' as const, data: [[0, 1]] } as any])).toBe(true);
+    expect(hasAnyDrawableMarks([{ type: 'bar' as const, data: [[0, 1]] } as any])).toBe(true);
+    expect(hasAnyDrawableMarks([{ type: 'scatter' as const, data: [[0, 1]] } as any])).toBe(true);
+    expect(hasAnyDrawableMarks([{ type: 'candlestick' as const, data: [[0, 1, 2, 3, 4]] } as any])).toBe(true);
   });
 
-  it("returns true for bar series with data", () => {
-    const series = { type: "bar" as const, data: [[0, 1]] };
-    expect(hasDrawableMarks(series as any)).toBe(true);
-  });
-
-  it("returns true for scatter series with data", () => {
-    const series = { type: "scatter" as const, data: [[0, 1]] };
-    expect(hasDrawableMarks(series as any)).toBe(true);
-  });
-
-  it("returns true for candlestick series with data", () => {
-    const series = { type: "candlestick" as const, data: [[0, 1, 2, 3, 4]] };
-    expect(hasDrawableMarks(series as any)).toBe(true);
-  });
-});
-
-describe("hasAnyDrawableMarks", () => {
-  it("returns true when at least one series has marks", () => {
+  it('returns true when at least one series has marks', () => {
     const series = [
-      { type: "line" as const, data: [] },
-      { type: "line" as const, data: [[0, 1]] },
+      { type: 'line' as const, data: [] },
+      { type: 'line' as const, data: [[0, 1]] },
     ];
     expect(hasAnyDrawableMarks(series as any)).toBe(true);
   });
 
-  it("returns false when no series have marks", () => {
+  it('returns false when no series have marks', () => {
     const series = [
-      { type: "line" as const, data: [] },
-      { type: "area" as const, data: [] },
+      { type: 'line' as const, data: [] },
+      { type: 'area' as const, data: [] },
     ];
     expect(hasAnyDrawableMarks(series as any)).toBe(false);
   });
 
-  it("returns false for empty series list", () => {
+  it('returns false for empty series list', () => {
     expect(hasAnyDrawableMarks([])).toBe(false);
   });
 });
 
-describe("lerpDomain", () => {
-  it("interpolates domain bounds", () => {
+describe('lerpDomain', () => {
+  it('interpolates domain bounds', () => {
     const from = { min: 0, max: 100 };
     const to = { min: 50, max: 150 };
 
@@ -271,7 +247,7 @@ describe("lerpDomain", () => {
     expect(result.max).toBe(125); // 100 + (150-100)*0.5
   });
 
-  it("returns from domain at t=0", () => {
+  it('returns from domain at t=0', () => {
     const from = { min: 0, max: 100 };
     const to = { min: 50, max: 150 };
 
@@ -281,7 +257,7 @@ describe("lerpDomain", () => {
     expect(result.max).toBe(100);
   });
 
-  it("returns to domain at t=1", () => {
+  it('returns to domain at t=1', () => {
     const from = { min: 0, max: 100 };
     const to = { min: 50, max: 150 };
 
@@ -291,7 +267,7 @@ describe("lerpDomain", () => {
     expect(result.max).toBe(150);
   });
 
-  it("clamps t to [0, 1]", () => {
+  it('clamps t to [0, 1]', () => {
     const from = { min: 0, max: 100 };
     const to = { min: 50, max: 150 };
 
@@ -302,7 +278,7 @@ describe("lerpDomain", () => {
     expect(resultOver.min).toBe(50);
   });
 
-  it("handles negative domains", () => {
+  it('handles negative domains', () => {
     const from = { min: -100, max: 0 };
     const to = { min: -50, max: 50 };
 
@@ -313,32 +289,8 @@ describe("lerpDomain", () => {
   });
 });
 
-describe("lerp", () => {
-  it("interpolates between two numbers", () => {
-    expect(lerp(0, 100, 0.5)).toBe(50);
-    expect(lerp(10, 20, 0.25)).toBe(12.5);
-  });
-
-  it("returns from at t=0", () => {
-    expect(lerp(10, 20, 0)).toBe(10);
-  });
-
-  it("returns to at t=1", () => {
-    expect(lerp(10, 20, 1)).toBe(20);
-  });
-
-  it("clamps t to [0, 1]", () => {
-    expect(lerp(10, 20, -0.5)).toBe(10);
-    expect(lerp(10, 20, 1.5)).toBe(20);
-  });
-
-  it("handles negative numbers", () => {
-    expect(lerp(-10, 10, 0.5)).toBe(0);
-  });
-});
-
-describe("interpolateCartesianData", () => {
-  it("interpolates tuple data points", () => {
+describe('interpolateCartesianData', () => {
+  it('interpolates tuple data points', () => {
     const from = [
       [0, 0],
       [10, 10],
@@ -355,7 +307,7 @@ describe("interpolateCartesianData", () => {
     expect(result![1]).toEqual([10, 60]);
   });
 
-  it("interpolates object data points", () => {
+  it('interpolates object data points into tuple slots', () => {
     const from = [
       { x: 0, y: 0 },
       { x: 10, y: 10 },
@@ -368,11 +320,12 @@ describe("interpolateCartesianData", () => {
     const result = interpolateCartesianData(from, to, 0.5, null);
 
     expect(result).not.toBe(null);
-    expect(result![0]).toEqual({ x: 0, y: 50 });
-    expect(result![1]).toEqual({ x: 10, y: 60 });
+    // Fresh cache is tuple-backed for packing/renderer compatibility.
+    expect(result![0]).toEqual([0, 50]);
+    expect(result![1]).toEqual([10, 60]);
   });
 
-  it("returns null for mismatched array lengths", () => {
+  it('returns null for mismatched array lengths', () => {
     const from = [[0, 0]] as const;
     const to = [
       [0, 100],
@@ -384,23 +337,24 @@ describe("interpolateCartesianData", () => {
     expect(result).toBe(null);
   });
 
-  it("returns empty array for empty inputs", () => {
+  it('returns empty array for empty inputs', () => {
     const result = interpolateCartesianData([], [], 0.5, null);
 
     expect(result).toEqual([]);
   });
 
-  it("reuses cache array when same length", () => {
+  it('reuses cache array when same length', () => {
     const from = [[0, 0]] as const;
     const to = [[0, 100]] as const;
-    const cache: any[] = [null];
+    const cache: any[] = [[0, 0]];
 
     const result = interpolateCartesianData(from, to, 0.5, cache);
 
     expect(result).toBe(cache); // Same array reference
+    expect(cache[0]).toEqual([0, 50]);
   });
 
-  it("creates new array when cache length differs", () => {
+  it('creates new array when cache length differs', () => {
     const from = [
       [0, 0],
       [10, 10],
@@ -417,7 +371,7 @@ describe("interpolateCartesianData", () => {
     expect(result!.length).toBe(2);
   });
 
-  it("returns from data at t=0", () => {
+  it('returns from data at t=0', () => {
     const from = [[0, 0]] as const;
     const to = [[0, 100]] as const;
 
@@ -426,7 +380,7 @@ describe("interpolateCartesianData", () => {
     expect(result![0]).toEqual([0, 0]);
   });
 
-  it("returns to data at t=1", () => {
+  it('returns to data at t=1', () => {
     const from = [[0, 0]] as const;
     const to = [[0, 100]] as const;
 
@@ -436,129 +390,90 @@ describe("interpolateCartesianData", () => {
   });
 });
 
-describe("interpolatePieData", () => {
+describe('interpolatePieData', () => {
   const createPieSeries = (data: any) => ({
-    type: "pie" as const,
+    type: 'pie' as const,
     data,
     innerRadius: 0,
     outerRadius: 100,
   });
 
-  it("interpolates pie slice values", () => {
-    const fromSeries = createPieSeries([
-      { name: "A", value: 0, color: "#000" },
-    ]);
-    const toSeries = createPieSeries([
-      { name: "A", value: 100, color: "#000" },
-    ]);
+  it('interpolates pie slice values', () => {
+    const fromSeries = createPieSeries([{ name: 'A', value: 0, color: '#000' }]);
+    const toSeries = createPieSeries([{ name: 'A', value: 100, color: '#000' }]);
 
-    const result = interpolatePieData(
-      fromSeries as any,
-      toSeries as any,
-      0.5,
-      null,
-    );
+    const result = interpolatePieData(fromSeries as any, toSeries as any, 0.5, null);
 
     expect(result.data[0]!.value).toBe(50);
   });
 
-  it("preserves name and color from to series", () => {
-    const fromSeries = createPieSeries([
-      { name: "Old", value: 0, color: "#000" },
-    ]);
-    const toSeries = createPieSeries([
-      { name: "New", value: 100, color: "#fff" },
-    ]);
+  it('preserves name and color from to series', () => {
+    const fromSeries = createPieSeries([{ name: 'Old', value: 0, color: '#000' }]);
+    const toSeries = createPieSeries([{ name: 'New', value: 100, color: '#fff' }]);
 
-    const result = interpolatePieData(
-      fromSeries as any,
-      toSeries as any,
-      0.5,
-      null,
-    );
+    const result = interpolatePieData(fromSeries as any, toSeries as any, 0.5, null);
 
-    expect(result.data[0]!.name).toBe("New");
-    expect(result.data[0]!.color).toBe("#fff");
+    expect(result.data[0]!.name).toBe('New');
+    expect(result.data[0]!.color).toBe('#fff');
   });
 
-  it("returns to series for mismatched array lengths", () => {
-    const fromSeries = createPieSeries([
-      { name: "A", value: 0, color: "#000" },
-    ]);
+  it('returns to series for mismatched array lengths', () => {
+    const fromSeries = createPieSeries([{ name: 'A', value: 0, color: '#000' }]);
     const toSeries = createPieSeries([
-      { name: "A", value: 100, color: "#000" },
-      { name: "B", value: 50, color: "#fff" },
+      { name: 'A', value: 100, color: '#000' },
+      { name: 'B', value: 50, color: '#fff' },
     ]);
 
-    const result = interpolatePieData(
-      fromSeries as any,
-      toSeries as any,
-      0.5,
-      null,
-    );
+    const result = interpolatePieData(fromSeries as any, toSeries as any, 0.5, null);
 
     expect(result).toBe(toSeries); // Unchanged
   });
 
-  it("returns to series for empty data", () => {
+  it('returns to series for empty data', () => {
     const fromSeries = createPieSeries([]);
     const toSeries = createPieSeries([]);
 
-    const result = interpolatePieData(
-      fromSeries as any,
-      toSeries as any,
-      0.5,
-      null,
-    );
+    const result = interpolatePieData(fromSeries as any, toSeries as any, 0.5, null);
 
     expect(result).toBe(toSeries);
   });
 
-  it("reuses cache array when same length", () => {
-    const fromSeries = createPieSeries([
-      { name: "A", value: 0, color: "#000" },
-    ]);
-    const toSeries = createPieSeries([
-      { name: "A", value: 100, color: "#000" },
-    ]);
+  it('reuses cache array when same length', () => {
+    const fromSeries = createPieSeries([{ name: 'A', value: 0, color: '#000' }]);
+    const toSeries = createPieSeries([{ name: 'A', value: 100, color: '#000' }]);
     // Create initial cache with proper structure
-    const cache: any = [{ name: "A", value: 0, color: "#000" }];
+    const cache: any = [{ name: 'A', value: 0, color: '#000' }];
 
-    const result = interpolatePieData(
-      fromSeries as any,
-      toSeries as any,
-      0.5,
-      cache,
-    );
+    const result = interpolatePieData(fromSeries as any, toSeries as any, 0.5, cache);
 
     expect(result.data).toBe(cache); // Same array reference
     expect(result.data[0]!.value).toBe(50); // Value interpolated
   });
 });
 
-describe("isDomainEqual", () => {
-  it("returns true for equal domains", () => {
+describe('isDomainEqual', () => {
+  it('returns true for equal domains', () => {
     const a = { min: 0, max: 100 };
     const b = { min: 0, max: 100 };
 
     expect(isDomainEqual(a, b)).toBe(true);
   });
 
-  it("returns false when min differs", () => {
+  it('returns false when min differs', () => {
     const a = { min: 0, max: 100 };
     const b = { min: 10, max: 100 };
 
     expect(isDomainEqual(a, b)).toBe(false);
   });
 
-  it("returns false when max differs", () => {
+  it('returns false when max differs', () => {
     const a = { min: 0, max: 100 };
     const b = { min: 0, max: 110 };
 
     expect(isDomainEqual(a, b)).toBe(false);
   });
 
-  it("returns false when both differ", () => {
+  it('returns false when both differ', () => {
     const a = { min: 0, max: 100 };
     const b = { min: 10, max: 110 };
 
@@ -566,65 +481,65 @@ describe("isDomainEqual", () => {
   });
 });
 
-describe("computeNextIntroPhase", () => {
-  it("transitions from pending to running when conditions met", () => {
-    const next = computeNextIntroPhase("pending", true, true);
-    expect(next).toBe("running");
+describe('computeNextIntroPhase', () => {
+  it('transitions from pending to running when conditions met', () => {
+    const next = computeNextIntroPhase('pending', true, true);
+    expect(next).toBe('running');
   });
 
-  it("stays pending without drawable marks", () => {
-    const next = computeNextIntroPhase("pending", false, true);
-    expect(next).toBe("pending");
+  it('stays pending without drawable marks', () => {
+    const next = computeNextIntroPhase('pending', false, true);
+    expect(next).toBe('pending');
   });
 
-  it("stays pending when animation disabled", () => {
-    const next = computeNextIntroPhase("pending", true, false);
-    expect(next).toBe("pending");
+  it('stays pending when animation disabled', () => {
+    const next = computeNextIntroPhase('pending', true, false);
+    expect(next).toBe('pending');
   });
 
-  it("stays running during animation", () => {
-    const next = computeNextIntroPhase("running", true, true);
-    expect(next).toBe("running");
+  it('stays running during animation', () => {
+    const next = computeNextIntroPhase('running', true, true);
+    expect(next).toBe('running');
   });
 
-  it("stays done after completion", () => {
-    const next = computeNextIntroPhase("done", true, true);
-    expect(next).toBe("done");
+  it('stays done after completion', () => {
+    const next = computeNextIntroPhase('done', true, true);
+    expect(next).toBe('done');
   });
 
-  it("retriggers from done to pending when requested", () => {
-    const next = computeNextIntroPhase("done", true, true, true);
-    expect(next).toBe("pending");
+  it('retriggers from done to pending when requested', () => {
+    const next = computeNextIntroPhase('done', true, true, true);
+    expect(next).toBe('pending');
   });
 });
 
-describe("applyBarIntroProgress", () => {
-  it("interpolates from zero line to value", () => {
+describe('applyBarIntroProgress', () => {
+  it('interpolates from zero line to value', () => {
     const result = applyBarIntroProgress(100, 0, 200, 0.5);
     expect(result).toBe(50); // Halfway from 0 to 100
   });
 
-  it("returns zero line at progress 0", () => {
+  it('returns zero line at progress 0', () => {
     const result = applyBarIntroProgress(100, 0, 200, 0);
     expect(result).toBe(0);
   });
 
-  it("returns actual value at progress 1", () => {
+  it('returns actual value at progress 1', () => {
     const result = applyBarIntroProgress(100, 0, 200, 1);
     expect(result).toBe(100);
   });
 
-  it("uses domain min when no zero line", () => {
+  it('uses domain min when no zero line', () => {
     const result = applyBarIntroProgress(150, 100, 200, 0.5);
     expect(result).toBe(125); // Halfway from 100 to 150
   });
 
-  it("handles negative values", () => {
+  it('handles negative values', () => {
     const result = applyBarIntroProgress(-50, -100, 0, 0.5);
     expect(result).toBe(-25); // Halfway from 0 to -50
   });
 
-  it("clamps progress to [0, 1]", () => {
+  it('clamps progress to [0, 1]', () => {
     expect(applyBarIntroProgress(100, 0, 200, -0.5)).toBe(0);
     expect(applyBarIntroProgress(100, 0, 200, 1.5)).toBe(100);
   });

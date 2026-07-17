@@ -1,21 +1,17 @@
-import type { DataPoint, DataPointTuple } from "../config/types";
+import type { DataPoint, DataPointTuple } from '../config/types';
 
 function isTupleDataPoint(point: DataPoint): point is DataPointTuple {
   // `DataPoint` uses a readonly tuple; `Array.isArray` doesn't narrow it well without a predicate.
   return Array.isArray(point);
 }
 
-function lttbIndicesForInterleavedXY(
-  data: Float32Array,
-  targetPoints: number,
-): Int32Array {
+function lttbIndicesForInterleavedXY(data: Float32Array, targetPoints: number): Int32Array {
   const n = data.length >>> 1; // floor(length / 2)
   const lastIndex = n - 1;
 
   if (targetPoints <= 0 || n === 0) return new Int32Array(0);
   if (targetPoints === 1) return new Int32Array([0]);
-  if (targetPoints === 2)
-    return n >= 2 ? new Int32Array([0, lastIndex]) : new Int32Array([0]);
+  if (targetPoints === 2) return n >= 2 ? new Int32Array([0, lastIndex]) : new Int32Array([0]);
   if (n <= targetPoints) {
     const indices = new Int32Array(n);
     for (let i = 0; i < n; i++) indices[i] = i;
@@ -37,10 +33,7 @@ function lttbIndicesForInterleavedXY(
   for (let bucket = 0; bucket < targetPoints - 2; bucket++) {
     // Current bucket: candidate points are [rangeStart, rangeEndExclusive) and never include lastIndex.
     let rangeStart = Math.floor(bucketSize * bucket) + 1;
-    let rangeEndExclusive = Math.min(
-      Math.floor(bucketSize * (bucket + 1)) + 1,
-      lastIndex,
-    );
+    let rangeEndExclusive = Math.min(Math.floor(bucketSize * (bucket + 1)) + 1, lastIndex);
     if (rangeStart >= rangeEndExclusive) {
       // Defensive: ensure at least one candidate point.
       rangeStart = Math.min(rangeStart, lastIndex - 1);
@@ -49,10 +42,7 @@ function lttbIndicesForInterleavedXY(
 
     // Next bucket for average: [nextRangeStart, nextRangeEndExclusive)
     const nextRangeStart = Math.floor(bucketSize * (bucket + 1)) + 1;
-    const nextRangeEndExclusive = Math.min(
-      Math.floor(bucketSize * (bucket + 2)) + 1,
-      lastIndex,
-    );
+    const nextRangeEndExclusive = Math.min(Math.floor(bucketSize * (bucket + 2)) + 1, lastIndex);
 
     // If there are no points in the next bucket, use the last point as the average.
     let avgX = lastX;
@@ -95,17 +85,13 @@ function lttbIndicesForInterleavedXY(
   return indices;
 }
 
-function lttbIndicesForDataPoints(
-  data: ReadonlyArray<DataPoint>,
-  targetPoints: number,
-): Int32Array {
+function lttbIndicesForDataPoints(data: ReadonlyArray<DataPoint>, targetPoints: number): Int32Array {
   const n = data.length;
   const lastIndex = n - 1;
 
   if (targetPoints <= 0 || n === 0) return new Int32Array(0);
   if (targetPoints === 1) return new Int32Array([0]);
-  if (targetPoints === 2)
-    return n >= 2 ? new Int32Array([0, lastIndex]) : new Int32Array([0]);
+  if (targetPoints === 2) return n >= 2 ? new Int32Array([0, lastIndex]) : new Int32Array([0]);
   if (n <= targetPoints) {
     const indices = new Int32Array(n);
     for (let i = 0; i < n; i++) indices[i] = i;
@@ -128,10 +114,7 @@ function lttbIndicesForDataPoints(
   for (let bucket = 0; bucket < targetPoints - 2; bucket++) {
     // Current bucket: candidate points are [rangeStart, rangeEndExclusive) and never include lastIndex.
     let rangeStart = Math.floor(bucketSize * bucket) + 1;
-    let rangeEndExclusive = Math.min(
-      Math.floor(bucketSize * (bucket + 1)) + 1,
-      lastIndex,
-    );
+    let rangeEndExclusive = Math.min(Math.floor(bucketSize * (bucket + 1)) + 1, lastIndex);
     if (rangeStart >= rangeEndExclusive) {
       // Defensive: ensure at least one candidate point.
       rangeStart = Math.min(rangeStart, lastIndex - 1);
@@ -140,10 +123,7 @@ function lttbIndicesForDataPoints(
 
     // Next bucket for average: [nextRangeStart, nextRangeEndExclusive)
     const nextRangeStart = Math.floor(bucketSize * (bucket + 1)) + 1;
-    const nextRangeEndExclusive = Math.min(
-      Math.floor(bucketSize * (bucket + 2)) + 1,
-      lastIndex,
-    );
+    const nextRangeEndExclusive = Math.min(Math.floor(bucketSize * (bucket + 2)) + 1, lastIndex);
 
     // If there are no points in the next bucket, use the last point as the average.
     let avgX = lastX;
@@ -191,21 +171,12 @@ function lttbIndicesForDataPoints(
   return indices;
 }
 
-export function lttbSample(
-  data: Float32Array,
-  targetPoints: number,
-): Float32Array;
-export function lttbSample(
-  data: DataPoint[],
-  targetPoints: number,
-): DataPoint[];
-export function lttbSample(
-  data: ReadonlyArray<DataPoint>,
-  targetPoints: number,
-): ReadonlyArray<DataPoint>;
+export function lttbSample(data: Float32Array, targetPoints: number): Float32Array;
+export function lttbSample(data: DataPoint[], targetPoints: number): DataPoint[];
+export function lttbSample(data: ReadonlyArray<DataPoint>, targetPoints: number): ReadonlyArray<DataPoint>;
 export function lttbSample(
   data: ReadonlyArray<DataPoint> | Float32Array,
-  targetPoints: number,
+  targetPoints: number
 ): ReadonlyArray<DataPoint> | Float32Array {
   const threshold = Math.floor(targetPoints);
 
