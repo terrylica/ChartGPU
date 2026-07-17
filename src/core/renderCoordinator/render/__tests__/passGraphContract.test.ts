@@ -3,10 +3,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import {
-  MAIN_SCENE_MSAA_SAMPLE_COUNT,
-  ANNOTATION_OVERLAY_MSAA_SAMPLE_COUNT,
-} from '../../gpu/textureManager';
+import { MAIN_SCENE_MSAA_SAMPLE_COUNT, ANNOTATION_OVERLAY_MSAA_SAMPLE_COUNT } from '../../gpu/textureManager';
 import {
   planGpuFrame,
   framePlanIncludesDenseHairline,

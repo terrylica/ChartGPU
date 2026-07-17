@@ -4,19 +4,8 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import {
-  getCanvasCssWidth,
-  getCanvasCssHeight,
-  getCanvasCssSizeFromDevicePixels,
-  clampInt,
-} from '../canvasUtils';
-import {
-  finiteOrNull,
-  finiteOrUndefined,
-  isTupleDataPoint,
-  getPointXY,
-  isTupleOHLCDataPoint,
-} from '../dataPointUtils';
+import { getCanvasCssWidth, getCanvasCssHeight, getCanvasCssSizeFromDevicePixels, clampInt } from '../canvasUtils';
+import { finiteOrNull, finiteOrUndefined, isTupleDataPoint, getPointXY, isTupleOHLCDataPoint } from '../dataPointUtils';
 import { normalizeDomain } from '../boundsComputation';
 import { clamp01 } from '../axisUtils';
 import {
@@ -77,11 +66,6 @@ describe('Data Point Utilities', () => {
 });
 
 describe('Bounds Computation', () => {
-
-
-
-
-
   it('normalizeDomain ensures min <= max', () => {
     expect(normalizeDomain(5, 10)).toEqual({ min: 5, max: 10 });
     expect(normalizeDomain(10, 5)).toEqual({ min: 5, max: 10 });

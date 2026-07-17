@@ -5,7 +5,10 @@ import { demoteStagingViewAfterRebindFailure } from '../stagingThinPath';
 import { createStagingRingView } from '../../../../data/cartesianData';
 
 function baseDeps(overrides: Partial<AppendFlushDeps> = {}): AppendFlushDeps {
-  const pendingAppendByIndex = new Map<number, AppendFlushDeps['pendingAppendByIndex'] extends Map<number, infer V> ? V : never>();
+  const pendingAppendByIndex = new Map<
+    number,
+    AppendFlushDeps['pendingAppendByIndex'] extends Map<number, infer V> ? V : never
+  >();
   const lastSetSeriesCache = new Map<number, { data: unknown; xOffset: number }>();
   const deps: AppendFlushDeps = {
     pendingAppendByIndex: pendingAppendByIndex as AppendFlushDeps['pendingAppendByIndex'],

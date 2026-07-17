@@ -3,7 +3,6 @@
  * @module axisLabelHelpers
  */
 
-
 const LABEL_PADDING_CSS_PX = 4;
 
 export function getYAxisLabelX(plotLeftCss: number, tickLengthCssPx: number): number {

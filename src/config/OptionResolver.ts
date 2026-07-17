@@ -1214,390 +1214,385 @@ export function resolveOptions(
   const series: ReadonlyArray<ResolvedSeriesConfig> = canReuseEntireSeriesArray
     ? previousSeries!
     : (userOptions.series ?? []).map((s, i) => {
-    const explicitColor = normalizeOptionalColor(s.color);
-    const inheritedColor = theme.colorPalette[i % theme.colorPalette.length];
-    const color = explicitColor ?? inheritedColor;
-    const prevResolved = previousSeries?.[i];
+        const explicitColor = normalizeOptionalColor(s.color);
+        const inheritedColor = theme.colorPalette[i % theme.colorPalette.length];
+        const color = explicitColor ?? inheritedColor;
+        const prevResolved = previousSeries?.[i];
 
-    // Ensure visible defaults to true (converts undefined to true, preserves explicit false)
-    const visible = s.visible !== false;
+        // Ensure visible defaults to true (converts undefined to true, preserves explicit false)
+        const visible = s.visible !== false;
 
-    const sampling: SeriesSampling = normalizeSampling((s as unknown as { sampling?: unknown }).sampling) ?? 'lttb';
-    const samplingThreshold: number =
-      normalizeSamplingThreshold((s as unknown as { samplingThreshold?: unknown }).samplingThreshold) ?? 5000;
+        const sampling: SeriesSampling = normalizeSampling((s as unknown as { sampling?: unknown }).sampling) ?? 'lttb';
+        const samplingThreshold: number =
+          normalizeSamplingThreshold((s as unknown as { samplingThreshold?: unknown }).samplingThreshold) ?? 5000;
 
-    const yAxis = s.yAxis ?? defaultYAxisId;
+        const yAxis = s.yAxis ?? defaultYAxisId;
 
-    switch (s.type) {
-      case 'area': {
-        // Resolve effective fill color with precedence: areaStyle.color → series.color → palette
-        const areaStyleColor = normalizeOptionalColor(s.areaStyle?.color);
-        const effectiveColor = areaStyleColor ?? explicitColor ?? inheritedColor;
+        switch (s.type) {
+          case 'area': {
+            // Resolve effective fill color with precedence: areaStyle.color → series.color → palette
+            const areaStyleColor = normalizeOptionalColor(s.areaStyle?.color);
+            const effectiveColor = areaStyleColor ?? explicitColor ?? inheritedColor;
 
-        const areaStyle: ResolvedAreaStyleConfig = {
-          opacity: s.areaStyle?.opacity ?? defaultAreaStyle.opacity,
-          color: effectiveColor,
-        };
+            const areaStyle: ResolvedAreaStyleConfig = {
+              opacity: s.areaStyle?.opacity ?? defaultAreaStyle.opacity,
+              color: effectiveColor,
+            };
 
-        const connectNulls = s.connectNulls ?? false;
-        const contentHash = resolveSeriesContentHash(prevResolved, 'area', s.data, () =>
-          cheapCartesianContentStamp(s.data)
-        );
-        const reuseSample = canReuseResolvedSeriesSample(
-          prevResolved,
-          'area',
-          s.data,
-          sampling,
-          samplingThreshold,
-          connectNulls,
-          contentHash
-        );
-        const prevArea = reuseSample
-          ? (prevResolved as ResolvedAreaSeriesConfig & {
-              contentHash?: number;
-              rawBoundsMode?: RawBoundsMode;
-            })
-          : null;
-        const { bounds: rawBounds, mode: rawBoundsMode } = resolveCartesianBounds(prevArea, s.data, reuseSample);
-        // Bypass sampling when data contains null gap markers to preserve gap structure.
-        // sampling:'none' already returns data as-is — skip O(n) hasNullGaps.
-        const sampledAreaData = prevArea
-          ? prevArea.data
-          : sampling === 'none' || hasNullGaps(s.data)
-            ? s.data
-            : sampleSeriesDataPoints(s.data, sampling, samplingThreshold);
-        return {
-          ...s,
-          visible,
-          rawData: s.data,
-          data: sampledAreaData,
-          color: effectiveColor,
-          areaStyle,
-          sampling,
-          samplingThreshold,
-          rawBounds,
-          rawBoundsMode,
-          connectNulls,
-          yAxis,
-          contentHash,
-        };
-      }
-      case 'line': {
-        // Resolve effective stroke color with precedence: lineStyle.color → series.color → palette
-        const lineStyleColor = normalizeOptionalColor(s.lineStyle?.color);
-        const effectiveStrokeColor = lineStyleColor ?? explicitColor ?? inheritedColor;
-
-        const lineStyle: ResolvedLineStyleConfig = {
-          width: s.lineStyle?.width ?? defaultLineStyle.width,
-          opacity: s.lineStyle?.opacity ?? defaultLineStyle.opacity,
-          color: effectiveStrokeColor,
-        };
-
-        // Avoid leaking the unresolved (user) areaStyle shape via object spread.
-        const { areaStyle: _userAreaStyle, ...rest } = s;
-        const connectNulls = s.connectNulls ?? false;
-        const contentHash = resolveSeriesContentHash(prevResolved, 'line', s.data, () =>
-          cheapCartesianContentStamp(s.data)
-        );
-        const reuseSample = canReuseResolvedSeriesSample(
-          prevResolved,
-          'line',
-          s.data,
-          sampling,
-          samplingThreshold,
-          connectNulls,
-          contentHash
-        );
-        const prevLine = reuseSample
-          ? (prevResolved as ResolvedLineSeriesConfig & {
-              contentHash?: number;
-              rawBoundsMode?: RawBoundsMode;
-            })
-          : null;
-        const { bounds: rawBounds, mode: rawBoundsMode } = resolveCartesianBounds(prevLine, s.data, reuseSample);
-        // Bypass sampling when data contains null gap markers to preserve gap structure.
-        // sampling:'none' already returns data as-is — skip O(n) hasNullGaps.
-        const sampledData = prevLine
-          ? prevLine.data
-          : sampling === 'none' || hasNullGaps(s.data)
-            ? s.data
-            : sampleSeriesDataPoints(s.data, sampling, samplingThreshold);
-
-        return {
-          ...rest,
-          visible,
-          rawData: s.data,
-          data: sampledData,
-          color: effectiveStrokeColor,
-          lineStyle,
-          ...(s.areaStyle
-            ? {
-                areaStyle: {
-                  opacity: s.areaStyle.opacity ?? defaultAreaStyle.opacity,
-                  // Fill color precedence: areaStyle.color → resolved stroke color
-                  color: normalizeOptionalColor(s.areaStyle.color) ?? effectiveStrokeColor,
-                },
-              }
-            : {}),
-          sampling,
-          samplingThreshold,
-          rawBounds,
-          rawBoundsMode,
-          connectNulls,
-          yAxis,
-          contentHash,
-        };
-      }
-      case 'bar': {
-        const contentHash = resolveSeriesContentHash(prevResolved, 'bar', s.data, () =>
-          cheapCartesianContentStamp(s.data)
-        );
-        const reuseSample = canReuseResolvedSeriesSample(
-          prevResolved,
-          'bar',
-          s.data,
-          sampling,
-          samplingThreshold,
-          undefined,
-          contentHash
-        );
-        const prevBar = reuseSample
-          ? (prevResolved as ResolvedBarSeriesConfig & {
-              contentHash?: number;
-              rawBoundsMode?: RawBoundsMode;
-            })
-          : null;
-        const { bounds: rawBounds, mode: rawBoundsMode } = resolveCartesianBounds(prevBar, s.data, reuseSample);
-        return {
-          ...s,
-          visible,
-          rawData: s.data,
-          data: prevBar ? prevBar.data : sampleSeriesDataPoints(s.data, sampling, samplingThreshold),
-          color,
-          sampling,
-          samplingThreshold,
-          rawBounds,
-          rawBoundsMode,
-          yAxis,
-          contentHash,
-        };
-      }
-      case 'scatter': {
-        const contentHash = resolveSeriesContentHash(prevResolved, 'scatter', s.data, () =>
-          cheapCartesianContentStamp(s.data)
-        );
-        const reuseSample = canReuseResolvedSeriesSample(
-          prevResolved,
-          'scatter',
-          s.data,
-          sampling,
-          samplingThreshold,
-          undefined,
-          contentHash
-        );
-        const prevScatterResolved =
-          prevResolved?.type === 'scatter' ? (prevResolved as ResolvedScatterSeriesConfig) : null;
-        const prevScatter = reuseSample
-          ? (prevResolved as ResolvedScatterSeriesConfig & {
-              contentHash?: number;
-              rawBoundsMode?: RawBoundsMode;
-            })
-          : null;
-        const rawPointCount = getPointCount(s.data);
-        // Sticky index-sorted proof: prior frame fully proved x=i at this N.
-        const stickyIndexSorted =
-          prevScatterResolved?.indexSortedProven === true &&
-          prevScatterResolved.indexSortedPointCount === rawPointCount;
-
-        // Equal-N y-only + index-sorted under **LTTB** (group 4): re-bind y at
-        // prior sample x indices in O(k) instead of full O(N) LTTB. Requires
-        // matching sampling + threshold (same gate as canReuseResolvedSeriesSample).
-        // min/max/average always re-sample (bucket extrema depend on y).
-        // Brownian xy (group 2) fails classifyEqualNYOnlyRewrite → full path.
-        // Classify before bounds so sticky/full proof is shared (one O(n) max cold).
-        let sampledData: CartesianSeriesData;
-        /** True when this frame still has a valid index-sorted proof (sticky or cold). */
-        let indexSortedThisFrame = false;
-        if (prevScatter) {
-          sampledData = prevScatter.data;
-          // Identity-reuse: keep prior sticky proof when present.
-          indexSortedThisFrame = stickyIndexSorted;
-        } else if (
-          sampling === 'lttb' &&
-          prevScatterResolved &&
-          prevScatterResolved.sampling === 'lttb' &&
-          prevScatterResolved.samplingThreshold === samplingThreshold
-        ) {
-          const yOnlyKind = classifyEqualNYOnlyRewrite(
-            prevScatterResolved.rawData as CartesianSeriesData,
-            s.data,
-            { prevIndexSortedProven: stickyIndexSorted }
-          );
-          if (yOnlyKind === 'indexSorted') {
-            indexSortedThisFrame = true;
-            const remapped = remapIndexSortedSampleY(
-              prevScatterResolved.data as CartesianSeriesData,
-              s.data
+            const connectNulls = s.connectNulls ?? false;
+            const contentHash = resolveSeriesContentHash(prevResolved, 'area', s.data, () =>
+              cheapCartesianContentStamp(s.data)
             );
-            sampledData = remapped ?? sampleSeriesDataPoints(s.data, sampling, samplingThreshold);
-          } else {
-            // Clears sticky for this frame (Brownian / equalX) — do not trustIndexSorted.
-            sampledData = sampleSeriesDataPoints(s.data, sampling, samplingThreshold);
+            const reuseSample = canReuseResolvedSeriesSample(
+              prevResolved,
+              'area',
+              s.data,
+              sampling,
+              samplingThreshold,
+              connectNulls,
+              contentHash
+            );
+            const prevArea = reuseSample
+              ? (prevResolved as ResolvedAreaSeriesConfig & {
+                  contentHash?: number;
+                  rawBoundsMode?: RawBoundsMode;
+                })
+              : null;
+            const { bounds: rawBounds, mode: rawBoundsMode } = resolveCartesianBounds(prevArea, s.data, reuseSample);
+            // Bypass sampling when data contains null gap markers to preserve gap structure.
+            // sampling:'none' already returns data as-is — skip O(n) hasNullGaps.
+            const sampledAreaData = prevArea
+              ? prevArea.data
+              : sampling === 'none' || hasNullGaps(s.data)
+                ? s.data
+                : sampleSeriesDataPoints(s.data, sampling, samplingThreshold);
+            return {
+              ...s,
+              visible,
+              rawData: s.data,
+              data: sampledAreaData,
+              color: effectiveColor,
+              areaStyle,
+              sampling,
+              samplingThreshold,
+              rawBounds,
+              rawBoundsMode,
+              connectNulls,
+              yAxis,
+              contentHash,
+            };
           }
-        } else if (stickyIndexSorted && sampleLooksIndexSortedX(s.data)) {
-          // Non-LTTB equal-N stream (e.g. sampling:'none'): keep sticky for bounds O(1).
-          indexSortedThisFrame = true;
-          sampledData = sampleSeriesDataPoints(s.data, sampling, samplingThreshold);
-        } else {
-          sampledData = sampleSeriesDataPoints(s.data, sampling, samplingThreshold);
-          // Cold first frame (no sticky / no LTTB remap prev): one full O(n) proof so
-          // subsequent equal-N frames can sticky-skip. Cheap sample reject first.
-          if (sampleLooksIndexSortedX(s.data) && isIndexSortedX(s.data)) {
-            indexSortedThisFrame = true;
+          case 'line': {
+            // Resolve effective stroke color with precedence: lineStyle.color → series.color → palette
+            const lineStyleColor = normalizeOptionalColor(s.lineStyle?.color);
+            const effectiveStrokeColor = lineStyleColor ?? explicitColor ?? inheritedColor;
+
+            const lineStyle: ResolvedLineStyleConfig = {
+              width: s.lineStyle?.width ?? defaultLineStyle.width,
+              opacity: s.lineStyle?.opacity ?? defaultLineStyle.opacity,
+              color: effectiveStrokeColor,
+            };
+
+            // Avoid leaking the unresolved (user) areaStyle shape via object spread.
+            const { areaStyle: _userAreaStyle, ...rest } = s;
+            const connectNulls = s.connectNulls ?? false;
+            const contentHash = resolveSeriesContentHash(prevResolved, 'line', s.data, () =>
+              cheapCartesianContentStamp(s.data)
+            );
+            const reuseSample = canReuseResolvedSeriesSample(
+              prevResolved,
+              'line',
+              s.data,
+              sampling,
+              samplingThreshold,
+              connectNulls,
+              contentHash
+            );
+            const prevLine = reuseSample
+              ? (prevResolved as ResolvedLineSeriesConfig & {
+                  contentHash?: number;
+                  rawBoundsMode?: RawBoundsMode;
+                })
+              : null;
+            const { bounds: rawBounds, mode: rawBoundsMode } = resolveCartesianBounds(prevLine, s.data, reuseSample);
+            // Bypass sampling when data contains null gap markers to preserve gap structure.
+            // sampling:'none' already returns data as-is — skip O(n) hasNullGaps.
+            const sampledData = prevLine
+              ? prevLine.data
+              : sampling === 'none' || hasNullGaps(s.data)
+                ? s.data
+                : sampleSeriesDataPoints(s.data, sampling, samplingThreshold);
+
+            return {
+              ...rest,
+              visible,
+              rawData: s.data,
+              data: sampledData,
+              color: effectiveStrokeColor,
+              lineStyle,
+              ...(s.areaStyle
+                ? {
+                    areaStyle: {
+                      opacity: s.areaStyle.opacity ?? defaultAreaStyle.opacity,
+                      // Fill color precedence: areaStyle.color → resolved stroke color
+                      color: normalizeOptionalColor(s.areaStyle.color) ?? effectiveStrokeColor,
+                    },
+                  }
+                : {}),
+              sampling,
+              samplingThreshold,
+              rawBounds,
+              rawBoundsMode,
+              connectNulls,
+              yAxis,
+              contentHash,
+            };
+          }
+          case 'bar': {
+            const contentHash = resolveSeriesContentHash(prevResolved, 'bar', s.data, () =>
+              cheapCartesianContentStamp(s.data)
+            );
+            const reuseSample = canReuseResolvedSeriesSample(
+              prevResolved,
+              'bar',
+              s.data,
+              sampling,
+              samplingThreshold,
+              undefined,
+              contentHash
+            );
+            const prevBar = reuseSample
+              ? (prevResolved as ResolvedBarSeriesConfig & {
+                  contentHash?: number;
+                  rawBoundsMode?: RawBoundsMode;
+                })
+              : null;
+            const { bounds: rawBounds, mode: rawBoundsMode } = resolveCartesianBounds(prevBar, s.data, reuseSample);
+            return {
+              ...s,
+              visible,
+              rawData: s.data,
+              data: prevBar ? prevBar.data : sampleSeriesDataPoints(s.data, sampling, samplingThreshold),
+              color,
+              sampling,
+              samplingThreshold,
+              rawBounds,
+              rawBoundsMode,
+              yAxis,
+              contentHash,
+            };
+          }
+          case 'scatter': {
+            const contentHash = resolveSeriesContentHash(prevResolved, 'scatter', s.data, () =>
+              cheapCartesianContentStamp(s.data)
+            );
+            const reuseSample = canReuseResolvedSeriesSample(
+              prevResolved,
+              'scatter',
+              s.data,
+              sampling,
+              samplingThreshold,
+              undefined,
+              contentHash
+            );
+            const prevScatterResolved =
+              prevResolved?.type === 'scatter' ? (prevResolved as ResolvedScatterSeriesConfig) : null;
+            const prevScatter = reuseSample
+              ? (prevResolved as ResolvedScatterSeriesConfig & {
+                  contentHash?: number;
+                  rawBoundsMode?: RawBoundsMode;
+                })
+              : null;
+            const rawPointCount = getPointCount(s.data);
+            // Sticky index-sorted proof: prior frame fully proved x=i at this N.
+            const stickyIndexSorted =
+              prevScatterResolved?.indexSortedProven === true &&
+              prevScatterResolved.indexSortedPointCount === rawPointCount;
+
+            // Equal-N y-only + index-sorted under **LTTB** (group 4): re-bind y at
+            // prior sample x indices in O(k) instead of full O(N) LTTB. Requires
+            // matching sampling + threshold (same gate as canReuseResolvedSeriesSample).
+            // min/max/average always re-sample (bucket extrema depend on y).
+            // Brownian xy (group 2) fails classifyEqualNYOnlyRewrite → full path.
+            // Classify before bounds so sticky/full proof is shared (one O(n) max cold).
+            let sampledData: CartesianSeriesData;
+            /** True when this frame still has a valid index-sorted proof (sticky or cold). */
+            let indexSortedThisFrame = false;
+            if (prevScatter) {
+              sampledData = prevScatter.data;
+              // Identity-reuse: keep prior sticky proof when present.
+              indexSortedThisFrame = stickyIndexSorted;
+            } else if (
+              sampling === 'lttb' &&
+              prevScatterResolved &&
+              prevScatterResolved.sampling === 'lttb' &&
+              prevScatterResolved.samplingThreshold === samplingThreshold
+            ) {
+              const yOnlyKind = classifyEqualNYOnlyRewrite(prevScatterResolved.rawData as CartesianSeriesData, s.data, {
+                prevIndexSortedProven: stickyIndexSorted,
+              });
+              if (yOnlyKind === 'indexSorted') {
+                indexSortedThisFrame = true;
+                const remapped = remapIndexSortedSampleY(prevScatterResolved.data as CartesianSeriesData, s.data);
+                sampledData = remapped ?? sampleSeriesDataPoints(s.data, sampling, samplingThreshold);
+              } else {
+                // Clears sticky for this frame (Brownian / equalX) — do not trustIndexSorted.
+                sampledData = sampleSeriesDataPoints(s.data, sampling, samplingThreshold);
+              }
+            } else if (stickyIndexSorted && sampleLooksIndexSortedX(s.data)) {
+              // Non-LTTB equal-N stream (e.g. sampling:'none'): keep sticky for bounds O(1).
+              indexSortedThisFrame = true;
+              sampledData = sampleSeriesDataPoints(s.data, sampling, samplingThreshold);
+            } else {
+              sampledData = sampleSeriesDataPoints(s.data, sampling, samplingThreshold);
+              // Cold first frame (no sticky / no LTTB remap prev): one full O(n) proof so
+              // subsequent equal-N frames can sticky-skip. Cheap sample reject first.
+              if (sampleLooksIndexSortedX(s.data) && isIndexSortedX(s.data)) {
+                indexSortedThisFrame = true;
+              }
+            }
+
+            const {
+              bounds: rawBounds,
+              mode: rawBoundsMode,
+              indexSortedHit,
+            } = resolveCartesianBounds(prevScatter, s.data, reuseSample, {
+              // Only trust when this frame re-validated sticky or cold-proved — never
+              // after classify rejected (Brownian).
+              trustIndexSorted: indexSortedThisFrame,
+            });
+
+            const indexSortedProven = Boolean(indexSortedThisFrame || indexSortedHit);
+            const mode =
+              normalizeScatterMode((s as unknown as { readonly mode?: unknown }).mode) ?? scatterDefaults.mode;
+            const binSize =
+              normalizeDensityBinSize((s as unknown as { readonly binSize?: unknown }).binSize) ??
+              scatterDefaults.binSize;
+            const densityColormap =
+              normalizeDensityColormap((s as unknown as { readonly densityColormap?: unknown }).densityColormap) ??
+              scatterDefaults.densityColormap;
+            const densityNormalization =
+              normalizeDensityNormalization(
+                (s as unknown as { readonly densityNormalization?: unknown }).densityNormalization
+              ) ?? scatterDefaults.densityNormalization;
+
+            return {
+              ...s,
+              visible,
+              rawData: s.data,
+              data: sampledData,
+              color,
+              mode,
+              binSize,
+              densityColormap,
+              densityNormalization,
+              sampling,
+              samplingThreshold,
+              rawBounds,
+              rawBoundsMode,
+              yAxis,
+              contentHash,
+              ...(indexSortedProven ? { indexSortedProven: true as const, indexSortedPointCount: rawPointCount } : {}),
+            };
+          }
+          case 'pie': {
+            // Pie series intentionally do NOT support sampling at runtime.
+            // For JS callers, strip any extra sampling keys so they don't leak through the resolver.
+            const {
+              sampling: _sampling,
+              samplingThreshold: _samplingThreshold,
+              ...rest
+            } = s as PieSeriesConfig & {
+              readonly sampling?: unknown;
+              readonly samplingThreshold?: unknown;
+            };
+
+            const resolvedData: ReadonlyArray<ResolvedPieDataItem> = (s.data ?? []).map((item, itemIndex) => {
+              const itemColor = normalizeOptionalColor(item?.color);
+              const fallback = theme.colorPalette[(i + itemIndex) % theme.colorPalette.length];
+              // Ensure visible defaults to true (converts undefined to true, preserves explicit false)
+              const itemVisible = item?.visible !== false;
+              return {
+                ...item,
+                color: itemColor ?? fallback,
+                visible: itemVisible,
+              };
+            });
+
+            return { ...rest, visible, color, data: resolvedData };
+          }
+          case 'candlestick': {
+            warnCandlestickNotImplemented();
+
+            const resolvedSampling: 'none' | 'ohlc' =
+              normalizeCandlestickSampling((s as unknown as { sampling?: unknown }).sampling) ??
+              candlestickDefaults.sampling;
+
+            const resolvedSamplingThreshold: number =
+              normalizeSamplingThreshold((s as unknown as { samplingThreshold?: unknown }).samplingThreshold) ??
+              candlestickDefaults.samplingThreshold;
+
+            const resolvedItemStyle: ResolvedCandlestickItemStyleConfig = {
+              upColor: normalizeOptionalColor(s.itemStyle?.upColor) ?? candlestickDefaults.itemStyle.upColor,
+              downColor: normalizeOptionalColor(s.itemStyle?.downColor) ?? candlestickDefaults.itemStyle.downColor,
+              upBorderColor:
+                normalizeOptionalColor(s.itemStyle?.upBorderColor) ?? candlestickDefaults.itemStyle.upBorderColor,
+              downBorderColor:
+                normalizeOptionalColor(s.itemStyle?.downBorderColor) ?? candlestickDefaults.itemStyle.downBorderColor,
+              borderWidth:
+                typeof s.itemStyle?.borderWidth === 'number' && Number.isFinite(s.itemStyle.borderWidth)
+                  ? s.itemStyle.borderWidth
+                  : candlestickDefaults.itemStyle.borderWidth,
+            };
+
+            const contentHash = resolveSeriesContentHash(prevResolved, 'candlestick', s.data, () =>
+              cheapOHLCContentStamp(s.data)
+            );
+            const reuseCandle = canReuseResolvedSeriesSample(
+              prevResolved,
+              'candlestick',
+              s.data,
+              resolvedSampling,
+              resolvedSamplingThreshold,
+              undefined,
+              contentHash
+            );
+            const prevCandle = reuseCandle
+              ? (prevResolved as ResolvedCandlestickSeriesConfig & {
+                  contentHash?: number;
+                })
+              : null;
+            const rawBounds = prevCandle?.rawBounds ?? computeRawBoundsFromOHLC(s.data);
+
+            const sampledData = prevCandle
+              ? prevCandle.data
+              : resolvedSampling === 'ohlc' && s.data.length > resolvedSamplingThreshold
+                ? ohlcSample(s.data, resolvedSamplingThreshold)
+                : s.data;
+
+            return {
+              ...s,
+              visible,
+              rawData: s.data,
+              data: sampledData,
+              color,
+              style: s.style ?? candlestickDefaults.style,
+              itemStyle: resolvedItemStyle,
+              barWidth: s.barWidth ?? candlestickDefaults.barWidth,
+              barMinWidth: s.barMinWidth ?? candlestickDefaults.barMinWidth,
+              barMaxWidth: s.barMaxWidth ?? candlestickDefaults.barMaxWidth,
+              sampling: resolvedSampling,
+              samplingThreshold: resolvedSamplingThreshold,
+              rawBounds,
+              yAxis,
+              contentHash,
+            };
+          }
+          default: {
+            return assertUnreachable(s);
           }
         }
-
-        const {
-          bounds: rawBounds,
-          mode: rawBoundsMode,
-          indexSortedHit,
-        } = resolveCartesianBounds(prevScatter, s.data, reuseSample, {
-          // Only trust when this frame re-validated sticky or cold-proved — never
-          // after classify rejected (Brownian).
-          trustIndexSorted: indexSortedThisFrame,
-        });
-
-        const indexSortedProven = Boolean(indexSortedThisFrame || indexSortedHit);
-        const mode = normalizeScatterMode((s as unknown as { readonly mode?: unknown }).mode) ?? scatterDefaults.mode;
-        const binSize =
-          normalizeDensityBinSize((s as unknown as { readonly binSize?: unknown }).binSize) ?? scatterDefaults.binSize;
-        const densityColormap =
-          normalizeDensityColormap((s as unknown as { readonly densityColormap?: unknown }).densityColormap) ??
-          scatterDefaults.densityColormap;
-        const densityNormalization =
-          normalizeDensityNormalization(
-            (s as unknown as { readonly densityNormalization?: unknown }).densityNormalization
-          ) ?? scatterDefaults.densityNormalization;
-
-        return {
-          ...s,
-          visible,
-          rawData: s.data,
-          data: sampledData,
-          color,
-          mode,
-          binSize,
-          densityColormap,
-          densityNormalization,
-          sampling,
-          samplingThreshold,
-          rawBounds,
-          rawBoundsMode,
-          yAxis,
-          contentHash,
-          ...(indexSortedProven
-            ? { indexSortedProven: true as const, indexSortedPointCount: rawPointCount }
-            : {}),
-        };
-      }
-      case 'pie': {
-        // Pie series intentionally do NOT support sampling at runtime.
-        // For JS callers, strip any extra sampling keys so they don't leak through the resolver.
-        const {
-          sampling: _sampling,
-          samplingThreshold: _samplingThreshold,
-          ...rest
-        } = s as PieSeriesConfig & {
-          readonly sampling?: unknown;
-          readonly samplingThreshold?: unknown;
-        };
-
-        const resolvedData: ReadonlyArray<ResolvedPieDataItem> = (s.data ?? []).map((item, itemIndex) => {
-          const itemColor = normalizeOptionalColor(item?.color);
-          const fallback = theme.colorPalette[(i + itemIndex) % theme.colorPalette.length];
-          // Ensure visible defaults to true (converts undefined to true, preserves explicit false)
-          const itemVisible = item?.visible !== false;
-          return {
-            ...item,
-            color: itemColor ?? fallback,
-            visible: itemVisible,
-          };
-        });
-
-        return { ...rest, visible, color, data: resolvedData };
-      }
-      case 'candlestick': {
-        warnCandlestickNotImplemented();
-
-        const resolvedSampling: 'none' | 'ohlc' =
-          normalizeCandlestickSampling((s as unknown as { sampling?: unknown }).sampling) ??
-          candlestickDefaults.sampling;
-
-        const resolvedSamplingThreshold: number =
-          normalizeSamplingThreshold((s as unknown as { samplingThreshold?: unknown }).samplingThreshold) ??
-          candlestickDefaults.samplingThreshold;
-
-        const resolvedItemStyle: ResolvedCandlestickItemStyleConfig = {
-          upColor: normalizeOptionalColor(s.itemStyle?.upColor) ?? candlestickDefaults.itemStyle.upColor,
-          downColor: normalizeOptionalColor(s.itemStyle?.downColor) ?? candlestickDefaults.itemStyle.downColor,
-          upBorderColor:
-            normalizeOptionalColor(s.itemStyle?.upBorderColor) ?? candlestickDefaults.itemStyle.upBorderColor,
-          downBorderColor:
-            normalizeOptionalColor(s.itemStyle?.downBorderColor) ?? candlestickDefaults.itemStyle.downBorderColor,
-          borderWidth:
-            typeof s.itemStyle?.borderWidth === 'number' && Number.isFinite(s.itemStyle.borderWidth)
-              ? s.itemStyle.borderWidth
-              : candlestickDefaults.itemStyle.borderWidth,
-        };
-
-        const contentHash = resolveSeriesContentHash(prevResolved, 'candlestick', s.data, () =>
-          cheapOHLCContentStamp(s.data)
-        );
-        const reuseCandle = canReuseResolvedSeriesSample(
-          prevResolved,
-          'candlestick',
-          s.data,
-          resolvedSampling,
-          resolvedSamplingThreshold,
-          undefined,
-          contentHash
-        );
-        const prevCandle = reuseCandle
-          ? (prevResolved as ResolvedCandlestickSeriesConfig & {
-              contentHash?: number;
-            })
-          : null;
-        const rawBounds = prevCandle?.rawBounds ?? computeRawBoundsFromOHLC(s.data);
-
-        const sampledData = prevCandle
-          ? prevCandle.data
-          : resolvedSampling === 'ohlc' && s.data.length > resolvedSamplingThreshold
-            ? ohlcSample(s.data, resolvedSamplingThreshold)
-            : s.data;
-
-        return {
-          ...s,
-          visible,
-          rawData: s.data,
-          data: sampledData,
-          color,
-          style: s.style ?? candlestickDefaults.style,
-          itemStyle: resolvedItemStyle,
-          barWidth: s.barWidth ?? candlestickDefaults.barWidth,
-          barMinWidth: s.barMinWidth ?? candlestickDefaults.barMinWidth,
-          barMaxWidth: s.barMaxWidth ?? candlestickDefaults.barMaxWidth,
-          sampling: resolvedSampling,
-          samplingThreshold: resolvedSamplingThreshold,
-          rawBounds,
-          yAxis,
-          contentHash,
-        };
-      }
-      default: {
-        return assertUnreachable(s);
-      }
-    }
-  });
+      });
 
   return {
     grid,

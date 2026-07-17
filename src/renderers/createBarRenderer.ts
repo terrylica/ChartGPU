@@ -722,10 +722,7 @@ export function createBarRenderer(device: GPUDevice, options?: BarRendererOption
       const packGapDomain = gapDomain * densityStride;
       const packClusterWidthDomain = clusterWidthDomain * densityStride;
       // Independent per-series budget — do not let earlier series consume the global pack.
-      const seriesMaxOutFloats = Math.min(
-        maxOutFloats,
-        outFloats + perSeriesCap * INSTANCE_STRIDE_FLOATS
-      );
+      const seriesMaxOutFloats = Math.min(maxOutFloats, outFloats + perSeriesCap * INSTANCE_STRIDE_FLOATS);
 
       for (let i = 0; i < count; i += densityStride) {
         if (outFloats >= seriesMaxOutFloats) break;
@@ -738,8 +735,7 @@ export function createBarRenderer(device: GPUDevice, options?: BarRendererOption
         // Under reversed x (xDir < 0), mirror slot index so series 0 stays left
         // in clip without shifting the single-series center (idx stays 0).
         const effectiveClusterIndex = xDir < 0 ? clusterCount - 1 - clusterIndex : clusterIndex;
-        const left =
-          x - packClusterWidthDomain / 2 + effectiveClusterIndex * (packBarWidthDomain + packGapDomain);
+        const left = x - packClusterWidthDomain / 2 + effectiveClusterIndex * (packBarWidthDomain + packGapDomain);
 
         let baseDomain = baselineDomain;
         let heightDomain = 0;

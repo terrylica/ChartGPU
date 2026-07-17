@@ -63,10 +63,7 @@ describe('hasDenseHairlineLines / renderDenseHairlineLines', () => {
   });
 
   it('returns true when a visible line is dense hairline (hit)', () => {
-    const renderers = emptyRenderers([
-      mockLine({ hairline: false }),
-      mockLine({ hairline: true }),
-    ]);
+    const renderers = emptyRenderers([mockLine({ hairline: false }), mockLine({ hairline: true })]);
     const prep = makePrep([
       { type: 'line', originalIndex: 0 },
       { type: 'line', originalIndex: 1 },

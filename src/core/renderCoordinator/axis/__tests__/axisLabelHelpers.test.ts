@@ -1,11 +1,5 @@
-
 import { describe, it, expect } from 'vitest';
-import {
-  getYAxisLabelX,
-  getRightYAxisLabelX,
-  getYAxisTitleX,
-  getRightYAxisTitleX,
-} from '../axisLabelHelpers';
+import { getYAxisLabelX, getRightYAxisLabelX, getYAxisTitleX, getRightYAxisTitleX } from '../axisLabelHelpers';
 
 describe('axisLabelHelpers (production exports)', () => {
   it('computes left/right label X', () => {

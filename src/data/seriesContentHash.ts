@@ -57,4 +57,3 @@ export function cheapOHLCContentStamp(data: ReadonlyArray<OHLCDataPoint>): numbe
   h = mixUint(h, 0x0f1ce);
   return h >>> 0;
 }
-

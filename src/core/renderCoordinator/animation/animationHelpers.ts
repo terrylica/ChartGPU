@@ -148,7 +148,9 @@ function hasDrawableMarks(series: AnySeriesConfig): boolean {
       return getPointCount(series.data as CartesianSeriesData) > 0;
     }
     case 'candlestick': {
-      return Array.isArray(series.data) ? series.data.length > 0 : getPointCount(series.data as CartesianSeriesData) > 0;
+      return Array.isArray(series.data)
+        ? series.data.length > 0
+        : getPointCount(series.data as CartesianSeriesData) > 0;
     }
     default: {
       return false;

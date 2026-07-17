@@ -153,6 +153,26 @@ describe('createAreaRenderer geometry cache', () => {
     renderer.dispose();
   });
 
+  it('re-uploads when length grows under stable column ref (streaming append)', () => {
+    const device = createMockDevice();
+    const writeBuffer = device.queue.writeBuffer as ReturnType<typeof vi.fn>;
+    const renderer = createAreaRenderer(device);
+    // Owned XY columns — same object identity across appends, growing length.
+    const cols = { x: [0, 1], y: [1, 2] };
+    const xScale = createLinearScale().domain(0, 10).range(0, 100);
+    const yScale = createLinearScale().domain(0, 10).range(100, 0);
+    const cfg = areaConfig(cols as any);
+
+    renderer.prepare(cfg, cols as any, xScale, yScale, 0);
+    expect(writeBuffer).toHaveBeenCalledTimes(1);
+
+    cols.x.push(2);
+    cols.y.push(3);
+    renderer.prepare(cfg, cols as any, xScale, yScale, 0);
+    expect(writeBuffer).toHaveBeenCalledTimes(2);
+    renderer.dispose();
+  });
+
   it('packs N*8 bytes (not N*16 strip expansion) into private storage (1.4)', () => {
     const device = createMockDevice();
     const writeBuffer = device.queue.writeBuffer as ReturnType<typeof vi.fn>;
@@ -227,6 +247,47 @@ describe('createAreaRenderer geometry cache', () => {
     const y2 = createLinearScale().domain(-1, 3).range(100, 0);
     renderer.prepare(cfg, data, xScale, y2, 0);
     expect(writeUniformBufferMock.mock.calls.length).toBeGreaterThan(0);
+    renderer.dispose();
+  });
+
+  it('places packed time-axis origin on-screen via external storage (no bx+ax*xOffset cancellation)', () => {
+    const device = createMockDevice();
+    writeUniformBufferMock.mockClear();
+    const renderer = createAreaRenderer(device);
+    const origin = 1_704_067_200_000; // 2024-01-01T00:00:00Z
+    const span = 899 * 60_000;
+    const data: DataPoint[] = [
+      [origin, 0],
+      [origin + span, 1],
+    ];
+    const plotLeft = -0.8676748582230625;
+    const plotRight = 0.9546313799621928;
+    const xScale = createLinearScale()
+      .domain(origin, origin + span)
+      .range(plotLeft, plotRight);
+    const yScale = createLinearScale().domain(-0.2, 1).range(-0.9, 0.9);
+    const external = { size: 1024, destroy: vi.fn() } as unknown as GPUBuffer;
+
+    // External storage path uses packing-origin X affine (same as LineRenderer).
+    renderer.prepare(areaConfig(data), data, xScale, yScale, 0, external, 2, origin);
+
+    // Area VS uniforms: mat4 + baseline padding = 96 bytes.
+    const vsWrites = writeUniformBufferMock.mock.calls.filter((c) => {
+      const dataArg = c[2];
+      return dataArg instanceof ArrayBuffer && dataArg.byteLength === 96;
+    });
+    expect(vsWrites.length).toBeGreaterThan(0);
+    const f32 = new Float32Array(vsWrites[0]![2] as ArrayBuffer);
+    // mat4: ax at [0], bx at [12] (column-major translation x)
+    const ax = f32[0]!;
+    const bx = f32[12]!;
+    // Packed x=0 maps to scale(origin) ≈ plotLeft; packed end maps near plotRight.
+    expect(bx).toBeCloseTo(plotLeft, 5);
+    expect(ax * span + bx).toBeCloseTo(plotRight, 5);
+    // Regression: old bx+ax*origin path yielded ~-3.7 (off-screen left).
+    expect(bx).toBeGreaterThan(-1.5);
+    expect(bx).toBeLessThan(1.5);
+
     renderer.dispose();
   });
 });

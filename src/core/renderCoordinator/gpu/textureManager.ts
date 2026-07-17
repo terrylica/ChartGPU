@@ -257,8 +257,7 @@ export function createTextureManager(config: TextureManagerConfig): TextureManag
       state.overlayTargetsFormat === targetFormat;
     const mainOk = !needMainColor || !!state.mainColorTexture;
     const resolveOverlayOk =
-      !needResolveAndOverlay ||
-      (state.mainResolveTexture && state.overlayMsaaTexture && state.overlayBlitBindGroup);
+      !needResolveAndOverlay || (state.mainResolveTexture && state.overlayMsaaTexture && state.overlayBlitBindGroup);
 
     if (sizeOk && mainOk && resolveOverlayOk) {
       // Free unused targets when path switches to leaner modes.

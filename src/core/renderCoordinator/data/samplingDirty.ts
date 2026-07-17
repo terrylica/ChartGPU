@@ -143,11 +143,7 @@ export function patchSeriesPresentationKeepingSampledData(
   // Identity short-circuit: full series-array reuse from OptionResolver (same
   // user series ref) means every entry is === previous — return prior array
   // without allocating N patched objects (group 1 multi-series axes-only).
-  if (
-    nextSeries.length === previousSampled.length &&
-    nextSeries.length > 0 &&
-    nextSeries[0] === previousSampled[0]
-  ) {
+  if (nextSeries.length === previousSampled.length && nextSeries.length > 0 && nextSeries[0] === previousSampled[0]) {
     let allSame = true;
     for (let i = 1; i < nextSeries.length; i++) {
       if (nextSeries[i] !== previousSampled[i]) {

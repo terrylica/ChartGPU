@@ -2768,8 +2768,7 @@ export async function createChartGPU(
       // Use shared device/adapter if provided in context parameter.
       // Optional devicePixelRatio overrides window.devicePixelRatio (multi-chart 1×).
       const dprOpt = options.devicePixelRatio;
-      const dprOverride =
-        typeof dprOpt === 'number' && Number.isFinite(dprOpt) && dprOpt > 0 ? dprOpt : undefined;
+      const dprOverride = typeof dprOpt === 'number' && Number.isFinite(dprOpt) && dprOpt > 0 ? dprOpt : undefined;
       const gpuContextOptions = context
         ? {
             device: context.device,

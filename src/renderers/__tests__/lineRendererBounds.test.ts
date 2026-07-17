@@ -1,6 +1,6 @@
 /**
  * P2-5: Line prepare must not O(n)-scan series data for bounds.
- * Affine is derived from scale.scale(0)/scale.scale(1) only.
+ * X affine samples near packing origin (epoch-ms safe); Y uses scale(0)/scale(1).
  */
 
 /// <reference types="@webgpu/types" />
@@ -152,7 +152,7 @@ describe('createLineRenderer bounds (P2-5)', () => {
     renderer.dispose();
   });
 
-  it('samples scale affine only at 0 and 1 (not per-point)', () => {
+  it('samples scale affine only near packing origin / y (0,1) (not per-point)', () => {
     const device = createMockDevice();
     const renderer = createLineRenderer(device);
     const data: DataPoint[] = Array.from({ length: 10_000 }, (_, i) => [i, i]);
@@ -174,13 +174,13 @@ describe('createLineRenderer bounds (P2-5)', () => {
     const xScaleSpy = vi.spyOn(xScale, 'scale');
     const yScaleSpy = vi.spyOn(yScale, 'scale');
     const dataBuffer = { label: 'data' } as GPUBuffer;
+    const xOffset = 0;
 
-    renderer.prepare(series, dataBuffer, xScale, yScale, 0, 2, 1280, 720);
+    renderer.prepare(series, dataBuffer, xScale, yScale, xOffset, 2, 1280, 720);
 
-    // Affine from (0,1) only — four scale() calls total across both axes.
-    expect(xScaleSpy.mock.calls.map((c) => c[0])).toEqual([0, 1]);
+    // X: packing origin + unit probe; Y: (0,1). Four scale() calls total — not O(n).
+    expect(xScaleSpy.mock.calls.map((c) => c[0])).toEqual([xOffset, xOffset + 1]);
     expect(yScaleSpy.mock.calls.map((c) => c[0])).toEqual([0, 1]);
-    // Must not scale each data point (would be O(n)).
     expect(xScaleSpy).toHaveBeenCalledTimes(2);
     expect(yScaleSpy).toHaveBeenCalledTimes(2);
 
@@ -189,14 +189,69 @@ describe('createLineRenderer bounds (P2-5)', () => {
     renderer.dispose();
   });
 
+  it('places packed time-axis origin on-screen (no bx+ax*xOffset cancellation)', () => {
+    const device = createMockDevice();
+    const writeUniform = writeUniformBuffer as ReturnType<typeof vi.fn>;
+    writeUniform.mockClear();
+    const renderer = createLineRenderer(device);
+    const origin = 1_704_067_200_000; // 2024-01-01T00:00:00Z
+    const span = 899 * 60_000;
+    const data: DataPoint[] = [
+      [origin, 0],
+      [origin + span, 1],
+    ];
+    const series = {
+      type: 'line',
+      data,
+      rawData: data,
+      color: '#4a9eff',
+      lineStyle: { width: 2, opacity: 1, color: '#4a9eff' },
+      sampling: 'none',
+      samplingThreshold: 5000,
+      connectNulls: false,
+      yAxis: 'y',
+      visible: true,
+    } as ResolvedLineSeriesConfig;
+
+    const plotLeft = -0.8676748582230625;
+    const plotRight = 0.9546313799621928;
+    const xScale = createLinearScale()
+      .domain(origin, origin + span)
+      .range(plotLeft, plotRight);
+    const yScale = createLinearScale().domain(-0.2, 1).range(-0.9, 0.9);
+    const dataBuffer = { label: 'data' } as GPUBuffer;
+
+    renderer.prepare(series, dataBuffer, xScale, yScale, origin, 2, 2116, 1079);
+
+    const vsWrites = writeUniform.mock.calls.filter((c) => {
+      const dataArg = c[2];
+      return dataArg instanceof ArrayBuffer && dataArg.byteLength === 80;
+    });
+    expect(vsWrites.length).toBeGreaterThan(0);
+    const f32 = new Float32Array(vsWrites[0]![2] as ArrayBuffer);
+    // mat4: ax at [0], bx at [12] (column-major translation x)
+    const ax = f32[0]!;
+    const bx = f32[12]!;
+    // Packed x=0 maps to scale(origin) ≈ plotLeft; packed end maps near plotRight.
+    expect(bx).toBeCloseTo(plotLeft, 5);
+    expect(ax * span + bx).toBeCloseTo(plotRight, 5);
+    // Regression: old bx+ax*origin path yielded ~-3.7 (off-screen left).
+    expect(bx).toBeGreaterThan(-1.5);
+    expect(bx).toBeLessThan(1.5);
+
+    renderer.dispose();
+  });
+
   it('structurally does not import bounds scan into prepare path', async () => {
-    // Source-level regression: prepare path must stay on affine (0,1).
+    // Source-level regression: prepare path must stay on packed-origin X affine + y (0,1).
+    // X samples near packing origin (epoch-ms safe); never fold bx+ax*xOffset from (0,1).
     const fs = await import('node:fs');
     const path = await import('node:path');
     const src = fs.readFileSync(path.resolve(__dirname, '../createLineRenderer.ts'), 'utf8');
     expect(src).not.toMatch(/computeRawBoundsFromCartesianData/);
-    expect(src).toMatch(/computeClipAffineFromScale\(xScale, 0, 1\)/);
+    expect(src).toMatch(/computePackedXAffineFromScale\(xScale, xOffset\)/);
     expect(src).toMatch(/computeClipAffineFromScale\(yScale, 0, 1\)/);
+    expect(src).not.toMatch(/bx \+ ax \* xOffset/);
   });
 
   it('denseHairline prepare writes floor line width into VS uniform at high N', () => {
@@ -235,12 +290,15 @@ describe('createLineRenderer bounds (P2-5)', () => {
     const renderer = createLineRenderer(device, { sampleCount: 4 });
     // Two pipelines: standard (main MSAA) + hairline (always sampleCount 1)
     expect(createPipe).toHaveBeenCalledTimes(2);
-    const configs = createPipe.mock.calls.map((c) => c[1] as {
-      label?: string;
-      primitive?: { topology?: string };
-      multisample?: { count?: number };
-      vertex?: { entryPoint?: string };
-    });
+    const configs = createPipe.mock.calls.map(
+      (c) =>
+        c[1] as {
+          label?: string;
+          primitive?: { topology?: string };
+          multisample?: { count?: number };
+          vertex?: { entryPoint?: string };
+        }
+    );
     const hairline = configs.find(
       (c) => c.label === 'lineRenderer/hairlinePipeline' || c.vertex?.entryPoint === 'vsMainHairline'
     );

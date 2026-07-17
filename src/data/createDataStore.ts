@@ -1,8 +1,5 @@
 import type { CartesianSeriesData } from '../config/types';
-import {
-  destroyBufferAfterSubmit,
-  flushDeviceSubmit,
-} from '../core/gpu/submitBatcher';
+import { destroyBufferAfterSubmit, flushDeviceSubmit } from '../core/gpu/submitBatcher';
 import { getPointCount, packXYInto } from './cartesianData';
 import { maxPointsPeakRetention, normalizeMaxPoints, planMaxPointsWindow } from './maxPointsWindow';
 import { isYOnlyRewriteAgainstStaging, packYOnlyInto } from './seriesRewriteDetect';
@@ -237,7 +234,7 @@ function bumpContentVersion(hash: number, keepNewCount: number, dropPrevCount = 
     h = (h + 0x85ebca6b) >>> 0;
   }
   // Ensure a change even when keepNewCount is 0 (drop-only edge).
-  if (h === (hash >>> 0)) {
+  if (h === hash >>> 0) {
     h = (h + 1) >>> 0;
   }
   return h;
@@ -385,25 +382,13 @@ export function createDataStore(device: GPUDevice): DataStore {
     const floatsFirst = first * 2;
     if (first > 0) {
       stagingBuffer.set(scratch.subarray(0, floatsFirst), physStart * 2);
-      device.queue.writeBuffer(
-        gpuBuffer,
-        physStart * 2 * 4,
-        scratch.buffer,
-        scratch.byteOffset,
-        floatsFirst * 4
-      );
+      device.queue.writeBuffer(gpuBuffer, physStart * 2 * 4, scratch.buffer, scratch.byteOffset, floatsFirst * 4);
     }
     const rest = pointCount - first;
     if (rest > 0) {
       const floatsRest = rest * 2;
       stagingBuffer.set(scratch.subarray(floatsFirst, floatsFirst + floatsRest), 0);
-      device.queue.writeBuffer(
-        gpuBuffer,
-        0,
-        scratch.buffer,
-        scratch.byteOffset + floatsFirst * 4,
-        floatsRest * 4
-      );
+      device.queue.writeBuffer(gpuBuffer, 0, scratch.buffer, scratch.byteOffset + floatsFirst * 4, floatsRest * 4);
     }
   };
 
@@ -684,24 +669,22 @@ export function createDataStore(device: GPUDevice): DataStore {
 
     const existing = getSeriesEntry(index);
     const prevPointCount = existing.pointCount;
-    const maxPoints = normalizeMaxPoints(options?.maxPoints);
-    const plan = planMaxPointsWindow(prevPointCount, newPointCount, maxPoints);
-    const {
-      nextCount: nextPointCount,
-      dropPrevCount,
-      newSrcOffset,
-      keepNewCount,
-      isStrictReplace,
-      ringCapacity,
-      isRing,
-    } = plan;
+    let maxPoints = normalizeMaxPoints(options?.maxPoints);
+    let plan = planMaxPointsWindow(prevPointCount, newPointCount, maxPoints);
+    let nextPointCount = plan.nextCount;
+    let dropPrevCount = plan.dropPrevCount;
+    let newSrcOffset = plan.newSrcOffset;
+    let keepNewCount = plan.keepNewCount;
+    let isStrictReplace = plan.isStrictReplace;
+    let ringCapacity = plan.ringCapacity;
+    let isRing = plan.isRing;
 
     // Reserve peak ring capacity when maxPoints is set so streaming never
     // reallocates (full re-upload) on every geometric step.
-    const reservePoints =
+    let reservePoints =
       isRing && ringCapacity > 0 ? Math.max(nextPointCount, maxPointsPeakRetention(ringCapacity)) : nextPointCount;
-    const requiredBytes = roundUpToMultipleOf4(reservePoints * 2 * 4);
-    const targetBytes = Math.max(MIN_BUFFER_BYTES, requiredBytes);
+    let requiredBytes = roundUpToMultipleOf4(reservePoints * 2 * 4);
+    let targetBytes = Math.max(MIN_BUFFER_BYTES, requiredBytes);
 
     let buffer = existing.buffer;
     let capacityBytes = existing.capacityBytes;
@@ -712,6 +695,29 @@ export function createDataStore(device: GPUDevice): DataStore {
     const prevRingCap = existing.ringCapacityPoints;
     const prevRingStart = existing.ringStart;
     const wasRing = prevRingCap > 0;
+    const hardCap = Math.min(maxBufferSize, maxStorageBinding);
+
+    // Unbounded growth past the device storage-binding limit: auto-window to
+    // the max points that fit (same policy as maxPoints ring) instead of throw.
+    // Otherwise appendFlush's silent catch left CPU bounds growing while the
+    // GPU buffer stayed at ~16.7M pts (128 MiB) — empty right gutter under
+    // ultimate-benchmark multi-10M streaming.
+    if (targetBytes > hardCap && maxPoints == null) {
+      const deviceMaxPoints = Math.max(1, Math.floor(hardCap / (2 * 4)));
+      maxPoints = deviceMaxPoints;
+      plan = planMaxPointsWindow(prevPointCount, newPointCount, maxPoints);
+      nextPointCount = plan.nextCount;
+      dropPrevCount = plan.dropPrevCount;
+      newSrcOffset = plan.newSrcOffset;
+      keepNewCount = plan.keepNewCount;
+      isStrictReplace = plan.isStrictReplace;
+      ringCapacity = plan.ringCapacity;
+      isRing = plan.isRing;
+      reservePoints =
+        isRing && ringCapacity > 0 ? Math.max(nextPointCount, maxPointsPeakRetention(ringCapacity)) : nextPointCount;
+      requiredBytes = roundUpToMultipleOf4(reservePoints * 2 * 4);
+      targetBytes = Math.max(MIN_BUFFER_BYTES, requiredBytes);
+    }
 
     const needsGrowth = targetBytes > capacityBytes;
 
@@ -734,7 +740,6 @@ export function createDataStore(device: GPUDevice): DataStore {
     // window after packing — GPU prefix copy is skipped there to avoid a wasted
     // copy that would be overwritten by writeFullPointsToGpu.
     if (needsGrowth) {
-      const hardCap = Math.min(maxBufferSize, maxStorageBinding);
       if (targetBytes > hardCap) {
         throw new Error(
           `DataStore.appendSeries(${index}): required buffer size ${targetBytes} exceeds ` +
@@ -758,12 +763,7 @@ export function createDataStore(device: GPUDevice): DataStore {
         const capped = Math.min(preferred, MAX_STREAM_HEADROOM_POINTS * 2 * 4);
         grownCapacityBytes = Math.max(grownCapacityBytes, Math.max(targetBytes, capped));
       }
-      capacityBytes = clampSeriesCapacityBytes(
-        grownCapacityBytes,
-        targetBytes,
-        maxBufferSize,
-        maxStorageBinding
-      );
+      capacityBytes = clampSeriesCapacityBytes(grownCapacityBytes, targetBytes, maxBufferSize, maxStorageBinding);
       buffer = device.createBuffer({
         size: capacityBytes,
         usage: seriesBufferUsage(),
@@ -784,17 +784,7 @@ export function createDataStore(device: GPUDevice): DataStore {
       ringStart = 0;
 
       if (pureGrowthAppend) {
-        packAppendAndUpload(
-          stagingBuffer,
-          buffer,
-          0,
-          0,
-          newPoints,
-          0,
-          newPointCount,
-          existing.xOffset,
-          oldCount
-        );
+        packAppendAndUpload(stagingBuffer, buffer, 0, 0, newPoints, 0, newPointCount, existing.xOffset, oldCount);
         series.set(index, {
           buffer,
           capacityBytes,
@@ -871,17 +861,7 @@ export function createDataStore(device: GPUDevice): DataStore {
 
     // ── Pure linear ranged append (no maxPoints, no growth) ──
     if (pureLinearRanged) {
-      packAppendAndUpload(
-        stagingBuffer,
-        buffer,
-        0,
-        0,
-        newPoints,
-        0,
-        newPointCount,
-        existing.xOffset,
-        prevPointCount
-      );
+      packAppendAndUpload(stagingBuffer, buffer, 0, 0, newPoints, 0, newPointCount, existing.xOffset, prevPointCount);
 
       series.set(index, {
         buffer,

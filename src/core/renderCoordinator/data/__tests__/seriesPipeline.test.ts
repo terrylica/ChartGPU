@@ -3,11 +3,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import {
-  buildRuntimeBaseSeries,
-  buildSetOptionsReuseSeries,
-  resolveZoomedSeriesEntry,
-} from '../seriesPipeline';
+import { buildRuntimeBaseSeries, buildSetOptionsReuseSeries, resolveZoomedSeriesEntry } from '../seriesPipeline';
 import type { ResolvedSeriesConfig } from '../../../../config/OptionResolver';
 
 const raw100 = {

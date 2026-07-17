@@ -66,7 +66,6 @@ describe('clearPointer', () => {
   });
 });
 
-
 describe('gridToDomainX', () => {
   const xScale = createLinearScale().domain(0, 100).range(0, 800);
 
@@ -97,7 +96,6 @@ describe('gridToDomainX', () => {
     expect(recoveredDomain).toBeCloseTo(originalDomain, 10);
   });
 });
-
 
 describe('computeEffectivePointer', () => {
   const xScale = createLinearScale().domain(0, 100).range(0, 800);
@@ -262,7 +260,6 @@ describe('shouldUpdateInteractionX', () => {
   });
 });
 
-
 describe('integration: sync pointer workflow', () => {
   it('supports typical sync interaction cycle', () => {
     const xScale = createLinearScale().domain(0, 1000).range(0, 800);
@@ -296,5 +293,3 @@ describe('integration: sync pointer workflow', () => {
     expect(cleared.hasPointer).toBe(false);
   });
 });
-
-

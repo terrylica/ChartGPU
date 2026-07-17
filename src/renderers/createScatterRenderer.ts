@@ -8,10 +8,7 @@ import { createRenderPipeline, createUniformBuffer, writeUniformBuffer } from '.
 import { getPointCount, getX, getY, getSize, hasAnyPerPointSize } from '../data/cartesianData';
 import type { PipelineCache } from '../core/PipelineCache';
 import { resolveUploadPolicy } from '../data/seriesResidency';
-import {
-  isYOnlyRewriteAgainstXStaging,
-  packYOnlyChannel,
-} from '../data/seriesRewriteDetect';
+import { isYOnlyRewriteAgainstXStaging, packYOnlyChannel } from '../data/seriesRewriteDetect';
 import { resolveScatterDrawPolicy } from './scatterDrawPolicy';
 
 export interface ScatterRenderer {

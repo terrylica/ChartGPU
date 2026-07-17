@@ -80,13 +80,49 @@ describe('canRangedAppendLine', () => {
     ).toBe(false);
   });
 
-  it('rejects non-line series', () => {
+  it('rejects non-line non-area series', () => {
     expect(
       canRangedAppendLine({
         seriesType: 'scatter',
         sampling: 'none',
         kind: 'fullRawLine',
         rawData: raw,
+      })
+    ).toBe(false);
+  });
+
+  it('allows pure area with sampling none (streaming full-raw resident)', () => {
+    expect(
+      canRangedAppendLine({
+        seriesType: 'area',
+        sampling: 'none',
+        kind: 'fullRawLine',
+        rawData: raw,
+        series: { type: 'area', sampling: 'none' } as Pick<ResolvedSeriesConfig, 'type' | 'sampling'>,
+      })
+    ).toBe(true);
+  });
+
+  it('unlocks cold unknown + area + sampling none', () => {
+    expect(
+      canRangedAppendLine({
+        seriesType: 'area',
+        sampling: 'none',
+        kind: 'unknown',
+        rawData: raw,
+        series: { type: 'area', sampling: 'none' } as Pick<ResolvedSeriesConfig, 'type' | 'sampling'>,
+      })
+    ).toBe(true);
+  });
+
+  it('rejects pure area with lttb when kind is unknown (no GPU decimation for area)', () => {
+    expect(
+      canRangedAppendLine({
+        seriesType: 'area',
+        sampling: 'lttb',
+        kind: 'unknown',
+        rawData: raw,
+        series: { type: 'area', sampling: 'lttb' } as Pick<ResolvedSeriesConfig, 'type' | 'sampling'>,
       })
     ).toBe(false);
   });

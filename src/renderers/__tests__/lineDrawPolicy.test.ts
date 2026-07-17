@@ -77,7 +77,6 @@ describe('resolveLineDrawPolicy', () => {
     expect(r.effectiveLineWidthCssPx).toBeLessThan(DENSE_LINE_MIN_WIDTH_CSS);
   });
 
-
   it('never returns denseThin (removed dead policy)', () => {
     for (const n of [1, 10_000, 24_999, 25_000, 50_000, 1_000_000]) {
       const r = resolveLineDrawPolicy({ pointCount: n, lineWidthCssPx: 2 });

@@ -128,7 +128,4 @@ describe('filterGapsCache (P2-12)', () => {
       [2, 99],
     ]);
   });
-
-
-
 });

@@ -255,11 +255,48 @@ export function prepareSeries(renderers: SeriesRenderers, context: SeriesPrepare
     const s = seriesForRender[i];
     switch (s.type) {
       case 'area': {
+        // Pure `type: 'area'`: upload through DataStore (same XY layout as line) so
+        // streaming append can ranged-write GPU bytes and the area renderer binds
+        // that buffer. Private pack alone identity-caches on data ref and misses
+        // in-place column growth from appendData (empty until a zoom creates a new
+        // sliced array ref).
         const baseline = s.baseline ?? defaultBaseline;
         // When connectNulls is true, strip null/NaN gap entries so the area draws through gaps.
         // Cached by data ref identity (P2-12) so static frames do not re-allocate.
         const areaData = s.connectNulls ? getFilteredGapsCached(filterGapsCache, i, s.data) : s.data;
-        renderers.areaRenderers[i].prepare(s, areaData, xScale, getYScale(s), baseline);
+        const { packingXOffset, xOffset } = resolveLinePackingXOffset({
+          data: areaData,
+          dataStore,
+          seriesIndex: i,
+          xAxisType: currentOptions.xAxis.type,
+        });
+        if (!appendedGpuThisFrame.has(i)) {
+          setSeriesIfChanged(i, areaData, { xOffset: packingXOffset });
+        }
+        const areaBuffer = dataStore.getSeriesBuffer(i);
+        const areaRingLayout = dataStore.getSeriesRingLayout(i);
+        // Shared storage only when linear (capacity 0). After modular ring wrap,
+        // private-pack chronological areaData (same contract as line+areaStyle).
+        if (areaRingLayout.capacity === 0) {
+          renderers.areaRenderers[i].prepare(
+            s,
+            areaData,
+            xScale,
+            getYScale(s),
+            baseline,
+            areaBuffer,
+            dataStore.getSeriesPointCount(i),
+            xOffset
+          );
+        } else {
+          renderers.areaRenderers[i].prepare(s, areaData, xScale, getYScale(s), baseline);
+        }
+        // sampling:'none' keeps full raw resident → ranged append (mirrors line).
+        if (s.sampling === 'none') {
+          gpuSeriesKindByIndex[i] = 'fullRawLine';
+        } else {
+          gpuSeriesKindByIndex[i] = 'other';
+        }
         break;
       }
       case 'line': {
@@ -295,10 +332,7 @@ export function prepareSeries(renderers: SeriesRenderers, context: SeriesPrepare
           // continuous (1 sample/px aliases into long sparse segments that look
           // faint/dashed, especially with antialias:false + dpr:1).
           const dpr = Math.max(1e-6, gridArea.devicePixelRatio || 1);
-          const plotWidthCss = Math.max(
-            1,
-            gridArea.canvasWidth / dpr - gridArea.left - gridArea.right
-          );
+          const plotWidthCss = Math.max(1, gridArea.canvasWidth / dpr - gridArea.left - gridArea.right);
           const plotWidthDevice = Math.max(1, Math.floor(plotWidthCss * dpr));
           // Floor 128 so tiny slots still get a usable polyline; 2× width for Nyquist-ish LOD.
           const pixelCap = Math.max(128, plotWidthDevice * 2);
@@ -808,10 +842,7 @@ export function renderSeries(
  * True when any visible line series will draw via the dense hairline path.
  * Used to open the post-resolve single-sample pass only when needed.
  */
-export function hasDenseHairlineLines(
-  renderers: SeriesRenderers,
-  seriesPreparation: SeriesPreparationResult
-): boolean {
+export function hasDenseHairlineLines(renderers: SeriesRenderers, seriesPreparation: SeriesPreparationResult): boolean {
   const { visibleSeriesForRender } = seriesPreparation;
   for (let idx = 0; idx < visibleSeriesForRender.length; idx++) {
     const { series, originalIndex } = visibleSeriesForRender[idx]!;
@@ -884,14 +915,7 @@ export function renderAboveSeriesAnnotations(
   annotationRenderers: AnnotationRenderers,
   context: AboveSeriesAnnotationContext
 ): void {
-  const {
-    hasCartesianSeries,
-    gridArea,
-    overlayPass,
-    plotScissor,
-    referenceLineAboveCount,
-    markerAboveCount,
-  } = context;
+  const { hasCartesianSeries, gridArea, overlayPass, plotScissor, referenceLineAboveCount, markerAboveCount } = context;
 
   // Annotations (above series): reference lines then markers, clipped to plot scissor.
   // MSAA overlay renderers are prepared with *only* above-layer instances (start at 0).

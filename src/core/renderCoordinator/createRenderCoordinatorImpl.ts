@@ -4,26 +4,14 @@ import type {
   ResolvedPieSeriesConfig,
   ResolvedSeriesConfig,
 } from '../../config/OptionResolver';
-import type {
-  AnnotationConfig,
-  DataPoint,
-  OHLCDataPoint,
-} from '../../config/types';
+import type { AnnotationConfig, DataPoint, OHLCDataPoint } from '../../config/types';
 import { GPUContext, isHTMLCanvasElement as isHTMLCanvasElementGPU } from '../GPUContext';
 import { createDataStore } from '../../data/createDataStore';
 import { isGpuDecimationEligible } from '../../data/gpuDecimationEligibility';
 import { canRangedAppendLine, type DataStoreBufferKind } from './data/canRangedAppendLine';
-import {
-  buildRuntimeBaseSeries,
-  buildSetOptionsReuseSeries,
-  resolveZoomedSeriesEntry,
-} from './data/seriesPipeline';
+import { buildRuntimeBaseSeries, buildSetOptionsReuseSeries, resolveZoomedSeriesEntry } from './data/seriesPipeline';
 import { createAppendFlush, type AppendFlushDeps } from './data/appendFlush';
-import {
-  sliceVisibleRangeByX,
-  sliceVisibleRangeByOHLC,
-  isTupleOHLCDataPoint,
-} from './data/computeVisibleSlice';
+import { sliceVisibleRangeByX, sliceVisibleRangeByOHLC, isTupleOHLCDataPoint } from './data/computeVisibleSlice';
 import {
   getPointCount,
   getX,
@@ -70,23 +58,18 @@ import {
 import { createAxisRenderer } from '../../renderers/createAxisRenderer';
 import { createGridRenderer } from '../../renderers/createGridRenderer';
 import type { GridArea } from '../../renderers/createGridRenderer';
-import {
-  createRendererPool,
-  ensureRendererPoolsForSeries,
-} from './renderers/rendererPool';
+import { createRendererPool, ensureRendererPoolsForSeries } from './renderers/rendererPool';
 import { createTextureManager } from './gpu/textureManager';
 import { enqueueDeviceSubmit, flushDeviceSubmit } from '../gpu/submitBatcher';
 import {
   applyStickyAutoDomain,
   DEFAULT_STICKY_DOMAIN_HEADROOM,
+  DEFAULT_STICKY_X_DOMAIN_HEADROOM,
   resolveStickyOrDataDomain,
   shouldApplyStickyAutoDomain,
   shouldSkipStickyAutoXDomain,
 } from './zoom/stickyAutoDomain';
-import {
-  isFullSpanZoomRange as isFullSpanZoomRangeHelper,
-  scanCartesianVisibleYBounds,
-} from './zoom/visibleYBounds';
+import { isFullSpanZoomRange as isFullSpanZoomRangeHelper, scanCartesianVisibleYBounds } from './zoom/visibleYBounds';
 import { createCrosshairRenderer } from '../../renderers/createCrosshairRenderer';
 import { createHighlightRenderer } from '../../renderers/createHighlightRenderer';
 import { createReferenceLineRenderer } from '../../renderers/createReferenceLineRenderer';
@@ -119,16 +102,8 @@ import type { EasingFunction } from '../../utils/easing';
 import type { ZoomChangeSourceKind } from '../../ChartGPU';
 
 // Canonical pure helpers (one-way cutover — do not re-define below)
-import {
-  getCanvasCssWidth,
-  getCanvasCssHeight,
-  getCanvasCssSizeFromDevicePixels,
-} from './utils/canvasUtils';
-import {
-  finiteOrNull,
-  finiteOrUndefined,
-  getPointXY,
-} from './utils/dataPointUtils';
+import { getCanvasCssWidth, getCanvasCssHeight, getCanvasCssSizeFromDevicePixels } from './utils/canvasUtils';
+import { finiteOrNull, finiteOrUndefined, getPointXY } from './utils/dataPointUtils';
 /* dataPointUtils cutover */
 import {
   computeGridArea,
@@ -139,10 +114,7 @@ import {
   clipXToCanvasCssPx,
   clipYToCanvasCssPx,
 } from './utils/axisUtils';
-import {
-  extendBoundsWithOHLCDataPoints,
-  normalizeDomain,
-} from './utils/boundsComputation';
+import { extendBoundsWithOHLCDataPoints, normalizeDomain } from './utils/boundsComputation';
 import {
   DEFAULT_TICK_COUNT as TIME_DEFAULT_TICK_COUNT,
   resolvePieCenterPlotCss,
@@ -164,10 +136,7 @@ import {
 } from './animation/animationHelpers';
 import { computeCandlestickTooltipAnchorFromMatch } from './ui/tooltipLegendHelpers';
 const computeCandlestickTooltipAnchor = computeCandlestickTooltipAnchorFromMatch;
-import {
-  MAIN_SCENE_MSAA_SAMPLE_COUNT,
-  ANNOTATION_OVERLAY_MSAA_SAMPLE_COUNT,
-} from './gpu/textureManager';
+import { MAIN_SCENE_MSAA_SAMPLE_COUNT, ANNOTATION_OVERLAY_MSAA_SAMPLE_COUNT } from './gpu/textureManager';
 import {
   createPointerState,
   updatePointerFromMouse,
@@ -187,7 +156,6 @@ import {
   isOHLCDataPoint,
 } from './ui/tooltipLegendHelpers';
 
-
 export interface GPUContextLike {
   readonly device: GPUDevice | null;
   readonly canvas: HTMLCanvasElement | null;
@@ -201,7 +169,6 @@ export interface GPUContextLike {
 const isHTMLCanvasElement = isHTMLCanvasElementGPU;
 
 /** Gets canvas CSS width - clientWidth for HTMLCanvasElement */
-
 
 export interface RenderCoordinator {
   setOptions(resolvedOptions: ResolvedChartGPUOptions): void;
@@ -303,8 +270,7 @@ const LABEL_SIG_FNV_PRIME = 0x01000193;
 const labelSigF64 = new Float64Array(1);
 const labelSigU32 = new Uint32Array(labelSigF64.buffer);
 
-const mixLabelSigUint = (h: number, v: number): number =>
-  Math.imul(h ^ (v >>> 0), LABEL_SIG_FNV_PRIME) >>> 0;
+const mixLabelSigUint = (h: number, v: number): number => Math.imul(h ^ (v >>> 0), LABEL_SIG_FNV_PRIME) >>> 0;
 
 const mixLabelSigFloat = (h: number, f: number): number => {
   labelSigF64[0] = f;
@@ -313,16 +279,9 @@ const mixLabelSigFloat = (h: number, f: number): number => {
   return next;
 };
 
-
-
-
-
 // Story 5.17: CPU-side update interpolation can be expensive for very large series.
 // We still animate domains for large series, but skip per-point y interpolation past this cap.
 const MAX_ANIMATED_POINTS_PER_SERIES = 20_000;
-
-
-
 
 /**
  * Brand for coordinator-owned MutableXYColumns. User-supplied `{ x, y }` arrays
@@ -410,7 +369,6 @@ const extendBoundsWithCartesianData = (bounds: Bounds | null, data: CartesianSer
 
   return { xMin, xMax, yMin, yMax };
 };
-
 
 const computeGlobalXBounds = (
   series: ResolvedChartGPUOptions['series'],
@@ -536,16 +494,6 @@ const computeGlobalYBoundsForAxis = (
   if (yMin === yMax) yMax = yMin + 1;
   return { yMin, yMax };
 };
-
-
-
-
-
-
-
-
-
-
 
 const computeBaseXDomain = (
   options: ResolvedChartGPUOptions,
@@ -681,8 +629,6 @@ const computeVisibleXDomain = (
 
 // Intro phase machine lives in animationHelpers.computeNextIntroPhase (string-literal states).
 type IntroPhase = 'pending' | 'running' | 'done';
-
-
 
 /**
  * Computes container-local CSS pixel anchor coordinates for a candlestick tooltip.
@@ -1023,11 +969,11 @@ export function createRenderCoordinator(
   let cachedVisibleYBoundsByAxis: Map<string, { yMin: number; yMax: number }> = new Map();
 
   /**
-   * Sticky auto-range domains (multi-chart / series compression).
-   * Expanding data every frame otherwise forces grid+axis prepare + label rebuild
-   * every append. Hold ~10% headroom and only expand when data breaches the sticky
-   * domain — grow-by style amortization without changing the
-   * sampling contract. Cleared on full setOption / explicit axis domains.
+   * Sticky auto-range domains.
+   * Y: ~10% growBy headroom amortizes overlay rebuild under amplitude noise.
+   * X: headroom 0 so unbounded appendData stays full-width (non-zero pad caused
+   * the ultimate-benchmark empty-right grow/reset loop). Cleared on full
+   * setOption / explicit axis domains / autoScroll.
    */
   let stickyAutoXDomain: { min: number; max: number } | null = null;
   const stickyAutoYDomainByAxis = new Map<string, { min: number; max: number }>();
@@ -1035,7 +981,7 @@ export function createRenderCoordinator(
   /**
    * Base X domain used for zoom→visible window, sampling, and slice.
    * Must match paint's sticky / autoScroll / explicit-end gates so decimation
-   * windows agree with GPU scales when sticky headroom is active.
+   * windows agree with GPU scales when sticky is active.
    *
    * - `mode: 'read'`: use existing sticky if active; do not mutate sticky state.
    * - `mode: 'paint'`: applyStickyAutoDomain / clear sticky when skipped or mid-transition.
@@ -1048,8 +994,7 @@ export function createRenderCoordinator(
       updateTransitionActive?: boolean;
     }
   ): { min: number; max: number } {
-    const dataXDomain =
-      opts?.dataXDomain ?? computeBaseXDomain(currentOptions, runtimeRawBoundsByIndex);
+    const dataXDomain = opts?.dataXDomain ?? computeBaseXDomain(currentOptions, runtimeRawBoundsByIndex);
 
     if (opts?.updateTransitionActive) {
       if (mode === 'paint') {
@@ -1060,22 +1005,15 @@ export function createRenderCoordinator(
 
     const xExplicitMin = finiteOrUndefined(currentOptions.xAxis.min);
     const xExplicitMax = finiteOrUndefined(currentOptions.xAxis.max);
-    const skipSticky = shouldSkipStickyAutoXDomain(
-      currentOptions.autoScroll,
-      xExplicitMin,
-      xExplicitMax
-    );
+    const skipSticky = shouldSkipStickyAutoXDomain(currentOptions.autoScroll, xExplicitMin, xExplicitMax);
 
     if (mode === 'paint') {
       if (skipSticky) {
         stickyAutoXDomain = null;
         return dataXDomain;
       }
-      const next = applyStickyAutoDomain(
-        dataXDomain,
-        stickyAutoXDomain,
-        DEFAULT_STICKY_DOMAIN_HEADROOM
-      );
+      // X headroom must be 0 — see DEFAULT_STICKY_X_DOMAIN_HEADROOM.
+      const next = applyStickyAutoDomain(dataXDomain, stickyAutoXDomain, DEFAULT_STICKY_X_DOMAIN_HEADROOM);
       stickyAutoXDomain = next;
       return next;
     }
@@ -1101,8 +1039,7 @@ export function createRenderCoordinator(
     // otherwise be an O(N) y-extrema walk.
     const zoomRange = zoomState?.getRange() ?? null;
     const fullSpan = isFullSpanZoomRangeHelper(zoomRange);
-    const seriesForAxis =
-      runtimeBaseSeries.length > 0 ? runtimeBaseSeries : currentOptions.series;
+    const seriesForAxis = runtimeBaseSeries.length > 0 ? runtimeBaseSeries : currentOptions.series;
 
     // Zoomed: filter Y extrema to the visible X window (GPU-decimation series
     // keep full raw on the series; unfiltered scan would use off-window peaks).
@@ -1122,10 +1059,7 @@ export function createRenderCoordinator(
           computeGlobalYBoundsForAxis(seriesForAxis, ax.id!, runtimeRawBoundsByIndex)
         );
       } else {
-        cachedVisibleYBoundsByAxis.set(
-          ax.id!,
-          computeVisibleYBoundsForAxis(renderSeries, ax.id!, xWindow)
-        );
+        cachedVisibleYBoundsByAxis.set(ax.id!, computeVisibleYBoundsForAxis(renderSeries, ax.id!, xWindow));
       }
     }
   };
@@ -1242,11 +1176,9 @@ export function createRenderCoordinator(
 
   // MSAA: default 4× (portable WebGPU max). `antialias: false` → sampleCount 1
   // for multi-chart dashboards / streaming grids (legal values are only 1|4).
-  const msaaSampleCount: 1 | 4 =
-    currentOptions.antialias === false ? 1 : MAIN_SCENE_MSAA_SAMPLE_COUNT;
+  const msaaSampleCount: 1 | 4 = currentOptions.antialias === false ? 1 : MAIN_SCENE_MSAA_SAMPLE_COUNT;
   // Overlay pass (axes/crosshair/highlight/above-series annotations) shares the same rule.
-  const overlayMsaaSampleCount: 1 | 4 =
-    currentOptions.antialias === false ? 1 : ANNOTATION_OVERLAY_MSAA_SAMPLE_COUNT;
+  const overlayMsaaSampleCount: 1 | 4 = currentOptions.antialias === false ? 1 : ANNOTATION_OVERLAY_MSAA_SAMPLE_COUNT;
 
   const gridRenderer = createGridRenderer(device, {
     targetFormat,
@@ -1364,53 +1296,68 @@ export function createRenderCoordinator(
   };
 
   // Append flush ownership: data/appendFlush.ts
-  const flushPendingAppends = createAppendFlush(() => ({
-      pendingAppendByIndex,
-      appendedGpuThisFrame,
-      zoomState,
-      currentOptions,
-      dataStore,
-      runtimeRawDataByIndex,
-      runtimeRawBoundsByIndex,
-      gpuSeriesKindByIndex,
-      lastSetSeriesCache,
-      filterGapsCache,
-      lastSampledData,
-      warnedSamplingDefeatsFastPath,
-      recomputeRuntimeBaseSeries,
-      recomputeCachedVisibleYBoundsIfNeeded,
-      ensureMutableRuntimeColumns,
-      isOwnedMutableColumns,
-      brandOwnedColumns,
-      computeBaseXDomain,
-      computeVisibleXDomain,
-      isFullSpanZoomRange,
-      computeEffectiveZoomSpanConstraints,
-      extendBoundsWithCartesianData,
-      extendBoundsWithOHLCDataPoints,
-      canRangedAppendLine,
-      isGpuDecimationEligible,
-      normalizeMaxPoints,
-      planMaxPointsWindow,
-      getPointCount,
-      getX,
-      getY,
-      getSize,
-      createRingXYColumns,
-      appendIntoRingXY,
-      dropPrefixXY,
-      createStagingRingView,
-      isRingXYColumns,
-      isStagingRingView,
-      demoteStagingViewAfterRebindFailure,
-      computeRawBoundsFromCartesianData,
-    get runtimeBaseSeries() { return runtimeBaseSeries; },
-    set runtimeBaseSeries(v) { runtimeBaseSeries = v; },
-    get renderSeries() { return renderSeries; },
-    set renderSeries(v) { renderSeries = v; },
-    get pendingZoomSourceKind() { return pendingZoomSourceKind; },
-      set pendingZoomSourceKind(v) { pendingZoomSourceKind = v; },
-  } as AppendFlushDeps));
+  const flushPendingAppends = createAppendFlush(
+    () =>
+      ({
+        pendingAppendByIndex,
+        appendedGpuThisFrame,
+        zoomState,
+        currentOptions,
+        dataStore,
+        runtimeRawDataByIndex,
+        runtimeRawBoundsByIndex,
+        gpuSeriesKindByIndex,
+        lastSetSeriesCache,
+        filterGapsCache,
+        lastSampledData,
+        warnedSamplingDefeatsFastPath,
+        recomputeRuntimeBaseSeries,
+        recomputeCachedVisibleYBoundsIfNeeded,
+        ensureMutableRuntimeColumns,
+        isOwnedMutableColumns,
+        brandOwnedColumns,
+        computeBaseXDomain,
+        computeVisibleXDomain,
+        isFullSpanZoomRange,
+        computeEffectiveZoomSpanConstraints,
+        extendBoundsWithCartesianData,
+        extendBoundsWithOHLCDataPoints,
+        canRangedAppendLine,
+        isGpuDecimationEligible,
+        normalizeMaxPoints,
+        planMaxPointsWindow,
+        getPointCount,
+        getX,
+        getY,
+        getSize,
+        createRingXYColumns,
+        appendIntoRingXY,
+        dropPrefixXY,
+        createStagingRingView,
+        isRingXYColumns,
+        isStagingRingView,
+        demoteStagingViewAfterRebindFailure,
+        computeRawBoundsFromCartesianData,
+        get runtimeBaseSeries() {
+          return runtimeBaseSeries;
+        },
+        set runtimeBaseSeries(v) {
+          runtimeBaseSeries = v;
+        },
+        get renderSeries() {
+          return renderSeries;
+        },
+        set renderSeries(v) {
+          renderSeries = v;
+        },
+        get pendingZoomSourceKind() {
+          return pendingZoomSourceKind;
+        },
+        set pendingZoomSourceKind(v) {
+          pendingZoomSourceKind = v;
+        },
+      }) as AppendFlushDeps
+  );
 
   const executeFlush = (options?: { readonly requestRenderAfter?: boolean }): void => {
     if (disposed) return;
@@ -1685,13 +1632,7 @@ export function createRenderCoordinator(
   };
 
   const onMouseMove = (payload: ChartGPUEventPayload): void => {
-    pointerState = updatePointerFromMouse(
-      payload.x,
-      payload.y,
-      payload.gridX,
-      payload.gridY,
-      payload.isInGrid
-    );
+    pointerState = updatePointerFromMouse(payload.x, payload.y, payload.gridX, payload.gridY, payload.isInGrid);
 
     // If we're over the plot and we have recent interaction scales, update interaction-x in domain units.
     // (Best-effort; render() refreshes scales and overlays.)
@@ -1981,11 +1922,7 @@ export function createRenderCoordinator(
   };
 
   const recomputeRuntimeBaseSeries = (): void => {
-    runtimeBaseSeries = buildRuntimeBaseSeries(
-      currentOptions.series,
-      runtimeRawDataByIndex,
-      runtimeRawBoundsByIndex
-    );
+    runtimeBaseSeries = buildRuntimeBaseSeries(currentOptions.series, runtimeRawDataByIndex, runtimeRawBoundsByIndex);
   };
 
   function sliceRenderSeriesToVisibleRange(): void {
@@ -2085,7 +2022,13 @@ export function createRenderCoordinator(
       }
 
       // Candlestick + cartesian: single pure zoomed resolver (seriesPipeline).
-      if (s.type === 'candlestick' || s.type === 'line' || s.type === 'area' || s.type === 'bar' || s.type === 'scatter') {
+      if (
+        s.type === 'candlestick' ||
+        s.type === 'line' ||
+        s.type === 'area' ||
+        s.type === 'bar' ||
+        s.type === 'scatter'
+      ) {
         const result = resolveZoomedSeriesEntry({
           series: s,
           rawSlot: runtimeRawDataByIndex[i],
@@ -2148,7 +2091,6 @@ export function createRenderCoordinator(
     updateTransition = null;
     resetUpdateInterpolationCaches();
   };
-
 
   const setOptions: RenderCoordinator['setOptions'] = (resolvedOptions) => {
     assertNotDisposed();
@@ -2528,23 +2470,12 @@ export function createRenderCoordinator(
     if (introPhase !== 'done') {
       const introCfg = resolveIntroAnimationConfig(currentOptions.animation);
 
-      const hasDrawableSeriesMarks = hasAnyDrawableMarks(
-        seriesForIntro as ReadonlyArray<AnySeriesConfig>
-      );
+      const hasDrawableSeriesMarks = hasAnyDrawableMarks(seriesForIntro as ReadonlyArray<AnySeriesConfig>);
 
-      const nextIntro = computeNextIntroPhase(
-        introPhase,
-        hasDrawableSeriesMarks,
-        !!introCfg,
-        false
-      );
+      const nextIntro = computeNextIntroPhase(introPhase, hasDrawableSeriesMarks, !!introCfg, false);
       if (nextIntro === 'running' && introPhase === 'pending' && introCfg) {
         const totalMs = introCfg.delayMs + introCfg.durationMs;
-        const easingWithDelay = createEasingWithDelay(
-          introCfg.delayMs,
-          introCfg.durationMs,
-          introCfg.easing
-        );
+        const easingWithDelay = createEasingWithDelay(introCfg.delayMs, introCfg.durationMs, introCfg.easing);
 
         introProgress01 = 0;
         introPhase = 'running';
@@ -2775,8 +2706,7 @@ export function createRenderCoordinator(
     const interactionScalesForHelpers = interactionScales
       ? {
           xScale: interactionScales.xScale,
-          yScale:
-            interactionScales.yScales.values().next().value ?? interactionScales.xScale,
+          yScale: interactionScales.yScales.values().next().value ?? interactionScales.xScale,
           plotWidthCss: interactionScales.plotWidthCss,
           plotHeightCss: interactionScales.plotHeightCss,
         }
@@ -2788,8 +2718,14 @@ export function createRenderCoordinator(
       {
         left: gridArea.left,
         top: gridArea.top,
-        width: Math.max(0, gridArea.canvasWidth / Math.max(1e-6, gridArea.devicePixelRatio || 1) - gridArea.left - gridArea.right),
-        height: Math.max(0, gridArea.canvasHeight / Math.max(1e-6, gridArea.devicePixelRatio || 1) - gridArea.top - gridArea.bottom),
+        width: Math.max(
+          0,
+          gridArea.canvasWidth / Math.max(1e-6, gridArea.devicePixelRatio || 1) - gridArea.left - gridArea.right
+        ),
+        height: Math.max(
+          0,
+          gridArea.canvasHeight / Math.max(1e-6, gridArea.devicePixelRatio || 1) - gridArea.top - gridArea.bottom
+        ),
       }
     );
 
@@ -2886,10 +2822,7 @@ export function createRenderCoordinator(
               const content = formatter
                 ? (formatter as (p: ReadonlyArray<TooltipParams>) => string)(paramsArray)
                 : formatTooltipAxis(paramsArray);
-              if (
-                content &&
-                (shouldUpdateTooltip(tooltipCache, content, containerX, containerY))
-              ) {
+              if (content && shouldUpdateTooltip(tooltipCache, content, containerX, containerY)) {
                 updateTooltipCache(tooltipCache, content, containerX, containerY);
                 showTooltipInternal(containerX, containerY, content, paramsArray);
               } else if (!content) {
@@ -2901,10 +2834,7 @@ export function createRenderCoordinator(
               const content = formatter
                 ? (formatter as (p: TooltipParams) => string)(params)
                 : formatTooltipItem(params);
-              if (
-                content &&
-                (shouldUpdateTooltip(tooltipCache, content, containerX, containerY))
-              ) {
+              if (content && shouldUpdateTooltip(tooltipCache, content, containerX, containerY)) {
                 updateTooltipCache(tooltipCache, content, containerX, containerY);
                 showTooltipInternal(containerX, containerY, content, params);
               } else if (!content) {
@@ -2935,10 +2865,7 @@ export function createRenderCoordinator(
               const content = formatter
                 ? (formatter as (p: ReadonlyArray<TooltipParams>) => string)([params])
                 : formatTooltipItem(params);
-              if (
-                content &&
-                (shouldUpdateTooltip(tooltipCache, content, containerX, containerY))
-              ) {
+              if (content && shouldUpdateTooltip(tooltipCache, content, containerX, containerY)) {
                 updateTooltipCache(tooltipCache, content, containerX, containerY);
                 showTooltipInternal(containerX, containerY, content, [params]);
               } else if (!content) {
@@ -2974,7 +2901,7 @@ export function createRenderCoordinator(
                     const tooltipY = anchor?.y ?? containerY;
                     if (shouldUpdateTooltip(tooltipCache, content, tooltipX, tooltipY)) {
                       updateTooltipCache(tooltipCache, content, tooltipX, tooltipY);
-                showTooltipInternal(tooltipX, tooltipY, content, paramsArray);
+                      showTooltipInternal(tooltipX, tooltipY, content, paramsArray);
                     }
                   } else {
                     hideTooltip();
@@ -3007,7 +2934,7 @@ export function createRenderCoordinator(
                   }
                   if (shouldUpdateTooltip(tooltipCache, content, tooltipX, tooltipY)) {
                     updateTooltipCache(tooltipCache, content, tooltipX, tooltipY);
-                showTooltipInternal(tooltipX, tooltipY, content, paramsArray);
+                    showTooltipInternal(tooltipX, tooltipY, content, paramsArray);
                   }
                 } else {
                   hideTooltip();
@@ -3037,10 +2964,7 @@ export function createRenderCoordinator(
               const content = formatter
                 ? (formatter as (p: TooltipParams) => string)(params)
                 : formatTooltipItem(params);
-              if (
-                content &&
-                (shouldUpdateTooltip(tooltipCache, content, containerX, containerY))
-              ) {
+              if (content && shouldUpdateTooltip(tooltipCache, content, containerX, containerY)) {
                 updateTooltipCache(tooltipCache, content, containerX, containerY);
                 showTooltipInternal(containerX, containerY, content, params);
               } else if (!content) {
@@ -3072,7 +2996,7 @@ export function createRenderCoordinator(
                   const tooltipY = anchor?.y ?? containerY;
                   if (shouldUpdateTooltip(tooltipCache, content, tooltipX, tooltipY)) {
                     updateTooltipCache(tooltipCache, content, tooltipX, tooltipY);
-                showTooltipInternal(tooltipX, tooltipY, content, candlestickResult.params);
+                    showTooltipInternal(tooltipX, tooltipY, content, candlestickResult.params);
                   }
                 } else {
                   hideTooltip();
@@ -3089,12 +3013,9 @@ export function createRenderCoordinator(
                 const content = formatter
                   ? (formatter as (p: TooltipParams) => string)(params)
                   : formatTooltipItem(params);
-                if (
-                  content &&
-                  (shouldUpdateTooltip(tooltipCache, content, containerX, containerY))
-                ) {
+                if (content && shouldUpdateTooltip(tooltipCache, content, containerX, containerY)) {
                   updateTooltipCache(tooltipCache, content, containerX, containerY);
-                showTooltipInternal(containerX, containerY, content, params);
+                  showTooltipInternal(containerX, containerY, content, params);
                 } else if (!content) {
                   hideTooltip();
                 }
@@ -3149,8 +3070,7 @@ export function createRenderCoordinator(
 
     // Prepare bar renderer with animated scale if intro is running
     const introP = introPhase === 'running' ? clamp01(introProgress01) : 1;
-    const yScaleForBars =
-      introP < 1 ? createAnimatedBarYScale(yScale, plotClipRect, introP) : yScale;
+    const yScaleForBars = introP < 1 ? createAnimatedBarYScale(yScale, plotClipRect, introP) : yScale;
     poolState.barRenderer.prepare(visibleBarSeriesConfigs, xScale, yScaleForBars, gridArea);
 
     // Prepare annotation GPU overlays for main vs overlay pipelines (both 4× MSAA).
@@ -3205,12 +3125,7 @@ export function createRenderCoordinator(
       msaaSampleCount,
       hasDenseHairline: hasDenseHairlineLines(poolState, seriesPreparation),
     });
-    const {
-      useDirectSwapchainResolve,
-      useSwapchainAsMainView,
-      needResolveAndOverlay,
-      needMainColor,
-    } = framePlan;
+    const { useDirectSwapchainResolve, useSwapchainAsMainView, needResolveAndOverlay, needMainColor } = framePlan;
     // passOrder drives which optional passes run (dense hairline / overlay).
     const runDenseHairlinePass = framePlanIncludesDenseHairline(framePlan);
     const runAnnotationOverlayPass = framePlanIncludesAnnotationOverlay(framePlan);
@@ -3233,9 +3148,7 @@ export function createRenderCoordinator(
     encodeFrameComputePasses(poolState, seriesForRender, encoder);
 
     const mainPass = encoder.beginRenderPass({
-      label: useDirectSwapchainResolve
-        ? 'renderCoordinator/mainPassDirect'
-        : 'renderCoordinator/mainPass',
+      label: useDirectSwapchainResolve ? 'renderCoordinator/mainPassDirect' : 'renderCoordinator/mainPass',
       colorAttachments: [
         useSwapchainAsMainView
           ? {
@@ -3246,9 +3159,7 @@ export function createRenderCoordinator(
             }
           : {
               view: texState.mainColorView!, // MSAA (4×) main color
-              resolveTarget: useDirectSwapchainResolve
-                ? swapchainView
-                : texState.mainResolveView!, // intermediate resolve for hairline/overlay path
+              resolveTarget: useDirectSwapchainResolve ? swapchainView : texState.mainResolveView!, // intermediate resolve for hairline/overlay path
               clearValue,
               loadOp: 'clear',
               storeOp: 'discard', // MSAA content discarded after resolve
