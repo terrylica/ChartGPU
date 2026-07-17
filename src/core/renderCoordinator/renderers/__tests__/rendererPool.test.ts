@@ -72,10 +72,7 @@ vi.mock('../../../renderers/createBarRenderer', () => ({
   createBarRenderer: vi.fn(() => createMockRenderer('Bar')),
 }));
 
-import {
-  createRendererPool,
-  ensureRendererPoolsForSeries,
-} from '../rendererPool';
+import { createRendererPool, ensureRendererPoolsForSeries } from '../rendererPool';
 type RendererPoolConfig = Parameters<typeof createRendererPool>[0];
 import type { ResolvedSeriesConfig } from '../../../../config/OptionResolver';
 
@@ -201,13 +198,12 @@ describe('RendererPool', () => {
     });
   });
 
-  
-describe('Type-aware pool needs via ensureRendererPoolsForSeries', () => {
-  // Needs sizing is internal; assert public ensure grows pools by series type mix.
-  it('is exported and callable', () => {
-    expect(typeof ensureRendererPoolsForSeries).toBe('function');
+  describe('Type-aware pool needs via ensureRendererPoolsForSeries', () => {
+    // Needs sizing is internal; assert public ensure grows pools by series type mix.
+    it('is exported and callable', () => {
+      expect(typeof ensureRendererPoolsForSeries).toBe('function');
+    });
   });
-});
 
   describe('Scatter Renderers', () => {
     it('grows scatter renderer pool', () => {

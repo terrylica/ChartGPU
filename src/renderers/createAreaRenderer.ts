@@ -4,8 +4,16 @@ import type { CartesianSeriesData } from '../config/types';
 import type { LinearScale } from '../utils/scales';
 import { parseCssColorToRgba01 } from '../utils/colors';
 import { createRenderPipeline, createUniformBuffer, writeUniformBuffer } from './rendererUtils';
-import { getPointCount, getX, getY, computeRawBoundsFromCartesianData } from '../data/cartesianData';
+import {
+  getPointCount,
+  getX,
+  getY,
+  computeRawBoundsFromCartesianData,
+  isStagingRingView,
+  isRingXYColumns,
+} from '../data/cartesianData';
 import type { PipelineCache } from '../core/PipelineCache';
+import { computePackedXAffineFromScale } from './packedXAffine';
 
 export interface AreaRenderer {
   prepare(
@@ -25,8 +33,8 @@ export interface AreaRenderer {
      */
     pointCountOverride?: number,
     /**
-     * X-origin subtracted during packing (time-axis Float32). Folded into
-     * the clip affine like LineRenderer.
+     * X-origin subtracted during packing (time-axis Float32). Clip affine
+     * samples near this origin: clipX = ax * x' + scale(xOffset).
      */
     xOffset?: number
   ): void;
@@ -317,16 +325,20 @@ export function createAreaRenderer(device: GPUDevice, options?: AreaRendererOpti
       boundDataRef = null; // external ownership
       bindStorage(storageBuffer);
 
-      // Affine sample at 0/1 like line; fold xOffset for packed time axes.
-      const { a: ax, b: bx } = computeClipAffineFromScale(xScale, 0, 1);
+      // Packed-origin X affine (stable for epoch-ms); Y samples (0,1).
+      const { a: ax, b: bxPacked } = computePackedXAffineFromScale(xScale, xOffset);
       const { a: ay, b: by } = computeClipAffineFromScale(yScale, 0, 1);
-      const bxAdjusted = bx + ax * xOffset;
       const baselineValue = Number.isFinite(baseline ?? Number.NaN) ? (baseline as number) : 0;
-      writeVsUniforms(ax, bxAdjusted, ay, by, baselineValue);
+      writeVsUniforms(ax, bxPacked, ay, by, baselineValue);
     } else {
       // Private pack path with identity cache + pow2 growth.
+      // Also re-pack when length changes under a stable ref (streaming append grows
+      // owned XY columns in place; modular-ring fallback path uses this branch).
+      // Staging/ring views reuse object identity with constant count while
+      // start/staging floats mutate — always re-pack those (FIFO after wrap).
       const n = getPointCount(data);
-      if (boundDataRef !== data) {
+      const ringOrStaging = isStagingRingView(data) || isRingXYColumns(data);
+      if (boundDataRef !== data || n !== pointCount || ringOrStaging) {
         ensureCpuStaging(n * 2);
         packAreaPointsInto(cpuStaging, data, n);
         const requiredBytes = Math.max(4, n * 8);

@@ -1,8 +1,5 @@
 import type { CartesianSeriesData } from '../config/types';
-import {
-  destroyBufferAfterSubmit,
-  flushDeviceSubmit,
-} from '../core/gpu/submitBatcher';
+import { destroyBufferAfterSubmit, flushDeviceSubmit } from '../core/gpu/submitBatcher';
 import { getPointCount, packXYInto } from './cartesianData';
 import { maxPointsPeakRetention, normalizeMaxPoints, planMaxPointsWindow } from './maxPointsWindow';
 import { isYOnlyRewriteAgainstStaging, packYOnlyInto } from './seriesRewriteDetect';
@@ -237,7 +234,7 @@ function bumpContentVersion(hash: number, keepNewCount: number, dropPrevCount = 
     h = (h + 0x85ebca6b) >>> 0;
   }
   // Ensure a change even when keepNewCount is 0 (drop-only edge).
-  if (h === (hash >>> 0)) {
+  if (h === hash >>> 0) {
     h = (h + 1) >>> 0;
   }
   return h;
@@ -385,25 +382,13 @@ export function createDataStore(device: GPUDevice): DataStore {
     const floatsFirst = first * 2;
     if (first > 0) {
       stagingBuffer.set(scratch.subarray(0, floatsFirst), physStart * 2);
-      device.queue.writeBuffer(
-        gpuBuffer,
-        physStart * 2 * 4,
-        scratch.buffer,
-        scratch.byteOffset,
-        floatsFirst * 4
-      );
+      device.queue.writeBuffer(gpuBuffer, physStart * 2 * 4, scratch.buffer, scratch.byteOffset, floatsFirst * 4);
     }
     const rest = pointCount - first;
     if (rest > 0) {
       const floatsRest = rest * 2;
       stagingBuffer.set(scratch.subarray(floatsFirst, floatsFirst + floatsRest), 0);
-      device.queue.writeBuffer(
-        gpuBuffer,
-        0,
-        scratch.buffer,
-        scratch.byteOffset + floatsFirst * 4,
-        floatsRest * 4
-      );
+      device.queue.writeBuffer(gpuBuffer, 0, scratch.buffer, scratch.byteOffset + floatsFirst * 4, floatsRest * 4);
     }
   };
 
@@ -758,12 +743,7 @@ export function createDataStore(device: GPUDevice): DataStore {
         const capped = Math.min(preferred, MAX_STREAM_HEADROOM_POINTS * 2 * 4);
         grownCapacityBytes = Math.max(grownCapacityBytes, Math.max(targetBytes, capped));
       }
-      capacityBytes = clampSeriesCapacityBytes(
-        grownCapacityBytes,
-        targetBytes,
-        maxBufferSize,
-        maxStorageBinding
-      );
+      capacityBytes = clampSeriesCapacityBytes(grownCapacityBytes, targetBytes, maxBufferSize, maxStorageBinding);
       buffer = device.createBuffer({
         size: capacityBytes,
         usage: seriesBufferUsage(),
@@ -784,17 +764,7 @@ export function createDataStore(device: GPUDevice): DataStore {
       ringStart = 0;
 
       if (pureGrowthAppend) {
-        packAppendAndUpload(
-          stagingBuffer,
-          buffer,
-          0,
-          0,
-          newPoints,
-          0,
-          newPointCount,
-          existing.xOffset,
-          oldCount
-        );
+        packAppendAndUpload(stagingBuffer, buffer, 0, 0, newPoints, 0, newPointCount, existing.xOffset, oldCount);
         series.set(index, {
           buffer,
           capacityBytes,
@@ -871,17 +841,7 @@ export function createDataStore(device: GPUDevice): DataStore {
 
     // ── Pure linear ranged append (no maxPoints, no growth) ──
     if (pureLinearRanged) {
-      packAppendAndUpload(
-        stagingBuffer,
-        buffer,
-        0,
-        0,
-        newPoints,
-        0,
-        newPointCount,
-        existing.xOffset,
-        prevPointCount
-      );
+      packAppendAndUpload(stagingBuffer, buffer, 0, 0, newPoints, 0, newPointCount, existing.xOffset, prevPointCount);
 
       series.set(index, {
         buffer,

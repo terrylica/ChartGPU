@@ -105,9 +105,8 @@ export const resolvePieCenterPlotCss = (
  * @param radius - Pie radius configuration
  * @returns True if radius is a tuple
  */
-const isPieRadiusTuple = (
-  radius: PieRadius
-): radius is readonly [inner: number | string, outer: number | string] => Array.isArray(radius);
+const isPieRadiusTuple = (radius: PieRadius): radius is readonly [inner: number | string, outer: number | string] =>
+  Array.isArray(radius);
 
 /**
  * Resolves pie inner/outer radii with defaults, bounds checking.

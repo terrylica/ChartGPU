@@ -8,12 +8,7 @@
  * @internal
  */
 
-import {
-  getPointCount,
-  getX,
-  isStagingRingView,
-  type CoordinatorCartesianData,
-} from '../../../data/cartesianData';
+import { getPointCount, getX, isStagingRingView, type CoordinatorCartesianData } from '../../../data/cartesianData';
 import type { DataStore } from '../../../data/createDataStore';
 
 type ResolveLinePackingXOffsetInput = {

@@ -296,5 +296,4 @@ describe('append cache re-seed / ring guard (issue 0.2)', () => {
     // Guard re-seeds so subsequent frames stay cheap.
     expect(lastSetSeriesCache.get(0)?.data).toBe(ring);
   });
-
 });

@@ -137,8 +137,8 @@ export function computeCandlestickTooltipAnchorFromMatch(
   const yCanvasCss = gridArea.top + yGridCss;
 
   // Convert to container-local CSS pixels
-  const xContainerCss = (typeof (canvas as any).offsetLeft === 'number') ? canvas.offsetLeft + xCanvasCss : xCanvasCss;
-  const yContainerCss = (typeof (canvas as any).offsetLeft === 'number') ? canvas.offsetTop + yCanvasCss : yCanvasCss;
+  const xContainerCss = typeof (canvas as any).offsetLeft === 'number' ? canvas.offsetLeft + xCanvasCss : xCanvasCss;
+  const yContainerCss = typeof (canvas as any).offsetLeft === 'number' ? canvas.offsetTop + yCanvasCss : yCanvasCss;
 
   if (!Number.isFinite(xContainerCss) || !Number.isFinite(yContainerCss)) {
     return null;
@@ -146,4 +146,3 @@ export function computeCandlestickTooltipAnchorFromMatch(
 
   return { x: xContainerCss, y: yContainerCss };
 }
-

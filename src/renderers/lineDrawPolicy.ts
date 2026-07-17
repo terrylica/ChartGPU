@@ -64,7 +64,6 @@ export const DENSE_HAIRLINE_POINT_THRESHOLD = 25_000;
  */
 export const MULTI_SERIES_HAIRLINE_SEGMENT_BUDGET = 500_000;
 
-
 /** Floor width reported for hairline bookkeeping (CSS px). Native stroke is 1 device px. */
 export const DENSE_LINE_MIN_WIDTH_CSS = 1;
 
@@ -76,10 +75,8 @@ export const DENSE_LINE_MIN_WIDTH_CSS = 1;
  *   (only when main MSAA is 4× — see {@link LineDrawPolicyInput.msaaSampleCount})
  */
 export function resolveLineDrawPolicy(input: LineDrawPolicyInput): LineDrawPolicyResult {
-  const w =
-    Number.isFinite(input.lineWidthCssPx) && input.lineWidthCssPx > 0 ? input.lineWidthCssPx : 2;
-  const pointCount =
-    Number.isFinite(input.pointCount) && input.pointCount > 0 ? Math.floor(input.pointCount) : 0;
+  const w = Number.isFinite(input.lineWidthCssPx) && input.lineWidthCssPx > 0 ? input.lineWidthCssPx : 2;
+  const pointCount = Number.isFinite(input.pointCount) && input.pointCount > 0 ? Math.floor(input.pointCount) : 0;
   const lineSeriesCount =
     Number.isFinite(input.lineSeriesCount) && (input.lineSeriesCount as number) > 0
       ? Math.floor(input.lineSeriesCount as number)
@@ -97,8 +94,7 @@ export function resolveLineDrawPolicy(input: LineDrawPolicyInput): LineDrawPolic
   const perSeriesHairline = pointCount >= DENSE_HAIRLINE_POINT_THRESHOLD;
   const segmentsPerSeries = Math.max(0, pointCount - 1);
   const approxTotalSegments = lineSeriesCount * segmentsPerSeries;
-  const multiSeriesHairline =
-    lineSeriesCount >= 2 && approxTotalSegments >= MULTI_SERIES_HAIRLINE_SEGMENT_BUDGET;
+  const multiSeriesHairline = lineSeriesCount >= 2 && approxTotalSegments >= MULTI_SERIES_HAIRLINE_SEGMENT_BUDGET;
 
   if (!perSeriesHairline && !multiSeriesHairline) {
     return { policy: 'standard', effectiveLineWidthCssPx: w };

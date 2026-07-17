@@ -155,9 +155,7 @@ type RendererPoolNeeds = Readonly<{
  * - Decimation pool only when any line uses a GPU-decimation sampling mode
  *   (`lttb`/`min`/`max`). `sampling: 'none'` charts (group 1) get **0**.
  */
-function computeRendererPoolNeeds(
-  series: ReadonlyArray<ResolvedSeriesConfig>
-): RendererPoolNeeds {
+function computeRendererPoolNeeds(series: ReadonlyArray<ResolvedSeriesConfig>): RendererPoolNeeds {
   const n = series.length;
   let anyArea = false;
   let anyLine = false;

@@ -18,10 +18,7 @@ type StickyDomain = { min: number; max: number };
  * Sticky auto-domain applies only when **both** axis ends are auto.
  * Any one-sided explicit min/max must not receive growBy headroom past that edge.
  */
-export function shouldApplyStickyAutoDomain(
-  explicitMin: number | undefined,
-  explicitMax: number | undefined
-): boolean {
+export function shouldApplyStickyAutoDomain(explicitMin: number | undefined, explicitMax: number | undefined): boolean {
   return explicitMin === undefined && explicitMax === undefined;
 }
 

@@ -22,12 +22,15 @@ import {
 /** Runtime raw slot — any runtime series raw ref (columns, ring, staging, OHLC, empty). */
 type RuntimeRawSlot = unknown;
 
-type RawBoundsSlot = Readonly<{
-  xMin: number;
-  xMax: number;
-  yMin: number;
-  yMax: number;
-}> | null | undefined;
+type RawBoundsSlot =
+  | Readonly<{
+      xMin: number;
+      xMax: number;
+      yMin: number;
+      yMax: number;
+    }>
+  | null
+  | undefined;
 
 /**
  * Build one baseline series entry (pie / candle / cartesian).
@@ -72,8 +75,7 @@ function resolveBaselineSeriesEntry(
     data?: unknown;
   };
   const rawCartesian: CartesianSeriesData =
-    (rawSlot as CartesianSeriesData | null | undefined) ??
-    ((anyS.rawData ?? anyS.data) as CartesianSeriesData);
+    (rawSlot as CartesianSeriesData | null | undefined) ?? ((anyS.rawData ?? anyS.data) as CartesianSeriesData);
   const bounds = boundsSlot ?? anyS.rawBounds ?? undefined;
   const baselineSampled = resolveCartesianDisplayData({
     series: s,
@@ -131,8 +133,7 @@ function resolveSetOptionsReuseSeriesEntry(
   }
 
   const rawCartesian: CartesianSeriesData =
-    (rawSlot as CartesianSeriesData | null | undefined) ??
-    ((anyS.rawData ?? anyS.data) as CartesianSeriesData);
+    (rawSlot as CartesianSeriesData | null | undefined) ?? ((anyS.rawData ?? anyS.data) as CartesianSeriesData);
   const bounds = boundsSlot ?? anyS.rawBounds ?? undefined;
   const display = resolveCartesianDisplayData({
     series: s,
@@ -179,11 +180,7 @@ export function resolveZoomedSeriesEntry(input: {
   readonly visibleMax: number;
   readonly spanFraction: number;
   readonly sliceX: (data: CartesianSeriesData, min: number, max: number) => CartesianSeriesData;
-  readonly sliceOHLC: (
-    data: ReadonlyArray<OHLCDataPoint>,
-    min: number,
-    max: number
-  ) => ReadonlyArray<OHLCDataPoint>;
+  readonly sliceOHLC: (data: ReadonlyArray<OHLCDataPoint>, min: number, max: number) => ReadonlyArray<OHLCDataPoint>;
 }): ZoomedSeriesResult {
   const s = input.series;
   const anyS = s as ResolvedSeriesConfig & {
@@ -216,8 +213,7 @@ export function resolveZoomedSeriesEntry(input: {
   }
 
   const rawCartesian: CartesianSeriesData =
-    (input.rawSlot as CartesianSeriesData | null | undefined) ??
-    ((anyS.rawData ?? anyS.data) as CartesianSeriesData);
+    (input.rawSlot as CartesianSeriesData | null | undefined) ?? ((anyS.rawData ?? anyS.data) as CartesianSeriesData);
   const bufferedRaw = input.sliceX(rawCartesian, input.bufferedMin, input.bufferedMax);
 
   // GPU decimation: keep full raw; compute scopes via visibleStart/End in prepare.

@@ -1,13 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import {
-  planGpuFrame,
-  framePlanIncludesDenseHairline,
-  framePlanIncludesAnnotationOverlay,
-} from '../frameRender';
-import {
-  MAIN_SCENE_MSAA_SAMPLE_COUNT,
-  ANNOTATION_OVERLAY_MSAA_SAMPLE_COUNT,
-} from '../../gpu/textureManager';
+import { planGpuFrame, framePlanIncludesDenseHairline, framePlanIncludesAnnotationOverlay } from '../frameRender';
+import { MAIN_SCENE_MSAA_SAMPLE_COUNT, ANNOTATION_OVERLAY_MSAA_SAMPLE_COUNT } from '../../gpu/textureManager';
 
 describe('frameRender pass graph', () => {
   it('uses 4× MSAA for main and overlay (textureManager constants)', () => {

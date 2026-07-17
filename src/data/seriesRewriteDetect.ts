@@ -225,11 +225,7 @@ export function packYOnlyInto(out: Float32Array, src: CartesianSeriesData, point
  * - `false` if every y is identical (skip GPU write)
  * - `null` if any y is non-finite (caller must fall through to full sparse pack)
  */
-export function packYOnlyChannel(
-  out: Float32Array,
-  src: CartesianSeriesData,
-  pointCount: number
-): boolean | null {
+export function packYOnlyChannel(out: Float32Array, src: CartesianSeriesData, pointCount: number): boolean | null {
   const n = Math.min(pointCount, getPointCount(src));
   let changed = false;
   for (let i = 0; i < n; i++) {

@@ -24,9 +24,7 @@ function fixtureHash(data: ReadonlyArray<DataPoint>, salt = 0): number {
 
 function lineSeries(data: ReadonlyArray<DataPoint>, extra: Record<string, unknown> = {}): ResolvedSeriesConfig {
   const contentHash =
-    typeof extra.contentHash === 'number'
-      ? (extra.contentHash as number)
-      : fixtureHash(data as DataPoint[]);
+    typeof extra.contentHash === 'number' ? (extra.contentHash as number) : fixtureHash(data as DataPoint[]);
   return {
     type: 'line',
     name: 's',
@@ -99,8 +97,6 @@ describe('samplingDirty predicates (P1-7)', () => {
     const second = resolveOptions({ series: [{ type: 'line', data, sampling: 'none' }] }, { previousResolved: first });
     expect(didSeriesDataLikelyChange(first.series, second.series)).toBe(false);
   });
-
-
 
   it('shouldRecomputeBaselineSampling is false for presentation-only', () => {
     const data: DataPoint[] = [
@@ -191,7 +187,6 @@ describe('samplingDirty predicates (P1-7)', () => {
     expect((patched[0] as { contentHash?: number }).contentHash).toBe(h);
   });
 });
-
 
 describe('OptionResolver sample reuse (P1-7)', () => {
   it('reuses previous sampled data when raw ref, content, and sampling are unchanged', () => {
@@ -430,6 +425,4 @@ describe('OptionResolver sample reuse (P1-7)', () => {
     // Eligibility-sensitive: sampling dirty flags treat areaStyle presence as config change.
     expect(shouldRecomputeBaselineSampling(without.series, withFill.series)).toBe(true);
   });
-
-
 });

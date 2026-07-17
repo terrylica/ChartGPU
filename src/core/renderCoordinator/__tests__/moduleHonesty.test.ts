@@ -81,9 +81,7 @@ function collectExports(files: string[]): ExportEntry[] {
         out.push({ name, file: resolve(file) });
       }
     }
-    for (const m of text.matchAll(
-      /^export\s+(?:async\s+)?(?:function|const|class|type|interface|enum)\s+(\w+)/gm
-    )) {
+    for (const m of text.matchAll(/^export\s+(?:async\s+)?(?:function|const|class|type|interface|enum)\s+(\w+)/gm)) {
       out.push({ name: m[1]!, file: resolve(file) });
     }
   }
@@ -129,11 +127,7 @@ function moduleReexports(
 }
 
 /** True if any production file imports something from this module path. */
-function moduleHasProductionImporter(
-  modulePath: string,
-  allProdSrc: string[],
-  shellPath: string
-): boolean {
+function moduleHasProductionImporter(modulePath: string, allProdSrc: string[], shellPath: string): boolean {
   if (modulePath === shellPath) return true;
   const stem = modulePath.replace(/\.ts$/, '');
   for (const file of allProdSrc) {
@@ -212,7 +206,10 @@ describe('renderCoordinator module honesty', () => {
             break;
           }
           // Import from a barrel that re-exports us only if that barrel is live.
-          if (moduleReexports(resolved, name, file, reexports) && moduleHasProductionImporter(resolved, allProdSrc, shell)) {
+          if (
+            moduleReexports(resolved, name, file, reexports) &&
+            moduleHasProductionImporter(resolved, allProdSrc, shell)
+          ) {
             hasConsumer = true;
             break;
           }

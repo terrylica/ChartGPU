@@ -43,10 +43,7 @@ export function generateLinearTicks(domainMin: number, domainMax: number, tickCo
  * @param cap - Maximum number of decimal places to consider (default: 8)
  * @returns Number of decimal places (0 to cap)
  */
-function computeMaxFractionDigitsFromStep(
-  tickStep: number,
-  cap: number = DEFAULT_MAX_TICK_FRACTION_DIGITS
-): number {
+function computeMaxFractionDigitsFromStep(tickStep: number, cap: number = DEFAULT_MAX_TICK_FRACTION_DIGITS): number {
   const stepAbs = Math.abs(tickStep);
   if (!Number.isFinite(stepAbs) || stepAbs === 0) return 0;
 

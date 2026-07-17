@@ -4,11 +4,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import {
-  generateLinearTicks,
-  createTickFormatter,
-  formatTickValue,
-} from '../computeAxisTicks';
+import { generateLinearTicks, createTickFormatter, formatTickValue } from '../computeAxisTicks';
 
 describe('generateLinearTicks', () => {
   it('generates single tick at midpoint', () => {

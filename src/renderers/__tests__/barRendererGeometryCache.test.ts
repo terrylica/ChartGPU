@@ -496,7 +496,9 @@ describe('createBarRenderer geometry cache', () => {
 
     const ga = gridArea();
     const clip = plotClipFor(ga);
-    const xScale = createLinearScale().domain(0, n - 1).range(clip.left, clip.right);
+    const xScale = createLinearScale()
+      .domain(0, n - 1)
+      .range(clip.left, clip.right);
     const yScale = createLinearScale().domain(0, 10).range(clip.bottom, clip.top);
 
     renderer.prepare([barConfig(data)], xScale, yScale, ga);
@@ -547,17 +549,14 @@ describe('createBarRenderer geometry cache', () => {
 
     const ga = gridArea();
     const clip = plotClipFor(ga);
-    const xScale = createLinearScale().domain(0, n - 1).range(clip.left, clip.right);
+    const xScale = createLinearScale()
+      .domain(0, n - 1)
+      .range(clip.left, clip.right);
     const yScale = createLinearScale().domain(0, 3).range(clip.bottom, clip.top);
 
     const colorA = '#ff0000';
     const colorB = '#0000ff';
-    renderer.prepare(
-      [barConfig(dataA, { color: colorA }), barConfig(dataB, { color: colorB })],
-      xScale,
-      yScale,
-      ga
-    );
+    renderer.prepare([barConfig(dataA, { color: colorA }), barConfig(dataB, { color: colorB })], xScale, yScale, ga);
 
     expect(writeBuffer).toHaveBeenCalledTimes(1);
     const byteLength = writeBuffer.mock.calls[0][4] as number;

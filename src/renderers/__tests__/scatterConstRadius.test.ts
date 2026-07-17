@@ -106,9 +106,7 @@ describe('scatter F32 column zero-copy path', () => {
     renderer.prepare(baseSeries(5), data as unknown as never, identityScale, identityScale, gridArea);
 
     // Two channel uploads sourced from column ArrayBuffers (byteOffset/byteLength form).
-    const colWrites = writeBuffer.mock.calls.filter(
-      (c) => c[2] === x.buffer || c[2] === y.buffer
-    );
+    const colWrites = writeBuffer.mock.calls.filter((c) => c[2] === x.buffer || c[2] === y.buffer);
     expect(colWrites.length).toBe(2);
     expect(colWrites.some((c) => c[2] === x.buffer && c[4] === n * 4)).toBe(true);
     expect(colWrites.some((c) => c[2] === y.buffer && c[4] === n * 4)).toBe(true);
@@ -126,9 +124,7 @@ describe('scatter F32 column zero-copy path', () => {
     renderer.prepare(baseSeries(5), data as unknown as never, identityScale, identityScale, gridArea);
 
     // Packed staging uses ArrayBuffer views that are NOT the number[] itself.
-    const sourcedFromNumberArray = writeBuffer.mock.calls.some(
-      (c) => c[2] === x || c[2] === y
-    );
+    const sourcedFromNumberArray = writeBuffer.mock.calls.some((c) => c[2] === x || c[2] === y);
     expect(sourcedFromNumberArray).toBe(false);
     // Still uploads N*4 channel bytes (from CPU staging).
     const channelBytes = writeBuffer.mock.calls.filter((c) => c[4] === n * 4);
@@ -145,9 +141,7 @@ describe('scatter F32 column zero-copy path', () => {
     const data = { x, y, __stagingRing: true };
     writeBuffer.mockClear();
     renderer.prepare(baseSeries(5), data as unknown as never, identityScale, identityScale, gridArea);
-    const colWrites = writeBuffer.mock.calls.filter(
-      (c) => c[2] === x.buffer || c[2] === y.buffer
-    );
+    const colWrites = writeBuffer.mock.calls.filter((c) => c[2] === x.buffer || c[2] === y.buffer);
     // Staging-ring flag forces pack path — must not zero-copy column buffers.
     expect(colWrites.length).toBe(0);
   });
@@ -166,9 +160,7 @@ describe('scatter F32 column zero-copy path', () => {
     y[3] = Number.NaN;
     writeBuffer.mockClear();
     renderer.prepare(baseSeries(5), { x, y } as unknown as never, identityScale, identityScale, gridArea);
-    const colWrites = writeBuffer.mock.calls.filter(
-      (c) => c[2] === x.buffer || c[2] === y.buffer
-    );
+    const colWrites = writeBuffer.mock.calls.filter((c) => c[2] === x.buffer || c[2] === y.buffer);
     expect(colWrites.length).toBe(0);
   });
 });

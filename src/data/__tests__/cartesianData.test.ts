@@ -191,12 +191,7 @@ describe('packXYInto - XY arrays unroll (FIFO typed columns)', () => {
     return { x, y };
   }
 
-  function expectedInterleaved(
-    n: number,
-    srcPointOffset: number,
-    pointCount: number,
-    xOffset: number
-  ): number[] {
+  function expectedInterleaved(n: number, srcPointOffset: number, pointCount: number, xOffset: number): number[] {
     const out: number[] = [];
     for (let i = 0; i < pointCount; i++) {
       const idx = srcPointOffset + i;
@@ -205,15 +200,12 @@ describe('packXYInto - XY arrays unroll (FIFO typed columns)', () => {
     return out;
   }
 
-  it.each([1, 3, 4, 5, 7, 8])(
-    'packs count=%s with xOffset 0 (unroll + remainder)',
-    (n) => {
-      const src = makeXY(n);
-      const out = new Float32Array(n * 2);
-      packXYInto(out, 0, src, 0, n, 0);
-      expect(Array.from(out)).toEqual(expectedInterleaved(n, 0, n, 0));
-    }
-  );
+  it.each([1, 3, 4, 5, 7, 8])('packs count=%s with xOffset 0 (unroll + remainder)', (n) => {
+    const src = makeXY(n);
+    const out = new Float32Array(n * 2);
+    packXYInto(out, 0, src, 0, n, 0);
+    expect(Array.from(out)).toEqual(expectedInterleaved(n, 0, n, 0));
+  });
 
   it('honors srcPointOffset > 0', () => {
     const src = makeXY(10);
@@ -329,17 +321,7 @@ describe('packXYInto - null gap handling', () => {
   });
 
   it('mid-series null forces safe tuple path (denseHomogeneous false-positive miss)', () => {
-    const data: (DataPoint | null)[] = [
-      [0, 0],
-      [1, 1],
-      null,
-      [3, 3],
-      [4, 4],
-      [5, 5],
-      [6, 6],
-      [7, 7],
-      [8, 8],
-    ];
+    const data: (DataPoint | null)[] = [[0, 0], [1, 1], null, [3, 3], [4, 4], [5, 5], [6, 6], [7, 7], [8, 8]];
     const out = new Float32Array(data.length * 2);
     packXYInto(out, 0, data as any, 0, data.length, 0);
     expect(out[0]).toBe(0);

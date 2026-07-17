@@ -935,6 +935,92 @@ describe('prepareSeries GPU decimation (WG-P0-1 xOffset)', () => {
     expect(areaArgs[5]).toBeUndefined();
   });
 
+  it('pure type:area uploads via DataStore and binds external storage (streaming append path)', () => {
+    const points: Array<[number, number]> = [
+      [1, 10],
+      [2, 20],
+      [3, 15],
+      [4, 25],
+    ];
+    const series = {
+      type: 'area',
+      name: 'throughput',
+      data: points,
+      rawData: points,
+      color: '#3b82f6',
+      areaStyle: { opacity: 0.3, color: '#3b82f6' },
+      sampling: 'none',
+      samplingThreshold: 5000,
+      connectNulls: false,
+      yAxis: 'y',
+      baseline: 0,
+    } as any;
+
+    const rawBuffer = { label: 'area-raw' } as unknown as GPUBuffer;
+    const areaPrepare = vi.fn();
+    const setSeries = vi.fn();
+    const gpuSeriesKindByIndex: Array<'fullRawLine' | 'gpuDecimationRaw' | 'other' | 'unknown'> = ['unknown'];
+
+    prepareSeries(
+      {
+        lineRenderers: [],
+        areaRenderers: [{ prepare: areaPrepare, render: vi.fn(), dispose: vi.fn() } as any],
+        barRenderer: {
+          prepare: vi.fn(),
+          render: vi.fn(),
+          dispose: vi.fn(),
+        } as any,
+        scatterRenderers: [],
+        scatterDensityRenderers: [],
+        pieRenderers: [],
+        candlestickRenderers: [],
+        decimationComputes: [],
+      },
+      {
+        currentOptions: {
+          xAxis: { type: 'value' },
+          yAxes: [{ id: 'y', min: 0 }],
+          series: [series],
+        } as any,
+        seriesForRender: [series],
+        xScale: makeScale(0, 10),
+        yScales: new Map([['y', makeScale(0, 30)]]),
+        gridArea: makeGridArea(),
+        dataStore: {
+          setSeries,
+          appendSeries: vi.fn(),
+          removeSeries: vi.fn(),
+          getSeriesBuffer: vi.fn(() => rawBuffer),
+          getSeriesPointCount: vi.fn(() => points.length),
+          getSeriesRingLayout: vi.fn(() => ({ start: 0, capacity: 0 })),
+          isSeriesRingMode: vi.fn(() => false),
+          getSeriesContentHash: vi.fn(() => 0x2),
+          getSeriesStagingBuffer: vi.fn(() => new Float32Array(0)),
+          getSeriesXOffset: vi.fn(() => 0),
+          dispose: vi.fn(),
+        },
+        appendedGpuThisFrame: new Set(),
+        gpuSeriesKindByIndex,
+        zoomState: null,
+        visibleXDomain: { min: 0, max: 10 },
+        introPhase: 'done',
+        introProgress01: 1,
+        withAlpha: (c: string) => c,
+        maxRadiusCss: 4,
+        lastSetSeriesCache: new Map(),
+        filterGapsCache: createFilterGapsCache(),
+      }
+    );
+
+    expect(setSeries).toHaveBeenCalled();
+    expect(areaPrepare).toHaveBeenCalled();
+    const areaArgs = areaPrepare.mock.calls[0]!;
+    // storageBuffer + pointCount from DataStore (not private-only pack).
+    expect(areaArgs[5]).toBe(rawBuffer);
+    expect(areaArgs[6]).toBe(points.length);
+    expect(gpuSeriesKindByIndex[0]).toBe('fullRawLine');
+  });
+
   function runDecimationPrepare(
     opts: Readonly<{
       n: number;

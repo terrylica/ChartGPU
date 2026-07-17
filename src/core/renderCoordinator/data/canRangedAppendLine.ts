@@ -1,10 +1,14 @@
 /**
- * Pure eligibility for O(k) DataStore.appendSeries on line series.
+ * Pure eligibility for O(k) DataStore.appendSeries on line / area series.
  *
  * Full raw resident kinds (`fullRawLine`, `gpuDecimationRaw`) are append-safe at
  * any zoom — the buffer holds full raw, not a zoomed sampled slice.
  * Cold `unknown` unlocks when sampling is `'none'` or GPU decimation is eligible
  * (before the first prepare tags the kind).
+ *
+ * Pure `type: 'area'` is included so streaming dashboards can ranged-append into
+ * the same DataStore buffer the area renderer binds (private pack identity-cache
+ * cannot see in-place column growth under a stable ref).
  *
  * @module canRangedAppendLine
  * @internal
@@ -31,7 +35,9 @@ export type CanRangedAppendLineInput = {
  * True when ranged append may write only the new points without full setSeries.
  */
 export function canRangedAppendLine(input: CanRangedAppendLineInput): boolean {
-  if (input.seriesType !== 'line') return false;
+  // Line and pure area share the XY storage layout; both may ranged-append when
+  // the resident buffer is full raw. GPU decimation remains line-only (predicate).
+  if (input.seriesType !== 'line' && input.seriesType !== 'area') return false;
 
   const kind = input.kind;
   const isGpuDecimationActive = kind === 'gpuDecimationRaw';
@@ -40,13 +46,14 @@ export function canRangedAppendLine(input: CanRangedAppendLineInput): boolean {
   const seriesForEligibility: ResolvedSeriesConfig =
     input.series ??
     ({
-      type: 'line',
+      type: input.seriesType === 'area' ? 'area' : 'line',
       sampling: (sampling ?? 'lttb') as SeriesSampling,
     } as ResolvedSeriesConfig);
 
   const raw = input.rawData ?? null;
+  // Pure area is never GPU-decimation eligible; only line+lttb/min/max unlocks that path.
   const isGpuDecimationEligibleNow =
-    raw != null && isGpuDecimationEligible(seriesForEligibility, raw);
+    input.seriesType === 'line' && raw != null && isGpuDecimationEligible(seriesForEligibility, raw);
 
   // fullRawLine / gpuDecimationRaw: buffer holds full raw (any zoom).
   // unknown + (none | GPU-eligible): cold path before first prepare tags kind.

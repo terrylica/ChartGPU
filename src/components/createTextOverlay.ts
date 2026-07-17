@@ -52,9 +52,7 @@ export function createTextOverlay(container: HTMLElement, options?: TextOverlayO
 
   const clip = options?.clip ?? false;
   const fixedDpr =
-    options?.devicePixelRatio != null &&
-    Number.isFinite(options.devicePixelRatio) &&
-    options.devicePixelRatio > 0
+    options?.devicePixelRatio != null && Number.isFinite(options.devicePixelRatio) && options.devicePixelRatio > 0
       ? options.devicePixelRatio
       : null;
 
@@ -87,8 +85,7 @@ export function createTextOverlay(container: HTMLElement, options?: TextOverlayO
 
   const ctx = canvas.getContext('2d');
   let disposed = false;
-  let dpr =
-    fixedDpr ?? (typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1);
+  let dpr = fixedDpr ?? (typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1);
 
   type PendingLabel = {
     text: string;
@@ -113,8 +110,7 @@ export function createTextOverlay(container: HTMLElement, options?: TextOverlayO
     if (!ctx) return;
     const cssW = container.clientWidth || 0;
     const cssH = container.clientHeight || 0;
-    dpr =
-      fixedDpr ?? (typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1);
+    dpr = fixedDpr ?? (typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1);
     const bw = Math.max(1, Math.round(cssW * dpr));
     const bh = Math.max(1, Math.round(cssH * dpr));
     if (canvas.width !== bw || canvas.height !== bh) {
@@ -133,8 +129,7 @@ export function createTextOverlay(container: HTMLElement, options?: TextOverlayO
     for (let i = 0; i < pending.length; i++) {
       const lab = pending[i]!;
       ctx.save();
-      const weightPrefix =
-        lab.fontWeight !== undefined && lab.fontWeight !== '' ? `${lab.fontWeight} ` : '';
+      const weightPrefix = lab.fontWeight !== undefined && lab.fontWeight !== '' ? `${lab.fontWeight} ` : '';
       ctx.font = `${weightPrefix}${lab.fontSize}px ${lab.fontFamily}`;
       ctx.fillStyle = lab.color;
       ctx.textBaseline = 'middle';

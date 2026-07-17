@@ -6,6 +6,7 @@ import { createRenderPipeline, createUniformBuffer, writeUniformBuffer } from '.
 import { getPointCount } from '../data/cartesianData';
 import type { PipelineCache } from '../core/PipelineCache';
 import { resolveLineDrawPolicy, type LineDrawPolicy } from './lineDrawPolicy';
+import { computePackedXAffineFromScale } from './packedXAffine';
 
 export interface LineRenderer {
   /**
@@ -50,10 +51,7 @@ export interface LineRenderer {
    * @param options.skipSetPipeline - When true, assumes the hairline pipeline
    *   is already bound (multi-series batch: set once, then N draw calls).
    */
-  renderHairline(
-    passEncoder: GPURenderPassEncoder,
-    options?: Readonly<{ skipSetPipeline?: boolean }>
-  ): void;
+  renderHairline(passEncoder: GPURenderPassEncoder, options?: Readonly<{ skipSetPipeline?: boolean }>): void;
   /**
    * Bind the dense-hairline pipeline (for multi-series batching).
    * Safe to call even when this instance is not hairline this frame.
@@ -306,18 +304,13 @@ export function createLineRenderer(device: GPUDevice, options?: LineRendererOpti
         ? Math.floor(pointCountOverride)
         : getPointCount(seriesConfig.data);
 
-    // Linear scales: sample affine at (0, 1) instead of O(n) bounds scan.
-    // Matches scatter / area / candlestick and is correct for any linear scale.
-    const { a: ax, b: bx } = computeClipAffineFromScale(xScale, 0, 1);
+    // X: packed-origin affine (stable for epoch-ms time axes). Y: sample (0,1)
+    // — y values stay O(1)–O(1e6), no packing offset.
+    const { a: ax, b: bxPacked } = computePackedXAffineFromScale(xScale, xOffset);
     const { a: ay, b: by } = computeClipAffineFromScale(yScale, 0, 1);
 
-    // When the vertex buffer packs x as (x - xOffset) (to preserve Float32 precision for large
-    // domains like epoch-ms), fold the offset back into the affine's intercept in f64 on CPU:
-    // clipX = ax * (x - xOffset) + (bx + ax * xOffset)
-    const bxAdjusted = bx + ax * xOffset;
-
     // Write VS uniforms: mat4x4 (16 floats) + canvasSize (2 floats) + dpr (1 float) + lineWidth (1 float).
-    writeTransformMat4F32(vsUniformScratchF32, ax, bxAdjusted, ay, by);
+    writeTransformMat4F32(vsUniformScratchF32, ax, bxPacked, ay, by);
     const dpr = Number.isFinite(devicePixelRatio) && devicePixelRatio > 0 ? devicePixelRatio : 1;
     const canvasW = Number.isFinite(canvasWidthDevicePx) && canvasWidthDevicePx > 0 ? canvasWidthDevicePx : 1;
     const canvasH = Number.isFinite(canvasHeightDevicePx) && canvasHeightDevicePx > 0 ? canvasHeightDevicePx : 1;
@@ -348,7 +341,7 @@ export function createLineRenderer(device: GPUDevice, options?: LineRendererOpti
     {
       const vsDirty =
         lastAx !== ax ||
-        lastBx !== bxAdjusted ||
+        lastBx !== bxPacked ||
         lastAy !== ay ||
         lastBy !== by ||
         lastCanvasW !== canvasW ||
@@ -358,7 +351,7 @@ export function createLineRenderer(device: GPUDevice, options?: LineRendererOpti
       if (vsDirty) {
         writeUniformBuffer(device, vsUniformBuffer, vsUniformScratchBuffer);
         lastAx = ax;
-        lastBx = bxAdjusted;
+        lastBx = bxPacked;
         lastAy = ay;
         lastBy = by;
         lastCanvasW = canvasW;

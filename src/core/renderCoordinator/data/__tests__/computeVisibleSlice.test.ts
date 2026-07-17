@@ -137,7 +137,6 @@ describe('computeVisibleSlice', () => {
     });
   });
 
-  
   describe('sliceVisibleRangeByX', () => {
     it('slices monotonic tuple data using binary search', () => {
       const data: DataPoint[] = [

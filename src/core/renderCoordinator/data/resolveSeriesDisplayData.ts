@@ -39,9 +39,7 @@ export function resolveCartesianDisplayData(input: {
     return (series.data as CartesianSeriesData) ?? raw;
   }
   const threshold =
-    sampleTarget != null && Number.isFinite(sampleTarget)
-      ? Math.max(2, sampleTarget | 0)
-      : series.samplingThreshold;
+    sampleTarget != null && Number.isFinite(sampleTarget) ? Math.max(2, sampleTarget | 0) : series.samplingThreshold;
   return sampleSeriesDataPoints(raw, series.sampling, threshold);
 }
 
@@ -82,10 +80,7 @@ export function computeZoomSampleTarget(
   const MAX_TARGET_MULTIPLIER = options?.maxMultiplier ?? 32;
   const spanFracSafe = Math.max(1e-3, Math.min(1, spanFraction));
   const baseT = Number.isFinite(baseThreshold) ? Math.max(1, baseThreshold | 0) : 1;
-  const maxTarget = Math.min(
-    MAX_TARGET_POINTS_ABS,
-    Math.max(MIN_TARGET_POINTS, baseT * MAX_TARGET_MULTIPLIER)
-  );
+  const maxTarget = Math.min(MAX_TARGET_POINTS_ABS, Math.max(MIN_TARGET_POINTS, baseT * MAX_TARGET_MULTIPLIER));
   const rounded = Math.round(baseT / spanFracSafe);
   return Math.min(maxTarget, Math.max(MIN_TARGET_POINTS, rounded));
 }
