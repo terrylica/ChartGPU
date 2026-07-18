@@ -166,7 +166,13 @@ import {
   isOHLCDataPoint,
 } from './ui/tooltipLegendHelpers';
 import { syncPriceLabelFrame } from './ui/syncPriceLabelFrame';
-import { selectPriceLabelSeries } from './ui/priceLabelHelpers';
+import {
+  selectPriceLabelSeries,
+  resolveLastCandleState,
+  type PriceLabelOwnershipSeries,
+} from './ui/priceLabelHelpers';
+import { buildPriceLineInstances } from './ui/buildPriceLineInstances';
+import type { ReferenceLineInstance } from '../../renderers/createReferenceLineRenderer';
 
 export interface GPUContextLike {
   readonly device: GPUDevice | null;
@@ -2944,9 +2950,60 @@ export function createRenderCoordinator(
       theme: currentOptions.theme,
     });
 
+    // Last-price horizontal line (PR4b): coordinator-owned ReferenceLineInstance(s).
+    // Merge into linesAbove BEFORE counts + prepare so draw count matches prepare list.
+    // Does NOT inject into user annotations[] (setOption replaces options wholesale).
+    const linesBelow = annotationResult.linesBelow;
+    let linesAbove: ReadonlyArray<ReferenceLineInstance> = annotationResult.linesAbove;
+    if (hasCartesianSeries) {
+      const priceSeriesIndex = selectPriceLabelSeries(
+        currentOptions.series as ReadonlyArray<PriceLabelOwnershipSeries>,
+        { candlePrimary: false, onWarn: warnMultiPriceLabel }
+      );
+      if (priceSeriesIndex != null) {
+        const priceSeriesItem = currentOptions.series[priceSeriesIndex];
+        if (priceSeriesItem?.type === 'candlestick') {
+          const candle = priceSeriesItem as ResolvedCandlestickSeriesConfig;
+          const pl = candle.priceLabel;
+          // showLine only when badge is shown (resolvePriceLabel already forces showLine false if !show)
+          if (pl?.show && pl.showLine) {
+            const yAxisId = candle.yAxis;
+            const priceYScale = currentYScales.get(yAxisId);
+            if (priceYScale) {
+              const raw = runtimeRawDataByIndex[priceSeriesIndex] as
+                | ReadonlyArray<OHLCDataPoint>
+                | null
+                | undefined;
+              const last = resolveLastCandleState({
+                seriesIndex: priceSeriesIndex,
+                yAxisId,
+                raw,
+                upColor: candle.itemStyle.upColor,
+                downColor: candle.itemStyle.downColor,
+                intervalMs: pl.intervalMs,
+              });
+              const priceLines = buildPriceLineInstances({
+                last,
+                showLine: true,
+                outOfDomain: pl.outOfDomain,
+                yScale: priceYScale,
+                canvasCssHeight: canvasCssHeightForAnnotations,
+                lineWidth: pl.lineWidth,
+                lineColor: pl.lineColor,
+              });
+              if (priceLines.length > 0) {
+                linesAbove = [...annotationResult.linesAbove, ...priceLines];
+              }
+            }
+          }
+        }
+      }
+    }
+
     // Annotation layers prepared separately for main (below) vs overlay (above) MSAA.
-    const referenceLineBelowCount = annotationResult.linesBelow.length;
-    const referenceLineAboveCount = annotationResult.linesAbove.length;
+    // Counts include merged price lines so prepare list length matches draw count.
+    const referenceLineBelowCount = linesBelow.length;
+    const referenceLineAboveCount = linesAbove.length;
     const markerBelowCount = annotationResult.markersBelow.length;
     const markerAboveCount = annotationResult.markersAbove.length;
 
@@ -3419,9 +3476,10 @@ export function createRenderCoordinator(
     // Prepare each layer's list every frame (empty list clears prior-frame instances).
     // Render only when that layer's count > 0; draws start at 0 (not combined offsets).
     // Note: these renderers expect CANVAS-LOCAL CSS pixel coordinates.
+    // linesAbove includes coordinator-owned last-price line (merged before counts).
     if (hasCartesianSeries) {
-      referenceLineRenderer.prepare(gridArea, annotationResult.linesBelow);
-      referenceLineRendererMsaa.prepare(gridArea, annotationResult.linesAbove);
+      referenceLineRenderer.prepare(gridArea, linesBelow);
+      referenceLineRendererMsaa.prepare(gridArea, linesAbove);
       annotationMarkerRenderer.prepare({
         canvasWidth: gridArea.canvasWidth,
         canvasHeight: gridArea.canvasHeight,
@@ -3766,7 +3824,7 @@ export function createRenderCoordinator(
     });
 
     // Last-price badge DOM: always run after scales/layout (do NOT nest under
-    // axis-label signature skip). No price line (PR4b) / countdown timer (PR5).
+    // axis-label signature skip). Price line is GPU-merged above (PR4b); countdown timer is PR5.
     {
       const canvasEl = canvas as HTMLCanvasElement | null;
       const offX = canvasEl && isHTMLCanvasElement(canvasEl) ? canvasEl.offsetLeft || 0 : 0;
