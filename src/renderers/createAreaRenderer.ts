@@ -121,8 +121,11 @@ const writeTransformMat4F32 = (out: Float32Array, ax: number, bx: number, ay: nu
 };
 
 /**
- * Pack N domain points into staging (not N→2N strip verts). Shader expands
- * baseline via vertex_index parity against storage points (issue 1.4).
+ * Pack N domain points into staging (not expanded geometry). Shader expands
+ * each segment `i → i+1` into a baseline trapezoid via instance_index + vertex_index
+ * (issue 1.4 storage layout; issue #153 per-segment gap discard).
+ * Null / non-finite points are written as NaN so the VS dual-endpoint check can
+ * collapse only gap-spanning segments (matches packXYInto / line.wgsl).
  */
 function packAreaPointsInto(out: Float32Array, data: CartesianSeriesData, pointCount: number): void {
   for (let i = 0; i < pointCount; i++) {
@@ -203,7 +206,9 @@ export function createAreaRenderer(device: GPUDevice, options?: AreaRendererOpti
           },
         },
       },
-      primitive: { topology: 'triangle-strip', cullMode: 'none' },
+      // Instanced triangle-list: 6 verts × (N-1) segments (matches line AA path).
+      // Per-segment topology allows dual-endpoint NaN discard without strip fans (#153).
+      primitive: { topology: 'triangle-list', cullMode: 'none' },
       multisample: { count: sampleCount },
     },
     pipelineCache
@@ -214,7 +219,7 @@ export function createAreaRenderer(device: GPUDevice, options?: AreaRendererOpti
   /** Bound storage for draw (private or external). */
   let boundDataBuffer: GPUBuffer | null = null;
   let currentBindGroup: GPUBindGroup | null = null;
-  /** Logical point count (not strip verts). */
+  /** Logical point count (draw uses N-1 segment instances). */
   let pointCount = 0;
   // Geometry identity: reuse private pack when data ref stable (axes-only).
   let boundDataRef: CartesianSeriesData | null = null;
@@ -396,12 +401,14 @@ export function createAreaRenderer(device: GPUDevice, options?: AreaRendererOpti
 
   const render: AreaRenderer['render'] = (passEncoder) => {
     assertNotDisposed();
-    // Need ≥2 points → ≥4 strip verts for a non-empty fill.
+    // Need ≥2 points → ≥1 segment instance for a non-empty fill.
     if (!currentBindGroup || pointCount < 2) return;
 
+    const segments = pointCount - 1;
     passEncoder.setPipeline(pipeline);
     passEncoder.setBindGroup(0, currentBindGroup);
-    passEncoder.draw(pointCount * 2);
+    // 6 vertices per instance (trapezoid), (pointCount - 1) instances (segments).
+    passEncoder.draw(6, segments);
   };
 
   const dispose: AreaRenderer['dispose'] = () => {
