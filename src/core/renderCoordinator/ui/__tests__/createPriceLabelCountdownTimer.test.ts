@@ -7,9 +7,11 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   createPriceLabelCountdownTimer,
   priceLabelCountdownDesiredFromConfig,
-  PRICE_LABEL_COUNTDOWN_TICK_MS,
   type PriceLabelCountdownDesired,
 } from '../createPriceLabelCountdownTimer';
+
+/** Must match default tick period in createPriceLabelCountdownTimer (unexported). */
+const PRICE_LABEL_COUNTDOWN_TICK_MS = 250;
 
 describe('priceLabelCountdownDesiredFromConfig', () => {
   it('active only when show + showCountdown + positive intervalMs', () => {

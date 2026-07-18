@@ -11,7 +11,7 @@
 import { formatCountdown, remainingMsToBarClose } from './priceLabelHelpers';
 
 /** Design default: ~4 Hz DOM text refresh (smooth second digits, low CPU). */
-export const PRICE_LABEL_COUNTDOWN_TICK_MS = 250;
+const PRICE_LABEL_COUNTDOWN_TICK_MS = 250;
 
 export type PriceLabelCountdownDesired = Readonly<{
   /**
@@ -25,7 +25,7 @@ export type PriceLabelCountdownDesired = Readonly<{
   readonly nowMs: (() => number) | null;
 }>;
 
-export type CreatePriceLabelCountdownTimerOptions = Readonly<{
+type CreatePriceLabelCountdownTimerOptions = Readonly<{
   /** DOM-only countdown write (badge.setCountdown). */
   readonly setCountdown: (text: string | null) => void;
   /**

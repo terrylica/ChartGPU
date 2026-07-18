@@ -29,7 +29,7 @@ const LABEL_PADDING_CSS_PX = 4;
 const DEFAULT_TICK_COUNT = 5;
 
 /** Context for rendering X-axis labels and titles. */
-export interface AxisLabelRenderContext {
+interface AxisLabelRenderContext {
   readonly gpuContext: { readonly canvas: HTMLCanvasElement | null };
   readonly currentOptions: ResolvedChartGPUOptions;
   readonly xScale: ContinuousScale | LinearScale;
@@ -39,7 +39,7 @@ export interface AxisLabelRenderContext {
 }
 
 /** Context for rendering a single Y-axis's tick labels, title, and optional header. */
-export interface YAxisLabelRenderContext {
+interface YAxisLabelRenderContext {
   readonly axisLabelOverlay: TextOverlay | null;
   readonly overlayContainer: HTMLElement | null;
   readonly yAxisConfig: AxisConfig;

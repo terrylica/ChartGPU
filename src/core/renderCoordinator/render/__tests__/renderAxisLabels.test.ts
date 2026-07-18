@@ -1,10 +1,9 @@
 import { describe, it, expect, vi } from 'vitest';
-import {
-  renderAxisLabels,
-  renderYAxisLabels,
-  type AxisLabelRenderContext,
-  type YAxisLabelRenderContext,
-} from '../renderAxisLabels';
+import { renderAxisLabels, renderYAxisLabels } from '../renderAxisLabels';
+
+/** Mirror internal arg types via Parameters (contexts are intentionally unexported). */
+type AxisLabelRenderContext = Parameters<typeof renderAxisLabels>[2];
+type YAxisLabelRenderContext = Parameters<typeof renderYAxisLabels>[0];
 
 /**
  * Creates a minimal mock HTMLSpanElement-like object with style and

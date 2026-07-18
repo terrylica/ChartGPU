@@ -80,7 +80,7 @@ type SyncPriceLabelFrameArgs = Readonly<{
  * Countdown timer inputs derived during the frame sync.
  * Coordinator applies these to `createPriceLabelCountdownTimer` (DOM-only).
  */
-export type SyncPriceLabelFrameResult = Readonly<{
+type SyncPriceLabelFrameResult = Readonly<{
   readonly countdownDesired: PriceLabelCountdownDesired;
   /** Last bar end ms when known; null when no last candle / inactive. */
   readonly barEndMs: number | null;

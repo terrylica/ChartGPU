@@ -22,7 +22,7 @@ import type { LastCandleState } from './priceLabelHelpers';
 
 const FALLBACK_RGBA = [1, 1, 1, 1] as const;
 
-export type BuildPriceLineInstancesArgs = Readonly<{
+type BuildPriceLineInstancesArgs = Readonly<{
   /** null → no line (empty / non-finite last candle). */
   readonly last: LastCandleState | null;
   /**
