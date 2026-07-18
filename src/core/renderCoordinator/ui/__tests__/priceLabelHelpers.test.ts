@@ -1,138 +1,18 @@
 /**
- * Pure priceLabel helpers — resolve truth table, last candle, formatters, ownership.
+ * Pure priceLabel helpers — last candle, formatters, ownership.
+ * Config resolvePriceLabel truth table lives in config/__tests__/resolvePriceLabel.test.ts.
  */
 
 import { describe, it, expect, vi } from 'vitest';
-import type { OHLCDataPoint } from '../../../../config/types';
+import type { CandlestickPriceLabelConfig, OHLCDataPoint } from '../../../../config/types';
 import {
-  resolvePriceLabel,
   resolveLastCandleState,
   formatPriceLabelValue,
   formatCountdown,
   remainingMsToBarClose,
   selectPriceLabelSeries,
-  type CandlestickPriceLabelConfig,
   type PriceLabelOwnershipSeries,
 } from '../priceLabelHelpers';
-
-// ---------------------------------------------------------------------------
-// resolvePriceLabel truth table
-// ---------------------------------------------------------------------------
-
-describe('resolvePriceLabel', () => {
-  it('undefined + candlePrimary → show/showLine true, no countdown', () => {
-    const r = resolvePriceLabel(undefined, { candlePrimary: true });
-    expect(r.show).toBe(true);
-    expect(r.showLine).toBe(true);
-    expect(r.showCountdown).toBe(false);
-    expect(r.intervalMs).toBe(null);
-    expect(r.outOfDomain).toBe('clamp');
-    expect(r.lineWidth).toBe(1);
-  });
-
-  it('undefined + !candlePrimary → all off', () => {
-    const r = resolvePriceLabel(undefined, { candlePrimary: false });
-    expect(r.show).toBe(false);
-    expect(r.showLine).toBe(false);
-    expect(r.showCountdown).toBe(false);
-  });
-
-  it('false → hard off regardless of candlePrimary', () => {
-    expect(resolvePriceLabel(false, { candlePrimary: true }).show).toBe(false);
-    expect(resolvePriceLabel(false, { candlePrimary: false }).show).toBe(false);
-  });
-
-  it('true → enable defaults (no countdown without interval)', () => {
-    const r = resolvePriceLabel(true, { candlePrimary: false });
-    expect(r.show).toBe(true);
-    expect(r.showLine).toBe(true);
-    expect(r.showCountdown).toBe(false);
-    expect(r.intervalMs).toBe(null);
-  });
-
-  it('{} object ⇒ enable with defaults', () => {
-    const r = resolvePriceLabel({}, { candlePrimary: false });
-    expect(r.show).toBe(true);
-    expect(r.showLine).toBe(true);
-    expect(r.showCountdown).toBe(false);
-  });
-
-  it('{ intervalMs: 60000 } ⇒ showCountdown true', () => {
-    const r = resolvePriceLabel({ intervalMs: 60_000 }, { candlePrimary: false });
-    expect(r.show).toBe(true);
-    expect(r.showLine).toBe(true);
-    expect(r.intervalMs).toBe(60_000);
-    expect(r.showCountdown).toBe(true);
-  });
-
-  it('{ show: false, intervalMs } ⇒ all off', () => {
-    const r = resolvePriceLabel({ show: false, intervalMs: 60_000 }, { candlePrimary: true });
-    expect(r.show).toBe(false);
-    expect(r.showLine).toBe(false);
-    expect(r.showCountdown).toBe(false);
-    expect(r.intervalMs).toBe(null);
-  });
-
-  it('{ showLine: true } ⇒ object enables show', () => {
-    const r = resolvePriceLabel({ showLine: true }, { candlePrimary: false });
-    expect(r.show).toBe(true);
-    expect(r.showLine).toBe(true);
-  });
-
-  it('{ show: true, showLine: false } ⇒ line off', () => {
-    const r = resolvePriceLabel({ show: true, showLine: false }, { candlePrimary: false });
-    expect(r.show).toBe(true);
-    expect(r.showLine).toBe(false);
-  });
-
-  it('{ showCountdown: true } without interval ⇒ countdown false + warn', () => {
-    const onWarn = vi.fn();
-    const r = resolvePriceLabel({ showCountdown: true }, { candlePrimary: false }, { onWarn });
-    expect(r.show).toBe(true);
-    expect(r.showLine).toBe(true);
-    expect(r.showCountdown).toBe(false);
-    expect(onWarn).toHaveBeenCalledTimes(1);
-    expect(String(onWarn.mock.calls[0]![0])).toMatch(/intervalMs/i);
-  });
-
-  it('{ intervalMs, showCountdown: false } ⇒ countdown off', () => {
-    const r = resolvePriceLabel({ intervalMs: 60_000, showCountdown: false }, { candlePrimary: false });
-    expect(r.showCountdown).toBe(false);
-    expect(r.intervalMs).toBe(60_000);
-  });
-
-  it('rejects non-positive / non-finite intervalMs', () => {
-    expect(resolvePriceLabel({ intervalMs: 0 }, { candlePrimary: false }).intervalMs).toBe(null);
-    expect(resolvePriceLabel({ intervalMs: -1 }, { candlePrimary: false }).intervalMs).toBe(null);
-    expect(resolvePriceLabel({ intervalMs: NaN }, { candlePrimary: false }).intervalMs).toBe(null);
-    expect(resolvePriceLabel({ intervalMs: Infinity }, { candlePrimary: false }).intervalMs).toBe(null);
-  });
-
-  it('passes through nowMs, formatter, colors, outOfDomain, lineWidth', () => {
-    const nowMs = () => 123;
-    const formatter = (c: number) => `$${c}`;
-    const input: CandlestickPriceLabelConfig = {
-      nowMs,
-      formatter,
-      color: '#abc',
-      lineColor: '#def',
-      outOfDomain: 'hide',
-      lineWidth: 2,
-    };
-    const r = resolvePriceLabel(input, { candlePrimary: false });
-    expect(r.nowMs).toBe(nowMs);
-    expect(r.formatter).toBe(formatter);
-    expect(r.color).toBe('#abc');
-    expect(r.lineColor).toBe('#def');
-    expect(r.outOfDomain).toBe('hide');
-    expect(r.lineWidth).toBe(2);
-  });
-
-  it('defaults lineWidth to 1 for invalid values', () => {
-    expect(resolvePriceLabel({ lineWidth: 0 }, { candlePrimary: false }).lineWidth).toBe(1);
-    expect(resolvePriceLabel({ lineWidth: -2 }, { candlePrimary: false }).lineWidth).toBe(1);
-  });
-});
 
 // ---------------------------------------------------------------------------
 // formatPriceLabelValue
@@ -246,7 +126,9 @@ describe('resolveLastCandleState', () => {
   });
 
   it('supports object OHLC format', () => {
-    const raw: OHLCDataPoint[] = [{ timestamp: 5_000, open: 100, close: 105, low: 99, high: 106 }];
+    const raw: OHLCDataPoint[] = [
+      { timestamp: 5_000, open: 100, close: 105, low: 99, high: 106 },
+    ];
     const s = resolveLastCandleState({ ...base, raw });
     expect(s!.open).toBe(100);
     expect(s!.close).toBe(105);
@@ -262,8 +144,12 @@ describe('resolveLastCandleState', () => {
   });
 
   it('returns null when open or close is non-finite', () => {
-    expect(resolveLastCandleState({ ...base, raw: [[1, NaN, 2, 0, 3]] })).toBe(null);
-    expect(resolveLastCandleState({ ...base, raw: [[1, 1, Infinity, 0, 3]] })).toBe(null);
+    expect(
+      resolveLastCandleState({ ...base, raw: [[1, NaN, 2, 0, 3]] })
+    ).toBe(null);
+    expect(
+      resolveLastCandleState({ ...base, raw: [[1, 1, Infinity, 0, 3]] })
+    ).toBe(null);
   });
 
   it('sets barEndMs = timestamp + intervalMs when interval set', () => {
@@ -383,7 +269,10 @@ describe('selectPriceLabelSeries', () => {
   });
 
   it('returns null when no candle has show', () => {
-    const series: PriceLabelOwnershipSeries[] = [{ type: 'candlestick', priceLabel: { show: false } }, { type: 'bar' }];
+    const series: PriceLabelOwnershipSeries[] = [
+      { type: 'candlestick', priceLabel: { show: false } },
+      { type: 'bar' },
+    ];
     expect(selectPriceLabelSeries(series, { candlePrimary: true })).toBe(null);
   });
 });

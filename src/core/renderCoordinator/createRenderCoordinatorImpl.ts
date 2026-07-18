@@ -99,6 +99,8 @@ import { createLegend } from '../../components/createLegend';
 import type { Legend } from '../../components/createLegend';
 import { createTooltip } from '../../components/createTooltip';
 import type { Tooltip } from '../../components/createTooltip';
+import { createPriceLabel } from '../../components/createPriceLabel';
+import type { PriceLabel } from '../../components/createPriceLabel';
 import type { TooltipParams } from '../../config/types';
 import { formatTooltipAxis, formatTooltipItem } from '../../components/formatTooltip';
 import { createAnimationController } from '../createAnimationController';
@@ -163,6 +165,8 @@ import {
   clearTooltipCache,
   isOHLCDataPoint,
 } from './ui/tooltipLegendHelpers';
+import { syncPriceLabelFrame } from './ui/syncPriceLabelFrame';
+import { selectPriceLabelSeries } from './ui/priceLabelHelpers';
 
 export interface GPUContextLike {
   readonly device: GPUDevice | null;
@@ -1353,6 +1357,17 @@ export function createRenderCoordinator(
   let tooltip: Tooltip | null =
     overlayContainer && currentOptions.tooltip?.show !== false ? createTooltip(overlayContainer) : null;
 
+  // Last-price badge (PR4a): single instance when overlay container exists.
+  // Visibility is driven per-frame by syncPriceLabelFrame (series ownership + last candle).
+  let priceLabelUi: PriceLabel | null = overlayContainer ? createPriceLabel(overlayContainer) : null;
+  /** Multi priceLabel.show ownership warn — at most once per chart lifetime. */
+  let multiPriceLabelWarned = false;
+  const warnMultiPriceLabel = (message: string): void => {
+    if (multiPriceLabelWarned) return;
+    multiPriceLabelWarned = true;
+    console.warn(message);
+  };
+
   // Cache tooltip state to avoid unnecessary DOM updates
   const tooltipCache = createTooltipCache();
 
@@ -2512,8 +2527,34 @@ export function createRenderCoordinator(
       if (!shouldHaveTooltip && tooltip) {
         hideTooltip();
       }
+
+      // Price badge: ensure instance; hide immediately when no series owns it
+      // (type switch / priceLabel: false) so we don't wait for the next frame.
+      if (!priceLabelUi) {
+        priceLabelUi = createPriceLabel(overlayContainer);
+      }
+      const owner = selectPriceLabelSeries(currentOptions.series, {
+        candlePrimary: false,
+        onWarn: warnMultiPriceLabel,
+      });
+      if (owner == null) {
+        priceLabelUi.update({
+          visible: false,
+          x: 0,
+          y: 0,
+          priceText: '',
+          countdownText: null,
+          background: '#000000',
+          color: '#ffffff',
+          side: 'right',
+        });
+      }
     } else {
       hideTooltip();
+      if (priceLabelUi) {
+        priceLabelUi.dispose();
+        priceLabelUi = null;
+      }
     }
 
     const nextCount = resolvedOptions.series.length;
@@ -3723,6 +3764,28 @@ export function createRenderCoordinator(
       plotHeightCss,
       canvas,
     });
+
+    // Last-price badge DOM: always run after scales/layout (do NOT nest under
+    // axis-label signature skip). No price line (PR4b) / countdown timer (PR5).
+    {
+      const canvasEl = canvas as HTMLCanvasElement | null;
+      const offX = canvasEl && isHTMLCanvasElement(canvasEl) ? canvasEl.offsetLeft || 0 : 0;
+      const offY = canvasEl && isHTMLCanvasElement(canvasEl) ? canvasEl.offsetTop || 0 : 0;
+      syncPriceLabelFrame({
+        priceLabelUi,
+        series: currentOptions.series,
+        runtimeRawDataByIndex,
+        yScales: currentYScales,
+        yAxes: currentOptions.yAxes,
+        plotClipRect,
+        // Same CSS size as annotation path so badge Y matches plot clip.
+        canvasCssWidth: canvasCssWidthForAnnotations,
+        canvasCssHeight: canvasCssHeightForAnnotations,
+        offsetX: offX,
+        offsetY: offY,
+        onWarn: warnMultiPriceLabel,
+      });
+    }
   };
 
   const dispose: RenderCoordinator['dispose'] = () => {
@@ -3799,9 +3862,11 @@ export function createRenderCoordinator(
 
     dataStore.dispose();
 
-    // Dispose tooltip/legend before the text overlay (all touch container positioning).
+    // Dispose tooltip/legend/price badge before the text overlay (all touch container positioning).
     tooltip?.dispose();
     tooltip = null;
+    priceLabelUi?.dispose();
+    priceLabelUi = null;
     legend?.dispose();
     axisLabelOverlay?.dispose();
     annotationOverlay?.dispose();

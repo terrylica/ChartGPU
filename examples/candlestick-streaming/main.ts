@@ -132,6 +132,7 @@ async function init() {
         },
         sampling: 'ohlc',
         samplingThreshold: 2000,
+        // Candle-primary auto-enables last-price badge. Countdown timer + nowMs in PR5.
       },
     ],
     dataZoom: getDataZoomConfig(currentCandleCount),

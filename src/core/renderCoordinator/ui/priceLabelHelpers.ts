@@ -1,91 +1,16 @@
 /**
  * Pure helpers for the exchange-style last-price badge (priceLabel).
  *
- * Isolated from the render coordinator for unit testing and for OptionResolver
- * (PR3) / DOM sync (PR4a). Types here are the source of truth until PR3 mirrors
- * them onto CandlestickSeriesConfig / package exports.
+ * Config resolution (`resolvePriceLabel`, types) lives in `src/config/` — single
+ * source of truth. This module owns last-candle derivation, ownership scan,
+ * default price/countdown formatters used by the coordinator frame sync.
  *
  * @module priceLabelHelpers
  */
 
-import type { OHLCDataPoint, OHLCDataPointTuple } from '../../../config/types';
+import type { OHLCDataPoint, OHLCDataPointTuple, CandlestickPriceLabelConfig } from '../../../config/types';
+import type { ResolvedCandlestickPriceLabel } from '../../../config/resolvePriceLabel';
 import { isTupleOHLCDataPoint } from '../utils/dataPointUtils';
-
-// ---------------------------------------------------------------------------
-// Config types (mirrored onto public API in PR3)
-// ---------------------------------------------------------------------------
-
-/**
- * Series-level last-price badge / line configuration (user input).
- */
-export interface CandlestickPriceLabelConfig {
-  /**
-   * Show the last-price badge on the series' Y-axis rail.
-   * When omitted inside an object form, treated as `true`.
-   */
-  readonly show?: boolean;
-
-  /**
-   * Draw a horizontal line at last close across the plot.
-   * Default: same as resolved `show`.
-   */
-  readonly showLine?: boolean;
-
-  /**
-   * Candle period in ms for countdown secondary line.
-   * Required for countdown; when omitted, price-only badge.
-   */
-  readonly intervalMs?: number;
-
-  /**
-   * Show countdown under price when `intervalMs` is set and bar end is known.
-   * Default: `true` if `intervalMs` is finite and > 0, else `false`.
-   */
-  readonly showCountdown?: boolean;
-
-  /**
-   * Clock for countdown remaining time. Default at use site: `() => Date.now()`.
-   */
-  readonly nowMs?: () => number;
-
-  /**
-   * Format last close for the badge. Default: {@link formatPriceLabelValue}.
-   * Never piped through axis tickFormatter or tooltip HTML builders.
-   */
-  readonly formatter?: (close: number) => string;
-
-  /**
-   * Out-of-domain behavior when last close is outside the current Y domain.
-   * - `'clamp'`: pin badge to nearest plot edge, opacity 0.85 (default)
-   * - `'hide'`: hide badge and price line
-   */
-  readonly outOfDomain?: 'clamp' | 'hide';
-
-  /** Override badge text color (default `#ffffff`). */
-  readonly color?: string;
-
-  /**
-   * Override **line** color only (default: direction color).
-   * Badge background is always direction color.
-   */
-  readonly lineColor?: string;
-
-  /** Line stroke width in CSS px (default: 1). */
-  readonly lineWidth?: number;
-}
-
-export type ResolvedCandlestickPriceLabel = Readonly<{
-  show: boolean;
-  showLine: boolean;
-  intervalMs: number | null;
-  showCountdown: boolean;
-  nowMs: (() => number) | null;
-  formatter: ((close: number) => string) | null;
-  outOfDomain: 'clamp' | 'hide';
-  color: string | null;
-  lineColor: string | null;
-  lineWidth: number;
-}>;
 
 export type LastCandleState = Readonly<{
   seriesIndex: number;
@@ -114,103 +39,12 @@ export type PriceLabelOwnershipSeries = Readonly<{
    * Resolved `{ show }`, boolean sugar, full config object, or undefined
    * (undefined + candlePrimary → treated as show when scanning ownership).
    */
-  priceLabel?: boolean | CandlestickPriceLabelConfig | Pick<ResolvedCandlestickPriceLabel, 'show'> | null;
+  priceLabel?:
+    | boolean
+    | CandlestickPriceLabelConfig
+    | Pick<ResolvedCandlestickPriceLabel, 'show'>
+    | null;
 }>;
-
-const RESOLVED_OFF: ResolvedCandlestickPriceLabel = Object.freeze({
-  show: false,
-  showLine: false,
-  intervalMs: null,
-  showCountdown: false,
-  nowMs: null,
-  formatter: null,
-  outOfDomain: 'clamp' as const,
-  color: null,
-  lineColor: null,
-  lineWidth: 1,
-});
-
-function normalizeIntervalMs(value: unknown): number | null {
-  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null;
-}
-
-function normalizeLineWidth(value: unknown): number {
-  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : 1;
-}
-
-/**
- * Resolve series `priceLabel` input to a fully-specified config.
- *
- * Truth table (design rev 4):
- * | Input | candlePrimary | show | showLine | showCountdown |
- * |-------|---------------|------|----------|---------------|
- * | undefined | true | true | true | false |
- * | undefined | false | false | false | false |
- * | false | * | false | false | false |
- * | true | * | true | true | false |
- * | {} | * | true | true | false |
- * | { intervalMs: N } | * | true | true | true |
- * | { show: false, ... } | * | false | false | false |
- * | { showLine: true } | * | true | true | false |
- * | { show: true, showLine: false } | * | true | false | false |
- * | { showCountdown: true } no interval | * | true | true | **false** (+ warn) |
- * | { intervalMs, showCountdown: false } | * | true | true | false |
- */
-export function resolvePriceLabel(
-  input: boolean | CandlestickPriceLabelConfig | undefined,
-  ctx: { readonly candlePrimary: boolean },
-  options?: { readonly onWarn?: (message: string) => void }
-): ResolvedCandlestickPriceLabel {
-  if (input === false) {
-    return RESOLVED_OFF;
-  }
-
-  if (input === undefined) {
-    if (!ctx.candlePrimary) return RESOLVED_OFF;
-    return {
-      show: true,
-      showLine: true,
-      intervalMs: null,
-      showCountdown: false,
-      nowMs: null,
-      formatter: null,
-      outOfDomain: 'clamp',
-      color: null,
-      lineColor: null,
-      lineWidth: 1,
-    };
-  }
-
-  const obj: CandlestickPriceLabelConfig = input === true ? {} : input;
-  const show = obj.show ?? true;
-
-  if (!show) {
-    return RESOLVED_OFF;
-  }
-
-  const intervalMs = normalizeIntervalMs(obj.intervalMs);
-
-  if (obj.showCountdown === true && intervalMs == null) {
-    options?.onWarn?.('ChartGPU: priceLabel.showCountdown requires a finite intervalMs > 0; countdown disabled.');
-  }
-
-  // showCountdown = show && intervalMs != null && (input.showCountdown ?? true)
-  const showCountdown = intervalMs != null && (obj.showCountdown ?? true);
-  const showLine = obj.showLine ?? show;
-
-  return {
-    show,
-    showLine,
-    intervalMs,
-    showCountdown,
-    nowMs: typeof obj.nowMs === 'function' ? obj.nowMs : null,
-    formatter: typeof obj.formatter === 'function' ? obj.formatter : null,
-    outOfDomain: obj.outOfDomain === 'hide' ? 'hide' : 'clamp',
-    color: typeof obj.color === 'string' ? obj.color : null,
-    lineColor: typeof obj.lineColor === 'string' ? obj.lineColor : null,
-    lineWidth: normalizeLineWidth(obj.lineWidth),
-  };
-}
 
 /**
  * Default badge number formatter (K12).
@@ -286,7 +120,8 @@ export function resolveLastCandleState(args: {
   const isUp = close >= open;
   const directionColor = isUp ? args.upColor : args.downColor;
   const intervalMs = args.intervalMs;
-  const barEndMs = intervalMs != null && Number.isFinite(timestamp) ? timestamp + intervalMs : null;
+  const barEndMs =
+    intervalMs != null && Number.isFinite(timestamp) ? timestamp + intervalMs : null;
 
   return {
     seriesIndex: args.seriesIndex,
@@ -348,7 +183,9 @@ export function selectPriceLabelSeries(
     // Single warn per call regardless of how many extras qualify.
     if (!warnedExtra) {
       warnedExtra = true;
-      options?.onWarn?.('ChartGPU: multiple candlestick series have priceLabel.show; only the first is used (v1).');
+      options?.onWarn?.(
+        'ChartGPU: multiple candlestick series have priceLabel.show; only the first is used (v1).'
+      );
     }
   }
 

@@ -40,10 +40,7 @@ import {
   scatterDefaults,
 } from './defaults';
 import { isCandlePrimaryChart } from './isCandlePrimaryChart';
-import {
-  resolvePriceLabel,
-  type ResolvedCandlestickPriceLabel,
-} from './resolvePriceLabel';
+import { resolvePriceLabel, type ResolvedCandlestickPriceLabel } from './resolvePriceLabel';
 import { getTheme } from '../themes';
 import type { ThemeConfig } from '../themes/types';
 import { sampleSeriesDataPoints } from '../data/sampleSeries';
@@ -1185,14 +1182,10 @@ export function resolveOptions(
   // Soft gutters for candle-primary: per-key only when user left that key undefined.
   // Dual-Y safety: keep left 60 when any Y remains on the left after position defaults.
   const hasLeftY = yAxes.some((a) => (a.position ?? 'left') === 'left');
-  const candleLeftDefault = hasLeftY
-    ? candlePrimaryGridDefaults.leftWithLeftY
-    : candlePrimaryGridDefaults.leftNoLeftY;
+  const candleLeftDefault = hasLeftY ? candlePrimaryGridDefaults.leftWithLeftY : candlePrimaryGridDefaults.leftNoLeftY;
   const grid: ResolvedGridConfig = {
     left: userOptions.grid?.left ?? (candlePrimary ? candleLeftDefault : defaultOptions.grid.left),
-    right:
-      userOptions.grid?.right ??
-      (candlePrimary ? candlePrimaryGridDefaults.right : defaultOptions.grid.right),
+    right: userOptions.grid?.right ?? (candlePrimary ? candlePrimaryGridDefaults.right : defaultOptions.grid.right),
     top: userOptions.grid?.top ?? defaultOptions.grid.top,
     bottom: userOptions.grid?.bottom ?? defaultOptions.grid.bottom,
   };

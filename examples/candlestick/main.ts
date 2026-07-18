@@ -107,6 +107,8 @@ async function main() {
         barWidth: '80%',
         barMinWidth: 2,
         barMaxWidth: 40,
+        // Candle-primary auto-enables the last-price badge (priceLabel).
+        // Opt out with priceLabel: false.
       },
     ],
   };
