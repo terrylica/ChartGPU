@@ -171,6 +171,14 @@ describe('formatPriceLabelValue', () => {
     expect(s).not.toMatch(/-/);
     expect(Number(s)).toBe(0);
   });
+
+  it('formats negative prices with a leading minus', () => {
+    expect(formatPriceLabelValue(-42)).toBe('-42.00');
+    expect(formatPriceLabelValue(-1234.5)).toBe('-1,234.5');
+    const small = formatPriceLabelValue(-0.00123);
+    expect(small.startsWith('-')).toBe(true);
+    expect(Number(small)).toBeCloseTo(-0.00123, 5);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -293,6 +301,18 @@ describe('resolveLastCandleState', () => {
     expect(s!.close).toBe(1.2);
     expect(s!.isUp).toBe(true);
   });
+
+  it('non-finite timestamp + valid open/close still returns state; barEndMs null', () => {
+    const raw: OHLCDataPoint[] = [[NaN, 10, 11, 9, 12]];
+    const s = resolveLastCandleState({ ...base, raw, intervalMs: 60_000 });
+    expect(s).not.toBe(null);
+    expect(s!.open).toBe(10);
+    expect(s!.close).toBe(11);
+    expect(s!.isUp).toBe(true);
+    expect(Number.isNaN(s!.timestamp)).toBe(true);
+    // Cannot compute bar end without a finite open timestamp
+    expect(s!.barEndMs).toBe(null);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -323,6 +343,17 @@ describe('selectPriceLabelSeries', () => {
   it('first show:true wins; warns on second', () => {
     const onWarn = vi.fn();
     const series: PriceLabelOwnershipSeries[] = [
+      { type: 'candlestick', priceLabel: { show: true } },
+      { type: 'candlestick', priceLabel: { show: true } },
+    ];
+    expect(selectPriceLabelSeries(series, { onWarn })).toBe(0);
+    expect(onWarn).toHaveBeenCalledTimes(1);
+  });
+
+  it('warns only once when three+ series qualify (design: one warn)', () => {
+    const onWarn = vi.fn();
+    const series: PriceLabelOwnershipSeries[] = [
+      { type: 'candlestick', priceLabel: { show: true } },
       { type: 'candlestick', priceLabel: { show: true } },
       { type: 'candlestick', priceLabel: { show: true } },
     ];

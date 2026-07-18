@@ -98,8 +98,13 @@ export function createPriceLabel(container: HTMLElement): PriceLabel {
   let lastSide: 'left' | 'right' | null = null;
   let lastOpacity = Number.NaN;
 
+  /** Normalize empty string → null so identity skip compares one canonical form. */
+  const normalizeCountdown = (text: string | null | undefined): string | null =>
+    text == null || text.length === 0 ? null : text;
+
   const applyCountdown = (text: string | null): void => {
-    if (text == null || text.length === 0) {
+    // Caller must pass already-normalized `null | non-empty string`.
+    if (text == null) {
       countdownEl.textContent = '';
       countdownEl.style.display = 'none';
       lastCountdown = null;
@@ -129,6 +134,7 @@ export function createPriceLabel(container: HTMLElement): PriceLabel {
     }
 
     const opacity = state.opacity ?? 1;
+    const countdown = normalizeCountdown(state.countdownText);
     const sameLayout =
       lastVisible &&
       lastX === state.x &&
@@ -138,7 +144,7 @@ export function createPriceLabel(container: HTMLElement): PriceLabel {
       lastColor === state.color &&
       lastSide === state.side &&
       lastOpacity === opacity &&
-      lastCountdown === state.countdownText;
+      lastCountdown === countdown;
 
     if (sameLayout) return;
 
@@ -157,8 +163,8 @@ export function createPriceLabel(container: HTMLElement): PriceLabel {
       lastPriceText = state.priceText;
     }
 
-    if (lastCountdown !== state.countdownText) {
-      applyCountdown(state.countdownText);
+    if (lastCountdown !== countdown) {
+      applyCountdown(countdown);
     }
 
     lastVisible = true;
@@ -172,9 +178,10 @@ export function createPriceLabel(container: HTMLElement): PriceLabel {
 
   const setCountdown: PriceLabel['setCountdown'] = (text) => {
     if (disposed) return;
-    if (text === lastCountdown) return;
+    const countdown = normalizeCountdown(text);
+    if (countdown === lastCountdown) return;
     // Hide-only when not visible is still fine; next update() will re-apply.
-    applyCountdown(text);
+    applyCountdown(countdown);
   };
 
   const dispose: PriceLabel['dispose'] = () => {

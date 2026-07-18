@@ -93,7 +93,11 @@ export type LastCandleState = Readonly<{
   open: number;
   close: number;
   timestamp: number;
-  /** close >= open (includes flat); hollow style uses the same rule. */
+  /**
+   * Badge direction: close >= open (flat counts as up per design).
+   * Note: candlestick renderer body fill still uses strict close > open;
+   * flat body height is zero so the visual difference is negligible.
+   */
   isUp: boolean;
   upColor: string;
   downColor: string;
@@ -324,7 +328,8 @@ function seriesShowPriceLabel(
 
 /**
  * Ownership (v1 — one badge per chart): first visible candlestick series with
- * resolved/raw `priceLabel.show` wins. Later candidates are ignored (optional warn).
+ * resolved/raw `priceLabel.show` wins. Later candidates are ignored with at most
+ * one warn per call (design: “one warn”).
  */
 export function selectPriceLabelSeries(
   series: ReadonlyArray<PriceLabelOwnershipSeries>,
@@ -335,6 +340,7 @@ export function selectPriceLabelSeries(
 ): number | null {
   const candlePrimary = options?.candlePrimary ?? false;
   let winner: number | null = null;
+  let warnedExtra = false;
 
   for (let i = 0; i < series.length; i++) {
     const s = series[i]!;
@@ -345,10 +351,13 @@ export function selectPriceLabelSeries(
       continue;
     }
 
-    options?.onWarn?.(
-      'ChartGPU: multiple candlestick series have priceLabel.show; only the first is used (v1).'
-    );
-    // Continue scanning so we can warn for each extra (caller may de-dupe once).
+    // Single warn per call regardless of how many extras qualify.
+    if (!warnedExtra) {
+      warnedExtra = true;
+      options?.onWarn?.(
+        'ChartGPU: multiple candlestick series have priceLabel.show; only the first is used (v1).'
+      );
+    }
   }
 
   return winner;

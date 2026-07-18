@@ -61,6 +61,27 @@ describe('createPriceLabel', () => {
     label.dispose();
   });
 
+  it('uses textContent for countdown (setCountdown never HTML)', () => {
+    const label = createPriceLabel(container);
+    label.update(baseState());
+    label.setCountdown('<img src=x onerror=alert(1)>');
+    const countdownEl = getRoot(container).children[1] as HTMLElement;
+    expect(countdownEl.textContent).toBe('<img src=x onerror=alert(1)>');
+    expect(countdownEl.querySelector('img')).toBeNull();
+    expect(countdownEl.innerHTML).toContain('&lt;img');
+    label.dispose();
+  });
+
+  it('uses textContent for countdown via update countdownText', () => {
+    const label = createPriceLabel(container);
+    label.update(baseState({ countdownText: '<script>alert(1)</script>' }));
+    const countdownEl = getRoot(container).children[1] as HTMLElement;
+    expect(countdownEl.textContent).toBe('<script>alert(1)</script>');
+    expect(countdownEl.querySelector('script')).toBeNull();
+    expect(countdownEl.innerHTML).toContain('&lt;script&gt;');
+    label.dispose();
+  });
+
   it('applies direction color as background and text color', () => {
     const label = createPriceLabel(container);
     label.update(baseState({ background: '#ef4444', color: '#ffffff' }));
@@ -176,6 +197,53 @@ describe('createPriceLabel', () => {
     expect(countdownEl.textContent).toBe('MUTATED');
     label.setCountdown('00:00:09');
     expect(countdownEl.textContent).toBe('00:00:09');
+    label.dispose();
+  });
+
+  it('normalizes empty countdown to null so identity skip stays consistent', () => {
+    const label = createPriceLabel(container);
+    const state = baseState({ countdownText: null });
+    label.update(state);
+    const root = getRoot(container);
+    const priceEl = root.firstElementChild as HTMLElement;
+    priceEl.textContent = 'MUTATED';
+    // '' is treated as null — sameLayout must hold
+    label.update({ ...state, countdownText: '' });
+    expect(priceEl.textContent).toBe('MUTATED');
+    // setCountdown('') after null is also a no-op
+    const countdownEl = root.children[1] as HTMLElement;
+    countdownEl.textContent = 'STILL_HIDDEN';
+    label.setCountdown('');
+    label.setCountdown(null);
+    expect(countdownEl.style.display).toBe('none');
+    label.dispose();
+  });
+
+  it('side switch right → left updates transform on same instance', () => {
+    const label = createPriceLabel(container);
+    label.update(baseState({ side: 'right', x: 300, y: 40 }));
+    const root = getRoot(container);
+    expect(root.style.transform).toBe('translateY(-50%)');
+    label.update(baseState({ side: 'left', x: 20, y: 40 }));
+    expect(root.style.transform).toBe('translate(-100%, -50%)');
+    expect(root.style.left).toBe('20px');
+    label.dispose();
+  });
+
+  it('re-show after hide restores layout even with identical fields', () => {
+    const label = createPriceLabel(container);
+    const state = baseState({ x: 100, y: 50, priceText: '1.00' });
+    label.update(state);
+    const root = getRoot(container);
+    expect(root.style.display).toBe('block');
+    label.update({ ...state, visible: false });
+    expect(root.style.display).toBe('none');
+    // Re-show with identical layout fields must leave identity skip and show again
+    label.update(state);
+    expect(root.style.display).toBe('block');
+    expect(root.style.visibility).toBe('visible');
+    expect(root.style.left).toBe('100px');
+    expect((root.firstElementChild as HTMLElement).textContent).toBe('1.00');
     label.dispose();
   });
 
